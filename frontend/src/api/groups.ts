@@ -107,6 +107,10 @@ export const setTaughtBefore = (groupId: number, topic_ids: number[]) =>
 
 export const createInvite = (groupId: number) =>
   api<Invite>(`/api/v1/groups/${groupId}/invites`, { method: "POST" });
+export const listLiveInvites = (groupId: number) =>
+  api<Invite[]>(`/api/v1/groups/${groupId}/invites`);
+export const revokeInvites = (groupId: number) =>
+  api<void>(`/api/v1/groups/${groupId}/invites`, { method: "DELETE" });
 export const previewInvite = (code: string) => api<InvitePreview>(`/api/v1/auth/invites/${code}`);
 export const joinWithInvite = (invite_code: string) =>
   api<void>("/api/v1/auth/join", { method: "POST", body: JSON.stringify({ invite_code }) });

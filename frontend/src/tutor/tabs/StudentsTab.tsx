@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2 } from "lucide-react";
 import {
   createInvite,
   createParentCode,
   createStudentAccount,
+  listLiveInvites,
   removeMember,
+  revokeInvites,
   resetStudentPassword,
 } from "../../api/groups";
 import { useGroupContext } from "../GroupLayout";
@@ -91,18 +93,40 @@ export default function StudentsTab() {
   const [actionError, setActionError] = useState<string | null>(null);
   const onError = (err: unknown) => setActionError(friendlyError(err));
 
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [switchingOff, setSwitchingOff] = useState(false);
   const [parentCodes, setParentCodes] = useState<Record<number, string>>({});
   // Real dialogs instead of window.prompt/confirm.
   const [removing, setRemoving] = useState<{ id: number; name: string } | null>(null);
   const [resetting, setResetting] = useState<{ id: number; name: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
 
+  // The class has at most one live link; making a new one switches the old off.
+  const liveInvites = useQuery({
+    queryKey: ["group-invites", groupId],
+    queryFn: () => listLiveInvites(groupId),
+  });
+  const liveCode = liveInvites.data?.[0]?.code ?? null;
+  const inviteLink = liveCode ? `${window.location.origin}/join/${liveCode}` : null;
+  const refreshInvites = () =>
+    queryClient.invalidateQueries({ queryKey: ["group-invites", groupId] });
+
   const invite = useMutation({
     mutationFn: () => createInvite(groupId),
-    onSuccess: (data) => setInviteLink(`${window.location.origin}/join/${data.code}`),
+    onSuccess: refreshInvites,
     onMutate: () => setActionError(null),
     onError,
+  });
+  const switchOff = useMutation({
+    mutationFn: () => revokeInvites(groupId),
+    onSuccess: () => {
+      setSwitchingOff(false);
+      return refreshInvites();
+    },
+    onMutate: () => setActionError(null),
+    onError: (err) => {
+      setSwitchingOff(false);
+      onError(err);
+    },
   });
 
   const [studentForm, setStudentForm] = useState({ name: "", username: "", password: "" });
@@ -179,10 +203,24 @@ export default function StudentsTab() {
           </div>
           <Button size="sm" loading={invite.isPending} onClick={() => invite.mutate()}>
             <Link2 aria-hidden className="h-4 w-4" />
-            Create invite link
+            Make a new link
           </Button>
         </div>
-        {inviteLink && <CopyBox label="Invite link" value={inviteLink} />}
+        {inviteLink ? (
+          <>
+            <CopyBox label="Invite link" value={inviteLink} />
+            <Button
+              size="sm"
+              variant="secondary"
+              className="mt-2"
+              onClick={() => setSwitchingOff(true)}
+            >
+              Switch off link
+            </Button>
+          </>
+        ) : (
+          liveInvites.isSuccess && <p className="mt-2 text-sm text-ink-500">No active link</p>
+        )}
 
         {count === 0 ? (
           <SectionCard className="mt-4">
@@ -283,9 +321,20 @@ export default function StudentsTab() {
       </SectionCard>
 
       <ConfirmDialog
+        open={switchingOff}
+        title="Switch off the invite link?"
+        body="Anyone who has the link will no longer be able to join this class. You can make a new link at any time."
+        confirmLabel="Switch off link"
+        danger
+        busy={switchOff.isPending}
+        onConfirm={() => switchOff.mutate()}
+        onCancel={() => setSwitchingOff(false)}
+      />
+
+      <ConfirmDialog
         open={removing !== null}
         title={`Remove ${removing?.name ?? ""} from this class?`}
-        body="They keep their account and their marked work, but lose access to this class's homework."
+        body="They keep their account and their marked work, but lose access to this class's homework. They can't rejoin with a link; you can add them back."
         confirmLabel="Remove from class"
         danger
         busy={remove.isPending}

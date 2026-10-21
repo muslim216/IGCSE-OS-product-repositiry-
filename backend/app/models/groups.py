@@ -137,6 +137,23 @@ class Invite(TimestampMixin, Base):
     group: Mapped[Group | None] = relationship()
 
 
+class GroupRemoval(TimestampMixin, Base):
+    """A tutor removed this student from this class, and the removal sticks.
+
+    Without it the class's multi-use join link would let a removed student walk
+    straight back in. One row per (class, student); a tutor adding the student back
+    deletes it, minting a new link does not."""
+
+    __tablename__ = "group_removals"
+    __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_group_removals_group_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    removed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class ParentLink(TimestampMixin, Base):
     __tablename__ = "parent_links"
     __table_args__ = (UniqueConstraint("parent_id", "student_id"),)
