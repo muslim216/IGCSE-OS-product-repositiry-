@@ -30,7 +30,7 @@ dependencies = [
     # Email fallback channel (task 8.1); provider-agnostic SMTP.
     "aiosmtplib>=3.0",
     "cryptography>=42",
-    "pillow>=10.3",
+    "pillow>=13.0",
     "pillow-heif>=0.16",
     # S3-compatible object storage (AWS S3, Cloudflare R2, MinIO). Imported
     # lazily inside S3Backend, so a local-storage deployment never loads it.
