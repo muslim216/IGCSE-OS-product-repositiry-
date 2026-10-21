@@ -296,7 +296,11 @@ export function UploadProgress({
     <div className="space-y-2" data-testid="upload-progress">
       <div className="flex items-center justify-between text-sm text-ink-700">
         <span id={labelId}>{label}</span>
-        {known && <span className="tabular-nums">{percent}%</span>}
+        {known && (
+          <span aria-hidden className="tabular-nums">
+            {percent}%
+          </span>
+        )}
       </div>
       {phase !== "preparing" && (
         <div

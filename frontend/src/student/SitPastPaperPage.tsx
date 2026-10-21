@@ -166,7 +166,7 @@ export default function SitPastPaperPage() {
         </SectionCard>
       ) : a?.status === "being_marked" ? (
         <div
-          aria-live="polite"
+          role="status"
           className="flex gap-3 rounded-xl border border-line bg-warn-100 p-4 text-sm text-warn-700"
         >
           <Clock aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />

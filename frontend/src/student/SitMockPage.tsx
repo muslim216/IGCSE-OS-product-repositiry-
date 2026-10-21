@@ -193,6 +193,9 @@ export default function SitMockPage() {
             <CheckCircle2 aria-hidden className="h-5 w-5 text-ok-700" />
             Handed in
           </h2>
+          <p role="status" className="sr-only">
+            Your answers are handed in.
+          </p>
           {/* Measured by us from the clock, so it is stated plainly — unlike a
               past paper's self-declared minutes, which carry a caveat
               (`PROD-8`, `UX-20`). Absent stays absent (`PROD-2`). */}

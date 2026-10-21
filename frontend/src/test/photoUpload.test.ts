@@ -199,6 +199,27 @@ describe("useUpload", () => {
     expect(signal.aborted).toBe(true);
   });
 
+  test("leaving during processing lets the request finish", async () => {
+    let signal!: AbortSignal;
+    let finish!: (v: string) => void;
+    const { result, unmount } = renderHook(() => useUpload());
+    let p!: Promise<string>;
+    act(() => {
+      p = result.current.run([pdf()], (_f, o) => {
+        signal = o.signal;
+        o.onSent();
+        return new Promise<string>((res) => {
+          finish = res;
+        });
+      });
+    });
+    await vi.waitFor(() => expect(result.current.phase).toBe("processing"));
+    unmount();
+    expect(signal.aborted).toBe(false);
+    finish("saved");
+    await expect(p).resolves.toBe("saved");
+  });
+
   test("a new run aborts the old one, and the old one's end leaves the new state alone", async () => {
     const signals: AbortSignal[] = [];
     let release1!: () => void;

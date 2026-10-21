@@ -132,8 +132,25 @@ export function useUpload() {
   const milestone = useRef(0);
   const submitRef = useRef<HTMLButtonElement>(null);
 
-  // Leaving the page must not leave a request running that nobody can cancel.
-  useEffect(() => () => ctl.current?.abort(), []);
+  const phaseRef = useRef<UploadPhase>("idle");
+  const alive = useRef(true);
+  const go = useCallback((p: UploadPhase) => {
+    phaseRef.current = p;
+    setPhase(p);
+  }, []);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      // Leaving mid-prepare or mid-send abandons a request nobody can cancel.
+      // Once every byte is sent (or while a refresh is retrying) the server may
+      // already be committing it: let it finish so onSuccess still refreshes
+      // the data, rather than abort and leave a hand-in half-known.
+      const p = phaseRef.current;
+      if (p === "preparing" || p === "sending") ctl.current?.abort();
+    };
+  }, []);
 
   const run = useCallback(
     async <T>(files: File[], send: (prepared: File[], opts: SendOptions) => Promise<T>) => {
@@ -141,16 +158,16 @@ export function useUpload() {
       const c = new AbortController();
       ctl.current = c;
       // A late callback from a superseded run must not touch the new one's state.
-      const mine = () => ctl.current === c;
+      const mine = () => alive.current && ctl.current === c;
       milestone.current = 0;
       setWasCancelled(false);
       setPercent(null);
-      setPhase("preparing");
+      go("preparing");
       setAnnouncement("Getting your photos ready");
       try {
         const prepared = await prepareFiles(files, c.signal);
         if (!mine()) throw cancelled();
-        setPhase("sending");
+        go("sending");
         setAnnouncement("Sending");
         const result = await send(prepared, {
           signal: c.signal,
@@ -158,10 +175,10 @@ export function useUpload() {
             if (!mine()) return;
             setPercent(p);
             if (p >= 100) {
-              setPhase("processing");
+              go("processing");
               return;
             }
-            setPhase("sending");
+            go("sending");
             // Milestones only: a screen reader reading every percent is noise.
             const m = [75, 50, 25].find((x) => p >= x) ?? 0;
             if (m > milestone.current) {
@@ -171,14 +188,14 @@ export function useUpload() {
           },
           onSent: () => {
             if (!mine()) return;
-            setPhase("processing");
+            go("processing");
             setAnnouncement("Processing");
           },
           onReconnect: () => {
             if (!mine()) return;
             milestone.current = 0;
             setPercent(null);
-            setPhase("reconnecting");
+            go("reconnecting");
             setAnnouncement("Reconnecting");
           },
         });
@@ -197,12 +214,12 @@ export function useUpload() {
         throw e;
       } finally {
         if (mine()) {
-          setPhase("idle");
+          go("idle");
           setPercent(null);
         }
       }
     },
-    [],
+    [go],
   );
   const cancel = useCallback(() => ctl.current?.abort(), []);
   return {

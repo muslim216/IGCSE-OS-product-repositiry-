@@ -303,6 +303,8 @@ export function upload<T>(
     const aborted = () => new DOMException("Upload cancelled", "AbortError");
     if (signal?.aborted) return reject(aborted());
     const xhr = new XMLHttpRequest();
+    // No `xhr.timeout`, on purpose: a big hand-in on a slow phone connection
+    // is legitimately slow, so Cancel is the way out of a stalled one.
     xhr.open("POST", apiUrl(path));
     xhr.withCredentials = true;
     if (tokens) xhr.setRequestHeader("Authorization", `Bearer ${tokens.access_token}`);
