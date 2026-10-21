@@ -220,7 +220,7 @@ async def student_crm(student_id: int, db: DbSession, user: CurrentUser) -> Stud
 
 @router.put("/{student_id}/profile", response_model=StudentProfileOut)
 async def update_student_profile(
-    student_id: int, body: StudentProfileUpdate, db: DbSession, user: CurrentUser
+    student_id: int, body: StudentProfileUpdate, db: DbSession, user: TutorUser
 ) -> StudentProfileOut:
     student = await _tutor_student(db, user, student_id)
     profile = await db.scalar(select(StudentProfile).where(StudentProfile.student_id == student.id))
@@ -237,11 +237,17 @@ async def update_student_profile(
             status.HTTP_409_CONFLICT,
             "This student's profile is kept by another organization and can't be edited here.",
         )
-    profile.school = body.school
-    profile.year_group = body.year_group
-    profile.parent_name = body.parent_name
-    profile.parent_email = body.parent_email
-    profile.parent_phone = body.parent_phone
+    if body.name is not None:
+        student.name = body.name
+    # A request carrying only `name` is a rename: the profile PUT replaces every
+    # field, so treating it as a full save would blank the school and the
+    # parent's contact details.
+    if body.model_fields_set != {"name"}:
+        profile.school = body.school
+        profile.year_group = body.year_group
+        profile.parent_name = body.parent_name
+        profile.parent_email = body.parent_email
+        profile.parent_phone = body.parent_phone
     await db.commit()
     await db.refresh(profile)
     return StudentProfileOut(

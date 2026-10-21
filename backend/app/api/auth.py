@@ -22,6 +22,7 @@ from app.models.users import User, UserRole
 from app.schemas.auth import (
     AccessToken,
     AuthResponse,
+    ChangePasswordRequest,
     LoginRequest,
     RefreshRequest,
     TokenPair,
@@ -242,6 +243,32 @@ async def logout(response: Response, db: DbSession, user: CurrentUser) -> None:
     await refresh_sessions.end_all(db, user)
     await db.commit()
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
+
+
+@router.post("/password", response_model=AccessToken)
+async def change_password(
+    body: ChangePasswordRequest, response: Response, db: DbSession, user: CurrentUser
+) -> AccessToken:
+    """Any signed-in user changes their own password. Every other session dies
+    (`SEC-1`); this one is re-issued so the person is not signed out of the
+    page they are on."""
+    # The same counter a failed sign-in spends, under the same key login uses
+    # for a browser without a device cookie — a stolen access token must not be
+    # a free oracle for the password (`SEC-14`).
+    key = (user.email or user.username or "").strip().lower()
+    if await login_limiter.is_limited(key):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many failed attempts. Wait a few minutes and try again.",
+        )
+    if not await verify_password_async(body.current_password, user.password_hash):
+        await login_limiter.record(key)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your current password is incorrect.")
+    user.password_hash = await hash_password_async(body.new_password)
+    user.token_version += 1
+    await refresh_sessions.end_all(db, user)
+    await login_limiter.reset(key)
+    return await _sign_in(db, response, user)
 
 
 @router.get("/me", response_model=UserOut)

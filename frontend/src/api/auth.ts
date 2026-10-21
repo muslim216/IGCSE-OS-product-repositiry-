@@ -1,4 +1,4 @@
-import { api, type AuthResponse, type User } from "./client";
+import { api, storeTokens, type AuthResponse, type User } from "./client";
 import { detectedTimezone } from "../lib/timezones";
 import type { components } from "./schema";
 
@@ -50,4 +50,16 @@ export const setMyTimezone = (timezone: string | null) =>
 
 export function logout() {
   return api<void>("/api/v1/auth/logout", { method: "POST" });
+}
+
+/** Any signed-in user, for themselves. Every other session ends; the reply is
+ * this session's fresh access token (the refresh cookie rides alongside), which
+ * must replace the stored one or the very next request is a 401. */
+export async function changePassword(current_password: string, new_password: string) {
+  const tokens = await api<{ access_token: string; token_type: string }>("/api/v1/auth/password", {
+    method: "POST",
+    body: JSON.stringify({ current_password, new_password }),
+  });
+  storeTokens(tokens);
+  return tokens;
 }

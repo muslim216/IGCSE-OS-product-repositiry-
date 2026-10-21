@@ -1,16 +1,23 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.readiness import SubjectReadiness
 
 
 class StudentProfileUpdate(BaseModel):
+    # None leaves the name alone: the form sends the whole profile each save.
+    name: str | None = Field(default=None, min_length=1, max_length=128)
     school: str | None = Field(default=None, max_length=255)
     year_group: str | None = Field(default=None, max_length=64)
     parent_name: str | None = Field(default=None, max_length=128)
     parent_email: str | None = Field(default=None, max_length=255)
     parent_phone: str | None = Field(default=None, max_length=64)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _trim(cls, v):
+        return v.strip() if isinstance(v, str) else v
 
 
 class StudentProfileOut(BaseModel):
