@@ -481,7 +481,7 @@ jobs:
       - name: pip-audit (backend lock file)
         working-directory: backend
         run: |
-          pip install pip-audit==2.10.1
+          pip install --only-binary :all: pip-audit==2.10.1
           pip-audit -r requirements.lock -r requirements-build.lock --require-hashes --disable-pip
 
       - name: npm audit (frontend, production dependencies)
