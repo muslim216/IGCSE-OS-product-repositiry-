@@ -791,6 +791,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/groups/{group_id}/removals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Removals
+         * @description Students removed from this class who cannot rejoin by link.
+         */
+        get: operations["list_removals_api_v1_groups__group_id__removals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups/{group_id}/members": {
         parameters: {
             query?: never;
@@ -6560,6 +6580,18 @@ export interface components {
              */
             created_at: string;
         };
+        /** RemovedStudentOut */
+        RemovedStudentOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /**
+             * Removed At
+             * Format: date-time
+             */
+            removed_at: string;
+        };
         /** ReportDetail */
         ReportDetail: {
             /** Id */
@@ -9446,6 +9478,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_removals_api_v1_groups__group_id__removals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemovedStudentOut"][];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -110,6 +110,12 @@ class InviteOut(BaseModel):
     expires_at: datetime | None
 
 
+class RemovedStudentOut(BaseModel):
+    id: int
+    name: str
+    removed_at: datetime
+
+
 class MemberAdd(BaseModel):
     student_id: int
 

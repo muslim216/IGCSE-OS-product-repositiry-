@@ -28,6 +28,7 @@ from app.schemas.groups import (
     GroupUpdate,
     InviteOut,
     MemberAdd,
+    RemovedStudentOut,
     ScheduleSlotCreate,
     ScheduleSlotOut,
     StudentCreate,
@@ -226,6 +227,24 @@ async def revoke_invites(group_id: int, db: DbSession, user: TutorUser) -> None:
     group = await _owned_group(db, user, group_id)
     await revoke_live_join_links(db, group.id)
     await db.commit()
+
+
+@router.get("/{group_id}/removals", response_model=list[RemovedStudentOut])
+async def list_removals(group_id: int, db: DbSession, user: TutorUser) -> list[RemovedStudentOut]:
+    """Students removed from this class who cannot rejoin by link."""
+    group = await _owned_group(db, user, group_id)
+    rows = (
+        await db.execute(
+            select(User.id, User.name, GroupRemoval.removed_at)
+            .join(GroupRemoval, GroupRemoval.user_id == User.id)
+            .where(
+                GroupRemoval.group_id == group.id,
+                GroupRemoval.organization_id == group.organization_id,
+            )
+            .order_by(GroupRemoval.removed_at.desc())
+        )
+    ).all()
+    return [RemovedStudentOut(id=r.id, name=r.name, removed_at=r.removed_at) for r in rows]
 
 
 @router.post("/{group_id}/members", status_code=status.HTTP_204_NO_CONTENT)

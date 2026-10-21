@@ -3,10 +3,12 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2 } from "lucide-react";
 import {
+  addMember,
   createInvite,
   createParentCode,
   createStudentAccount,
   listLiveInvites,
+  listRemovals,
   removeMember,
   revokeInvites,
   resetStudentPassword,
@@ -116,6 +118,21 @@ export default function StudentsTab() {
     onMutate: () => setActionError(null),
     onError,
   });
+  const removals = useQuery({
+    queryKey: ["group-removals", groupId],
+    queryFn: () => listRemovals(groupId),
+  });
+  const addBack = useMutation({
+    mutationFn: (studentId: number) => addMember(groupId, studentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["group-removals", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["group", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["homework"] });
+    },
+    onMutate: () => setActionError(null),
+    onError,
+  });
   const switchOff = useMutation({
     mutationFn: () => revokeInvites(groupId),
     onSuccess: () => {
@@ -133,6 +150,7 @@ export default function StudentsTab() {
   const addStudent = useMutation({
     mutationFn: () => createStudentAccount(groupId, studentForm),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["group-removals", groupId] });
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       // The cross-class Students and Homework lists count this class's members.
       queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -319,6 +337,31 @@ export default function StudentsTab() {
           </div>
         </form>
       </SectionCard>
+
+      {removals.data && removals.data.length > 0 && (
+        <SectionCard>
+          <h2 className="text-lg text-ink-900">Removed from this class</h2>
+          <p className="text-sm text-ink-500">
+            These students can't rejoin with a link. Add one back to let them in again.
+          </p>
+          <ul className="mt-3 divide-y divide-line">
+            {removals.data.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-3 py-2">
+                <span className="text-sm text-ink-900">{r.name}</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-label={`Add ${r.name} back to this class`}
+                  loading={addBack.isPending && addBack.variables === r.id}
+                  onClick={() => addBack.mutate(r.id)}
+                >
+                  Add back
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+      )}
 
       <ConfirmDialog
         open={switchingOff}

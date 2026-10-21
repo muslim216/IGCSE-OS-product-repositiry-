@@ -2135,6 +2135,58 @@
         }
       }
     },
+    "/api/v1/groups/{group_id}/removals": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "List Removals",
+        "description": "Students removed from this class who cannot rejoin by link.",
+        "operationId": "list_removals_api_v1_groups__group_id__removals_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RemovedStudentOut"
+                  },
+                  "title": "Response List Removals Api V1 Groups  Group Id  Removals Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups/{group_id}/members": {
       "post": {
         "tags": [
@@ -18928,6 +18980,30 @@
           "created_at"
         ],
         "title": "RemarkRequestOut"
+      },
+      "RemovedStudentOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "removed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Removed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "removed_at"
+        ],
+        "title": "RemovedStudentOut"
       },
       "ReportDetail": {
         "properties": {

@@ -61,6 +61,9 @@ async def test_removed_student_cannot_rejoin_and_tutor_can_add_back(client, tuto
         assert join.status_code == 403
     detail = await client.get(f"{G}/{group['id']}", headers=tutor["headers"])
     assert detail.json()["members"] == []
+    listed = await client.get(f"{G}/{group['id']}/removals", headers=tutor["headers"])
+    assert [r["id"] for r in listed.json()] == [sid]
+    assert listed.json()[0]["removed_at"]
 
     back = await client.post(
         f"{G}/{group['id']}/members", json={"student_id": sid}, headers=tutor["headers"]
@@ -68,6 +71,9 @@ async def test_removed_student_cannot_rejoin_and_tutor_can_add_back(client, tuto
     assert back.status_code == 204
     detail = await client.get(f"{G}/{group['id']}", headers=tutor["headers"])
     assert [m["id"] for m in detail.json()["members"]] == [sid]
+
+    cleared = await client.get(f"{G}/{group['id']}/removals", headers=tutor["headers"])
+    assert cleared.json() == []
 
     # Adding twice is harmless.
     again = await client.post(
@@ -80,6 +86,7 @@ async def test_other_organization_gets_404(client, tutor, group, student):
     other = await _other_tutor(client)
     assert (await client.delete(f"{G}/{group['id']}/invites", headers=other)).status_code == 404
     assert (await client.get(f"{G}/{group['id']}/invites", headers=other)).status_code == 404
+    assert (await client.get(f"{G}/{group['id']}/removals", headers=other)).status_code == 404
     add = await client.post(
         f"{G}/{group['id']}/members", json={"student_id": student["user"]["id"]}, headers=other
     )
@@ -90,6 +97,7 @@ async def test_student_cannot_manage_links_or_members(client, tutor, group, stud
     h = student["headers"]
     assert (await client.delete(f"{G}/{group['id']}/invites", headers=h)).status_code == 403
     assert (await client.get(f"{G}/{group['id']}/invites", headers=h)).status_code == 403
+    assert (await client.get(f"{G}/{group['id']}/removals", headers=h)).status_code == 403
     add = await client.post(
         f"{G}/{group['id']}/members", json={"student_id": student["user"]["id"]}, headers=h
     )
