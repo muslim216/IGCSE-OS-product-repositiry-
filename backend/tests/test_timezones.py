@@ -394,3 +394,11 @@ async def test_today_lessons_follows_the_tutors_own_zone_over_the_organizations(
         fake.now.side_effect = lambda tz=None: monday_late.astimezone(tz) if tz else monday_late
         resp = await client.get("/api/v1/me/today-lessons", headers=tutor["headers"])
     assert resp.json() == []
+
+
+def test_zone_database_has_the_gulf_zones() -> None:
+    # python:3.11-slim ships no OS zone files; the `tzdata` dependency supplies
+    # them. Without it every organization silently fell back to UTC.
+    from zoneinfo import available_timezones
+
+    assert {"Asia/Qatar", "Asia/Muscat"} <= available_timezones()

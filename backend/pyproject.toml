@@ -45,6 +45,9 @@ dependencies = [
     # since 3.0; the floor is 5.1 only because that is the oldest release still
     # getting the security fixes that matter for parsing tutor uploads.
     "pypdf>=5.1",
+    # IANA zone data for services/timezones.py. python:3.11-slim ships no OS zone
+    # files, so without this every organization silently fell back to UTC.
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
