@@ -16,6 +16,7 @@ import { ReportsPanel } from "../components/ReportsPanel";
 import WeeklySendLink from "../components/WeeklySendLink";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import AttendancePanel from "../components/AttendancePanel";
+import StopFollowing from "./StopFollowing";
 import { ABSENT } from "../lib/labels";
 import { parentVerdict, provenance, whatYouCanDo } from "../lib/parent";
 
@@ -255,6 +256,8 @@ export default function ParentDashboard() {
           <Section title="What you can do">
             <p className="max-w-prose text-sm text-ink-700">{whatYouCanDo(subjects)}</p>
           </Section>
+
+          <StopFollowing studentId={selected!} name={name} onDone={() => setActiveChild(null)} />
         </>
       )}
 
