@@ -86,7 +86,8 @@ def test_text_addressing_the_marker_is_flagged(text: str, rule: str):
     # The reason names which rule fired and quotes what matched: a tutor
     # deciding whether this was an attempt or a turn of phrase needs the words,
     # and a bare boolean leaves them with "something was odd" (PROD-1).
-    assert result.reason and result.reason.startswith(rule + ":")
+    assert result.reason
+    assert result.reason.startswith(rule + ":")
 
 
 @pytest.mark.parametrize(
