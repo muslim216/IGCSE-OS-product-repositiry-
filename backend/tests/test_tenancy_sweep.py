@@ -9,39 +9,56 @@ names and titles. The routes come from `app`, not from a list in this file.
 
 What it asserts, exactly:
 
-1. Path ids. Every route and every method with an integer path parameter is called
-   as B's callers with A's real ids and must answer 404 (`API-7`: not 403, not 200,
-   not 422, which would mean validation ran before the ownership check). Callers
-   are the roles the route admits: tutor and admin for a tutor gate, student for a
-   student gate, and all four (tutor, admin, student, parent) for a route open to
-   any signed-in user.
+1. Path ids. Every route the app has (`_iter_api_routes`; one missing from the
+   OpenAPI schema fails the test) and every method with an integer path parameter
+   (at least 120 operations) is called as B's callers with A's real ids and must
+   answer 404 (`API-7`: not 403, not 200, not 422, which would mean validation ran
+   before the ownership check). Callers are the roles the route admits: tutor and
+   admin for a tutor gate, student for a student gate, and all four (tutor, admin,
+   student, parent) for any other route.
 2. Ids in a query, form or body. Every field named `*_id` (or an id list `*_ids`)
    in any route's query, form or JSON body, required or optional and nested in
-   lists too, is aimed at A's row one field at a time while the rest of the request
-   is B's own valid request. It must answer 404. A listing that filters by that id
-   may answer 200 only when nothing of A's is in the body.
-3. Listings. Every signed-in GET without a path id is called as B's callers.
-4. Nothing of A's comes back. A's marker must appear in no response body in 1-3.
-   A's own tutor must see the marker in at least ten listings, so this check is not
-   hollow.
-5. Refusals change nothing. Every table's rows are hashed before and after the
-   attacks and must be identical (bar `WRITTEN_BY_READS`).
+   lists too (at least 45), is aimed at A's row one field at a time while the rest
+   is B's own valid request. It must answer 404. Three exceptions are listed, each
+   with its reason: `SILENT_200` (a handler that skips an id it cannot use) and a
+   filtering GET may answer 200, and `INDISTINGUISHABLE` may answer 409/422 with a
+   text detail. In all of them the response must equal, status and body, what the
+   same request gets with the field aimed at an id that does not exist (10**9), so
+   it cannot tell A's rows from nothing. A has non-default readiness weights, so a
+   weights read that followed the id would differ.
+3. Listings. Every signed-in GET without a path id (at least 40) is called as B's
+   callers. For each, A's own admitted caller must see A's marker (or the listing
+   is in `NO_MARKER` with a reason: nothing seeded to show), so "none of A's data
+   came back" can actually fail.
+4. Nothing of A's comes back: A's marker is in no response body in 1-3.
+5. Refusals change nothing. Every table's rows are compared before and after the
+   attacks and must be identical. Only `assignment_questions` may gain rows, and
+   each new row must belong to B's own draft.
 6. Each attack has a control. The same request, with the caller's own workspace's
-   id in place of A's, must answer 2xx, so the 404 is about tenancy and not a
-   missing file or a bad body. Exceptions are in `CONTROL_EXCEPTIONS`, each with a
-   reason, and a stale one fails.
+   id, should answer 2xx so the 404 is about tenancy and not a missing file or a bad
+   body. Where it does not, `CONTROL_EXCEPTIONS` holds the exact status the owner
+   gets and a reason, and a stale or changed entry fails. Accepted gap: where the
+   owner gets 404 (a parent, a student, an admin who is not the row's tutor, or
+   state the seed does not build) B's 404 does not prove the filter, only that the
+   route refuses B; the same route is covered by the callers who do reach the row.
+   Admins are never the seeded rows' tutor, so a missing organization filter on a
+   handler's admin-only branch is caught on the attack side (an admin of B is
+   given A's ids) but not by a successful admin control.
+7. Role refusals. A 403 is accepted only when it is a role gate speaking: "Tutor
+   account required" from a student or parent, "Student account required" from a
+   non-student, or an entry of `SPECIAL_REFUSALS`. The set of (caller, method,
+   path) refused this way is exactly `EXPECTED_REFUSALS`, so a gate that goes away
+   fails the test.
 
-A 403 is accepted only when it is the role gate's own message ("Tutor account
-required" / "Student account required"): that is `SEC-11` refusing the role before
-any id is read, not an ownership answer. A route with a path id that is neither
-swept nor in `UNRESOLVED`, and an id field neither swept nor in `FIELD_UNRESOLVED`,
+A route or id field that is neither swept nor in `UNRESOLVED` / `FIELD_UNRESOLVED`
 fails the test, so a new route is covered the day it is written.
 
-Not covered: ids that are not named `*_id` (a bare `id`, string keys such as
-`/auth/invites/{code}`, `/integrations/{provider}`, `/me/dismissals/{key}`), ids
-nested deeper than three levels, and routes outside `app.routes`. Public routes
-are not listings. `get_current_org_id` / `CurrentOrg` were unused and are deleted
-from `api/deps.py`; scoping is per query, and this test is what checks it.
+Not covered: ids not named `*_id` (a bare `id`), string keys such as
+`/auth/invites/{code}`, `/integrations/{provider}`, `/me/dismissals/{key}`, ids
+nested deeper than three levels, public routes, and ownership inside one
+organization (one tutor's row against another tutor of the same organization).
+`get_current_org_id` / `CurrentOrg` were unused and are deleted from `api/deps.py`;
+scoping is per query, and this test is what checks it.
 """
 
 import re
@@ -56,6 +73,9 @@ from app.api.deps import get_current_user, require_student, require_tutor
 from app.db import async_session, engine
 from app.main import app
 from app.models import (
+    Assessment,
+    AssessmentScore,
+    AssessmentType,
     AssignmentStatus,
     Base,
     Booklet,
@@ -70,9 +90,11 @@ from app.models import (
     Mock,
     MockStatus,
     NotificationChannel,
+    Organization,
     PlanBreak,
     PlanSlot,
     QuestionMark,
+    ReadinessWeights,
     Report,
     ReportAudience,
     ResourceKind,
@@ -106,13 +128,119 @@ from tests.test_authorization import _dependency_calls, _iter_api_routes
 PREFIX = "/api/v1"
 PDF = b"%PDF-1.4 fake"
 ROLES = ("tutor", "admin", "student", "parent")
-#: The role gates' own words. "Not allowed" is a listing refusing a parent, who
-#: has no booklets or past papers of their own.
-ROLE_REFUSALS = {
-    "Tutor account required",
-    "Student account required",
-    "Not allowed",
-    "Only tutors can generate reports",
+#: Role refusals other than the two shared gate messages ("Tutor account required",
+#: "Student account required", which are accepted only from a caller of the wrong
+#: role). detail -> {(caller, METHOD, path-template)}. "Not allowed" is the booklets
+#: and past-papers listings refusing a parent, who has none of their own.
+SPECIAL_REFUSALS: dict[str, set[tuple[str, str, str]]] = {
+    "Not allowed": {("parent", "GET", "/booklets"), ("parent", "GET", "/past-papers")},
+    "Only tutors can generate reports": {
+        ("student", "POST", "/reports/generate"),
+        ("parent", "POST", "/reports/generate"),
+    },
+}
+
+#: Every (caller, METHOD, path-template) the attack pass saw refused by a role gate.
+#: Exact, so a gate that disappears (a route that starts answering) fails here.
+EXPECTED_REFUSALS: set[tuple[str, str, str]] = {
+    ("parent", "DELETE", "/groups/{group_id}/lessons/{slot_id}"),
+    ("parent", "DELETE", "/groups/{group_id}/members/{student_id}"),
+    ("parent", "DELETE", "/lessons/{lesson_id}"),
+    ("parent", "DELETE", "/students/{student_id}/subjects/{subject_id}"),
+    ("parent", "GET", "/assignments/{assignment_id}"),
+    ("parent", "GET", "/booklets"),
+    ("parent", "GET", "/groups/{group_id}"),
+    ("parent", "GET", "/groups/{group_id}/lessons"),
+    ("parent", "GET", "/lessons/group/{group_id}"),
+    ("parent", "GET", "/lessons/{lesson_id}"),
+    ("parent", "GET", "/lessons/{lesson_id}/observations"),
+    ("parent", "GET", "/past-papers"),
+    ("parent", "GET", "/submissions/{submission_id}"),
+    ("parent", "GET", "/submissions/{submission_id}/marks/{question_id}/history"),
+    ("parent", "GET", "/syllabus-uploads/{upload_id}"),
+    ("parent", "PATCH", "/groups/{group_id}"),
+    ("parent", "PATCH", "/lessons/{lesson_id}"),
+    ("parent", "PATCH", "/students/{student_id}/subjects/{subject_id}"),
+    ("parent", "POST", "/assignments/{assignment_id}/publish"),
+    ("parent", "POST", "/assignments/{assignment_id}/retry-extraction"),
+    ("parent", "POST", "/groups/{group_id}/brief"),
+    ("parent", "POST", "/groups/{group_id}/invites"),
+    ("parent", "POST", "/groups/{group_id}/lessons"),
+    ("parent", "POST", "/groups/{group_id}/students"),
+    ("parent", "POST", "/groups/{group_id}/students/{student_id}/reset-password"),
+    ("parent", "POST", "/lessons"),
+    ("parent", "POST", "/lessons/{lesson_id}/observations"),
+    ("parent", "POST", "/reports/generate"),
+    ("parent", "POST", "/students/{student_id}/communications"),
+    ("parent", "POST", "/students/{student_id}/notes"),
+    ("parent", "POST", "/students/{student_id}/parent-code"),
+    ("parent", "POST", "/students/{student_id}/subjects"),
+    ("parent", "POST", "/submissions/{submission_id}/finalize"),
+    ("parent", "POST", "/syllabus-uploads/{upload_id}/apply"),
+    ("parent", "POST", "/syllabus-uploads/{upload_id}/retry"),
+    ("parent", "PUT", "/assignments/{assignment_id}/questions"),
+    ("parent", "PUT", "/lessons/{lesson_id}/topics"),
+    ("parent", "PUT", "/students/{student_id}/profile"),
+    ("parent", "PUT", "/submissions/{submission_id}/marks"),
+    ("parent", "PUT", "/syllabus-uploads/{upload_id}/draft"),
+    ("student", "DELETE", "/groups/{group_id}/lessons/{slot_id}"),
+    ("student", "DELETE", "/groups/{group_id}/members/{student_id}"),
+    ("student", "DELETE", "/lessons/{lesson_id}"),
+    ("student", "DELETE", "/students/{student_id}/subjects/{subject_id}"),
+    ("student", "GET", "/assignments/{assignment_id}"),
+    ("student", "GET", "/groups/{group_id}"),
+    ("student", "GET", "/groups/{group_id}/lessons"),
+    ("student", "GET", "/lessons/group/{group_id}"),
+    ("student", "GET", "/lessons/{lesson_id}"),
+    ("student", "GET", "/lessons/{lesson_id}/observations"),
+    ("student", "GET", "/submissions/{submission_id}"),
+    ("student", "GET", "/submissions/{submission_id}/marks/{question_id}/history"),
+    ("student", "GET", "/syllabus-uploads/{upload_id}"),
+    ("student", "PATCH", "/groups/{group_id}"),
+    ("student", "PATCH", "/lessons/{lesson_id}"),
+    ("student", "PATCH", "/students/{student_id}/subjects/{subject_id}"),
+    ("student", "POST", "/assignments/{assignment_id}/publish"),
+    ("student", "POST", "/assignments/{assignment_id}/retry-extraction"),
+    ("student", "POST", "/groups/{group_id}/brief"),
+    ("student", "POST", "/groups/{group_id}/invites"),
+    ("student", "POST", "/groups/{group_id}/lessons"),
+    ("student", "POST", "/groups/{group_id}/students"),
+    ("student", "POST", "/groups/{group_id}/students/{student_id}/reset-password"),
+    ("student", "POST", "/lessons"),
+    ("student", "POST", "/lessons/{lesson_id}/observations"),
+    ("student", "POST", "/reports/generate"),
+    ("student", "POST", "/students/{student_id}/communications"),
+    ("student", "POST", "/students/{student_id}/notes"),
+    ("student", "POST", "/students/{student_id}/parent-code"),
+    ("student", "POST", "/students/{student_id}/subjects"),
+    ("student", "POST", "/submissions/{submission_id}/finalize"),
+    ("student", "POST", "/syllabus-uploads/{upload_id}/apply"),
+    ("student", "POST", "/syllabus-uploads/{upload_id}/retry"),
+    ("student", "PUT", "/assignments/{assignment_id}/questions"),
+    ("student", "PUT", "/lessons/{lesson_id}/topics"),
+    ("student", "PUT", "/students/{student_id}/profile"),
+    ("student", "PUT", "/submissions/{submission_id}/marks"),
+    ("student", "PUT", "/syllabus-uploads/{upload_id}/draft"),
+}
+
+#: Listings whose owner does not see the marker, each with the reason: the check
+#: "none of A's data came back" could never fail on them.
+NO_MARKER: dict[tuple[str, str], str] = {
+    ("GET", "/ai-usage/analytics"): "no model call is made, so there are no usage events",
+    ("GET", "/ai-usage/summary"): "no model call is made, so there are no usage events",
+    ("GET", "/integrations"): "no meeting provider is connected",
+    ("GET", "/me/attendance"): "no attendance is recorded for the seeded student",
+    ("GET", "/me/dismissals"): "keys only, no free text",
+    ("GET", "/me/notification-preferences"): "switches only, no free text",
+    ("GET", "/me/today-lessons"): "lists lessons held at today's schedule slot; none is",
+    ("GET", "/notifications/status"): "counts only",
+    ("GET", "/notifications/undelivered"): "nothing is queued",
+    ("GET", "/readiness/weights"): (
+        "numbers only; the aimed subject_id variant is compared with a nonexistent subject "
+        "while A has non-default weights"
+    ),
+    ("GET", "/today/reminders"): "no reminder is due",
+    ("GET", "/weekly-sends/latest"): "facts are counts, and the seeded send has no classes",
 }
 
 #: Bodies the generic generator cannot guess because the model validates across
@@ -162,7 +290,6 @@ SILENT_200: dict[tuple[str, str, str], str] = {
 #: that does not exist gets: the test aims the field at 10**9 as well and requires
 #: the same status and body, so the answer cannot tell A's rows from nothing.
 INDISTINGUISHABLE: dict[tuple[str, str, str], str] = {
-    ("POST", "/assessments", "scores.[].student_id"): "a student the tutor does not teach",
     ("POST", "/assessments", "scores.[].topic_id"): "topics of the subject",
     ("PATCH", "/groups/{group_id}/plan/slots/{slot_id}", "chapter_id"): "chapter of the subject",
     ("PUT", "/groups/{group_id}/taught-before", "topic_ids"): "topics of the subject",
@@ -176,10 +303,13 @@ ID_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     ("PUT", "/assignments/{assignment_id}/questions"): {"assignment_id": "_assignment_review_id"},
 }
 
-#: Tables where a request answered 200 for the caller's own row may add rows, with
-#: the reason. Rows already there still may not change or disappear.
-WRITTEN_BY_READS: dict[str, str] = {
-    "assignment_questions": "SILENT_200 PUT .../questions rewrites B's own draft",
+#: Tables a SILENT_200 request may add rows to: reason and a test of each new row.
+#: Rows already there still may not change or disappear.
+WRITTEN_BY_READS: dict[str, tuple[str, object]] = {
+    "assignment_questions": (
+        "PUT .../questions rewrites the caller's own draft",
+        lambda row, ws: row["assignment_id"] == ws["ids"]["_assignment_review_id"],
+    ),
 }
 
 #: (caller, METHOD, path-template, field) where the owner's own control call is
@@ -200,193 +330,118 @@ _BODY = (
 )
 _FORBIDDEN = "the owner is refused by the handler's own rule (an admin who does not teach the student; accounts with email)"
 
-CONTROL_EXCEPTIONS: dict[tuple[str, str, str, str], str] = {
-    ("parent", "GET", "/booklets/{booklet_id}", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/booklets/{booklet_id}/file", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/classifieds/{classified_id}/file", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    (
-        "parent",
-        "GET",
-        "/classifieds/{classified_id}/mark-scheme",
-        "",
-    ): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/groups/{group_id}/resources", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/mocks/{mock_id}", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/mocks/{mock_id}/paper", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/past-papers/{past_paper_id}", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/past-papers/{past_paper_id}/paper", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/reports/{report_id}", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/resources/{resource_id}/file", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    (
-        "parent",
-        "GET",
-        "/submissions/{submission_id}/files/{file_id}",
-        "",
-    ): _NO_CLAIM_PARENT,  # owner gets 404
-    ("parent", "GET", "/weekly-sends/{send_id}", ""): _NO_CLAIM_PARENT,  # owner gets 404
-    (
-        "student",
-        "GET",
-        "/classifieds/{classified_id}/file",
-        "",
-    ): _NO_CLAIM_STUDENT,  # owner gets 404
-    (
-        "student",
-        "GET",
-        "/classifieds/{classified_id}/mark-scheme",
-        "",
-    ): _NO_CLAIM_STUDENT,  # owner gets 404
-    ("student", "GET", "/reports/{report_id}", ""): _NO_CLAIM_STUDENT,  # owner gets 404
-    ("student", "GET", "/students/{student_id}/narrative", ""): _NO_CLAIM_STUDENT,  # owner gets 404
-    ("student", "GET", "/weekly-sends/{send_id}", ""): _NO_CLAIM_STUDENT,  # owner gets 404
-    ("admin", "POST", "/assignments", "group_id"): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "POST", "/assignments", "lesson_id"): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "POST", "/assignments", "classified_id"): _NO_CLAIM_ADMIN,  # owner gets 404
-    (
-        "admin",
-        "POST",
-        "/groups/{group_id}/plan/slots/{slot_id}/cancel",
-        "",
-    ): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "POST", "/lessons", "plan_slot_id"): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "POST", "/me/contacts/{contact_id}/confirm", ""): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "POST", "/mocks", "group_id"): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "PATCH", "/mocks/{mock_id}", ""): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "PATCH", "/mocks/{mock_id}", "group_id"): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "POST", "/observations", "student_id"): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "POST", "/observations", "topic_id"): _NO_CLAIM_ADMIN,  # owner gets 404
-    ("admin", "GET", "/students/{student_id}/observations", ""): _NO_CLAIM_ADMIN,  # owner gets 404
-    (
-        "admin",
-        "POST",
-        "/students/{student_id}/seed-readiness",
-        "",
-    ): _NO_CLAIM_ADMIN,  # owner gets 404
-    (
-        "admin",
-        "POST",
-        "/students/{student_id}/seed-readiness",
-        "topics.[].topic_id",
-    ): _NO_CLAIM_ADMIN,  # owner gets 404
-    (
-        "tutor",
-        "POST",
-        "/groups/{group_id}/plan/slots/{slot_id}/cancel",
-        "",
-    ): _NEEDS_STATE,  # owner gets 404
-    ("tutor", "POST", "/lessons", "plan_slot_id"): _NEEDS_STATE,  # owner gets 404
-    ("tutor", "POST", "/assignments/{assignment_id}/publish", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/assignments/{assignment_id}/publish", ""): _STATE,  # owner gets 409
-    (
-        "tutor",
-        "POST",
-        "/assignments/{assignment_id}/retry-extraction",
-        "",
-    ): _STATE,  # owner gets 409
-    (
-        "admin",
-        "POST",
-        "/assignments/{assignment_id}/retry-extraction",
-        "",
-    ): _STATE,  # owner gets 409
-    ("tutor", "POST", "/booklets/{booklet_id}/approve", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/booklets/{booklet_id}/approve", ""): _STATE,  # owner gets 409
-    ("tutor", "PUT", "/booklets/{booklet_id}/draft", ""): _STATE,  # owner gets 409
-    ("admin", "PUT", "/booklets/{booklet_id}/draft", ""): _STATE,  # owner gets 409
-    ("tutor", "POST", "/booklets/{booklet_id}/retry", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/booklets/{booklet_id}/retry", ""): _STATE,  # owner gets 409
-    ("tutor", "POST", "/groups/{group_id}/plan/accept", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/groups/{group_id}/plan/accept", ""): _STATE,  # owner gets 409
-    ("tutor", "POST", "/groups/{group_id}/plan/replan", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/groups/{group_id}/plan/replan", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/groups/{group_id}/students", ""): _STATE,  # owner gets 409
-    ("tutor", "POST", "/lessons/{lesson_id}/attendance/import", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/lessons/{lesson_id}/attendance/import", ""): _STATE,  # owner gets 409
-    (
-        "admin",
-        "POST",
-        "/lessons/{lesson_id}/participants/{participant_id}/resolve",
-        "",
-    ): _STATE,  # owner gets 409
-    (
-        "admin",
-        "POST",
-        "/lessons/{lesson_id}/participants/{participant_id}/resolve",
-        "student_id",
-    ): _STATE,  # owner gets 409
-    ("tutor", "PUT", "/past-papers/{past_paper_id}/paper", ""): _STATE,  # owner gets 409
-    ("admin", "PUT", "/past-papers/{past_paper_id}/paper", ""): _STATE,  # owner gets 409
-    (
-        "tutor",
-        "POST",
-        "/past-papers/{past_paper_id}/retry-extraction",
-        "",
-    ): _STATE,  # owner gets 409
-    (
-        "admin",
-        "POST",
-        "/past-papers/{past_paper_id}/retry-extraction",
-        "",
-    ): _STATE,  # owner gets 409
-    ("tutor", "POST", "/reports/generate", "student_id"): _STATE,  # owner gets 409
-    ("admin", "POST", "/reports/generate", "student_id"): _STATE,  # owner gets 409
-    ("tutor", "POST", "/reports/generate", "subject_id"): _STATE,  # owner gets 409
-    ("admin", "POST", "/reports/generate", "subject_id"): _STATE,  # owner gets 409
-    ("admin", "POST", "/students/{student_id}/subjects", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/students/{student_id}/subjects", "subject_id"): _STATE,  # owner gets 409
+CONTROL_EXCEPTIONS: dict[tuple[str, str, str, str], tuple[int, str]] = {
+    ("parent", "GET", "/booklets/{booklet_id}", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/booklets/{booklet_id}/file", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/classifieds/{classified_id}/file", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/classifieds/{classified_id}/mark-scheme", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/groups/{group_id}/resources", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/mocks/{mock_id}", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/mocks/{mock_id}/paper", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/past-papers/{past_paper_id}", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/past-papers/{past_paper_id}/paper", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/reports/{report_id}", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/resources/{resource_id}/file", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/submissions/{submission_id}/files/{file_id}", ""): (404, _NO_CLAIM_PARENT),
+    ("parent", "GET", "/weekly-sends/{send_id}", ""): (404, _NO_CLAIM_PARENT),
+    ("student", "GET", "/classifieds/{classified_id}/file", ""): (404, _NO_CLAIM_STUDENT),
+    ("student", "GET", "/classifieds/{classified_id}/mark-scheme", ""): (404, _NO_CLAIM_STUDENT),
+    ("student", "GET", "/reports/{report_id}", ""): (404, _NO_CLAIM_STUDENT),
+    ("student", "GET", "/students/{student_id}/narrative", ""): (404, _NO_CLAIM_STUDENT),
+    ("student", "GET", "/weekly-sends/{send_id}", ""): (404, _NO_CLAIM_STUDENT),
+    ("admin", "GET", "/students/{student_id}/observations", ""): (404, _NO_CLAIM_ADMIN),
+    ("admin", "PATCH", "/mocks/{mock_id}", ""): (404, _NO_CLAIM_ADMIN),
+    ("admin", "PATCH", "/mocks/{mock_id}", "group_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/assessments", "scores.[].student_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/assessments", "scores.[].topic_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/assignments", "classified_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/assignments", "group_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/assignments", "lesson_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/groups/{group_id}/plan/slots/{slot_id}/cancel", ""): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/lessons", "plan_slot_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/me/contacts/{contact_id}/confirm", ""): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/mocks", "group_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/observations", "student_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/observations", "topic_id"): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/students/{student_id}/seed-readiness", ""): (404, _NO_CLAIM_ADMIN),
+    ("admin", "POST", "/students/{student_id}/seed-readiness", "topics.[].topic_id"): (
+        404,
+        _NO_CLAIM_ADMIN,
+    ),
+    ("tutor", "POST", "/groups/{group_id}/plan/slots/{slot_id}/cancel", ""): (404, _NEEDS_STATE),
+    ("tutor", "POST", "/lessons", "plan_slot_id"): (404, _NEEDS_STATE),
+    ("admin", "POST", "/assignments/{assignment_id}/publish", ""): (409, _STATE),
+    ("admin", "POST", "/assignments/{assignment_id}/retry-extraction", ""): (409, _STATE),
+    ("admin", "POST", "/booklets/{booklet_id}/approve", ""): (409, _STATE),
+    ("admin", "POST", "/booklets/{booklet_id}/retry", ""): (409, _STATE),
+    ("admin", "POST", "/groups/{group_id}/plan/accept", ""): (409, _STATE),
+    ("admin", "POST", "/groups/{group_id}/plan/replan", ""): (409, _STATE),
+    ("admin", "POST", "/groups/{group_id}/students", ""): (409, _STATE),
+    ("admin", "POST", "/lessons/{lesson_id}/attendance/import", ""): (409, _STATE),
+    ("admin", "POST", "/lessons/{lesson_id}/participants/{participant_id}/resolve", ""): (
+        409,
+        _STATE,
+    ),
+    ("admin", "POST", "/lessons/{lesson_id}/participants/{participant_id}/resolve", "student_id"): (
+        409,
+        _STATE,
+    ),
+    ("admin", "POST", "/past-papers/{past_paper_id}/retry-extraction", ""): (409, _STATE),
+    ("admin", "POST", "/reports/generate", "student_id"): (409, _STATE),
+    ("admin", "POST", "/reports/generate", "subject_id"): (409, _STATE),
+    ("admin", "POST", "/students/{student_id}/subjects", ""): (409, _STATE),
+    ("admin", "POST", "/students/{student_id}/subjects", "subject_id"): (409, _STATE),
+    ("admin", "POST", "/submissions/{submission_id}/redo", ""): (409, _STATE),
+    ("admin", "POST", "/submissions/{submission_id}/retry-marking", ""): (409, _STATE),
+    ("admin", "POST", "/syllabus-uploads/{upload_id}/retry", ""): (409, _STATE),
+    ("admin", "PUT", "/booklets/{booklet_id}/draft", ""): (409, _STATE),
+    ("admin", "PUT", "/past-papers/{past_paper_id}/paper", ""): (409, _STATE),
     (
         "student",
         "POST",
         "/submissions/{submission_id}/questions/{question_id}/remark-request",
         "",
-    ): _STATE,  # owner gets 409
-    ("tutor", "POST", "/submissions/{submission_id}/redo", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/submissions/{submission_id}/redo", ""): _STATE,  # owner gets 409
-    ("tutor", "POST", "/submissions/{submission_id}/retry-marking", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/submissions/{submission_id}/retry-marking", ""): _STATE,  # owner gets 409
-    ("tutor", "POST", "/syllabus-uploads/{upload_id}/retry", ""): _STATE,  # owner gets 409
-    ("admin", "POST", "/syllabus-uploads/{upload_id}/retry", ""): _STATE,  # owner gets 409
-    ("student", "POST", "/assignments/{assignment_id}/submissions", ""): _BODY,  # owner gets 422
-    ("admin", "POST", "/groups/{group_id}/plan/breaks", ""): _BODY,  # owner gets 422
-    ("tutor", "PATCH", "/groups/{group_id}/plan/slots/{slot_id}", ""): _BODY,  # owner gets 422
-    ("admin", "PATCH", "/groups/{group_id}/plan/slots/{slot_id}", ""): _BODY,  # owner gets 422
-    (
-        "tutor",
-        "PATCH",
-        "/groups/{group_id}/plan/slots/{slot_id}",
-        "chapter_id",
-    ): _BODY,  # owner gets 422
-    (
-        "admin",
-        "PATCH",
-        "/groups/{group_id}/plan/slots/{slot_id}",
-        "chapter_id",
-    ): _BODY,  # owner gets 422
-    ("tutor", "POST", "/groups/{group_id}/resources", ""): _BODY,  # owner gets 422
-    ("admin", "POST", "/groups/{group_id}/resources", ""): _BODY,  # owner gets 422
-    ("student", "POST", "/mocks/{mock_id}/submissions", ""): _BODY,  # owner gets 422
-    ("tutor", "PUT", "/students/{student_id}/contacts", ""): _BODY,  # owner gets 422
-    ("admin", "PUT", "/students/{student_id}/contacts", ""): _BODY,  # owner gets 422
-    ("tutor", "PUT", "/students/{student_id}/contacts", "user_id"): _BODY,  # owner gets 422
-    ("admin", "PUT", "/students/{student_id}/contacts", "user_id"): _BODY,  # owner gets 422
-    ("tutor", "POST", "/submissions/{submission_id}/finalize", ""): _BODY,  # owner gets 422
-    ("admin", "POST", "/submissions/{submission_id}/finalize", ""): _BODY,  # owner gets 422
-    ("tutor", "POST", "/syllabus-uploads/{upload_id}/apply", ""): _BODY,  # owner gets 422
-    ("admin", "POST", "/syllabus-uploads/{upload_id}/apply", ""): _BODY,  # owner gets 422
-    ("admin", "POST", "/assessments", "scores.[].student_id"): _FORBIDDEN,  # owner gets 403
-    ("admin", "POST", "/assessments", "scores.[].topic_id"): _FORBIDDEN,  # owner gets 403
-    (
-        "tutor",
-        "POST",
-        "/groups/{group_id}/students/{student_id}/reset-password",
-        "",
-    ): _FORBIDDEN,  # owner gets 403
-    (
-        "admin",
-        "POST",
-        "/groups/{group_id}/students/{student_id}/reset-password",
-        "",
-    ): _FORBIDDEN,  # owner gets 403
+    ): (409, _STATE),
+    ("tutor", "POST", "/assignments/{assignment_id}/publish", ""): (409, _STATE),
+    ("tutor", "POST", "/assignments/{assignment_id}/retry-extraction", ""): (409, _STATE),
+    ("tutor", "POST", "/booklets/{booklet_id}/approve", ""): (409, _STATE),
+    ("tutor", "POST", "/booklets/{booklet_id}/retry", ""): (409, _STATE),
+    ("tutor", "POST", "/groups/{group_id}/plan/accept", ""): (409, _STATE),
+    ("tutor", "POST", "/groups/{group_id}/plan/replan", ""): (409, _STATE),
+    ("tutor", "POST", "/lessons/{lesson_id}/attendance/import", ""): (409, _STATE),
+    ("tutor", "POST", "/past-papers/{past_paper_id}/retry-extraction", ""): (409, _STATE),
+    ("tutor", "POST", "/reports/generate", "student_id"): (409, _STATE),
+    ("tutor", "POST", "/reports/generate", "subject_id"): (409, _STATE),
+    ("tutor", "POST", "/submissions/{submission_id}/redo", ""): (409, _STATE),
+    ("tutor", "POST", "/submissions/{submission_id}/retry-marking", ""): (409, _STATE),
+    ("tutor", "POST", "/syllabus-uploads/{upload_id}/retry", ""): (409, _STATE),
+    ("tutor", "PUT", "/booklets/{booklet_id}/draft", ""): (409, _STATE),
+    ("tutor", "PUT", "/past-papers/{past_paper_id}/paper", ""): (409, _STATE),
+    ("admin", "PATCH", "/groups/{group_id}/plan/slots/{slot_id}", ""): (422, _BODY),
+    ("admin", "PATCH", "/groups/{group_id}/plan/slots/{slot_id}", "chapter_id"): (422, _BODY),
+    ("admin", "POST", "/groups/{group_id}/plan/breaks", ""): (422, _BODY),
+    ("admin", "POST", "/groups/{group_id}/resources", ""): (422, _BODY),
+    ("admin", "POST", "/submissions/{submission_id}/finalize", ""): (422, _BODY),
+    ("admin", "POST", "/syllabus-uploads/{upload_id}/apply", ""): (422, _BODY),
+    ("admin", "PUT", "/students/{student_id}/contacts", ""): (422, _BODY),
+    ("admin", "PUT", "/students/{student_id}/contacts", "user_id"): (422, _BODY),
+    ("student", "POST", "/assignments/{assignment_id}/submissions", ""): (422, _BODY),
+    ("student", "POST", "/mocks/{mock_id}/submissions", ""): (422, _BODY),
+    ("tutor", "PATCH", "/groups/{group_id}/plan/slots/{slot_id}", ""): (422, _BODY),
+    ("tutor", "PATCH", "/groups/{group_id}/plan/slots/{slot_id}", "chapter_id"): (422, _BODY),
+    ("tutor", "POST", "/groups/{group_id}/resources", ""): (422, _BODY),
+    ("tutor", "POST", "/submissions/{submission_id}/finalize", ""): (422, _BODY),
+    ("tutor", "POST", "/syllabus-uploads/{upload_id}/apply", ""): (422, _BODY),
+    ("tutor", "PUT", "/students/{student_id}/contacts", ""): (422, _BODY),
+    ("tutor", "PUT", "/students/{student_id}/contacts", "user_id"): (422, _BODY),
+    ("admin", "POST", "/groups/{group_id}/students/{student_id}/reset-password", ""): (
+        403,
+        _FORBIDDEN,
+    ),
+    ("tutor", "POST", "/groups/{group_id}/students/{student_id}/reset-password", ""): (
+        403,
+        _FORBIDDEN,
+    ),
 }
 
 
@@ -516,10 +571,27 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             subject_id=subject_id,
             organization_id=organization_id,
             tutor_id=uid,
+            title=f"Paper {marker}",
             **await _stored(organization_id, "paper_"),
             **await _stored(organization_id, "mark_scheme_"),
         )
         booklet = await s.get(Booklet, paper.booklet_id)
+        booklet.title = f"Booklet {marker}"
+        (await s.get(Organization, organization_id)).name = f"School {marker}"
+        assessment = Assessment(
+            tutor_id=uid,
+            subject_id=subject_id,
+            title=f"Test {marker}",
+            type=AssessmentType.test,
+            date=date.today(),
+        )
+        s.add(assessment)
+        await s.flush()
+        s.add(
+            AssessmentScore(
+                assessment_id=assessment.id, student_id=student_id, marks=5, max_marks=10
+            )
+        )
         for k, v in (await _stored(organization_id, "mark_scheme_")).items():
             setattr(booklet, k, v)
         ids["past_paper_id"] = paper.id
@@ -653,6 +725,17 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
         )
         await link_parent(s, parent.id, student_id)
         s.add_all([plan_slot, plan_break, participant, tutor_contact])
+        s.add(
+            # Not the defaults, so a listing that returned A's weights would differ
+            # from what a subject nobody owns gets.
+            ReadinessWeights(
+                organization_id=organization_id,
+                subject_id=subject_id,
+                tutor_id=uid,
+                weight_topic_mastery=7.0,
+                half_life_days=13.0,
+            )
+        )
         await s.flush()
         ids["_contact_tutor"] = tutor_contact.id
         ids.update(
@@ -777,8 +860,13 @@ def _sample(spec, node, name, ids, route_path):
     return "x" * max(1, node.get("minLength", 1))
 
 
+def _spec_path(route):
+    # The health routes are mounted with the prefix already in their path.
+    return route.path_format if route.path_format.startswith(PREFIX) else PREFIX + route.path_format
+
+
 def _operation(spec, route, method):
-    return spec["paths"][PREFIX + route.path_format][method.lower()]
+    return spec["paths"][_spec_path(route)][method.lower()]
 
 
 def _path_int_params(spec, route, method):
@@ -918,11 +1006,12 @@ def _ids_for(ws, who, route_path, method=""):
 
 
 async def _fingerprint():
-    """Every table's rows: a refused request must leave all of them alone."""
+    """Every table's rows, keyed by their text: a refused request must leave them alone."""
     out = {}
     async with engine.connect() as conn:
         for table in Base.metadata.sorted_tables:
-            out[table.name] = sorted(repr(r) for r in (await conn.execute(select(table))).all())
+            rows = (await conn.execute(select(table))).all()
+            out[table.name] = {repr(r): dict(r._mapping) for r in rows}
     return out
 
 
@@ -945,10 +1034,28 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
         transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
     )
     spec = app.openapi()
-    routes = [r for r in _iter_api_routes(app) if f"{PREFIX}{r.path_format}" in spec["paths"]]
+    # Every route the app has, not only those that happen to be in the schema.
+    routes = list(_iter_api_routes(app))
+    ops = sorted(
+        ((r, m) for r in routes for m in sorted(r.methods - {"HEAD"})),
+        # DELETEs last, deepest path first: a handler that leaked would remove A's
+        # row and every later call on it would 404 for the wrong reason.
+        key=lambda rm: (
+            rm[1] == "DELETE",
+            -len(rm[0].path) if rm[1] == "DELETE" else 0,
+            rm[0].path,
+            rm[1],
+        ),
+    )
+    not_in_spec = [
+        f"{m} {r.path}" for r, m in ops if m.lower() not in spec["paths"].get(_spec_path(r), {})
+    ]
+    assert not not_in_spec, f"routes missing from the OpenAPI schema, so unswept: {not_in_spec}"
+
     marker = a["marker"].lower().encode()
-    stats = {"path": 0, "field": 0, "list": 0, "calls": 0}
-    leaks, unlisted, controls, refusals_seen = [], [], [], set()
+    stats = {"calls": 0}
+    leaks, unlisted, controls = [], [], {}
+    refusals, control_refusals, silent_200_seen = set(), set(), set()
 
     async def call(who_ws, who, req):
         stats["calls"] += 1
@@ -962,30 +1069,34 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
             headers=who_ws[who]["headers"],
         )
 
-    def judge(label, resp, *, allow_empty_200=False, silent_200=False):
-        """The one verdict on an attack: 404, or a role refusal, or (a list asked
-        to filter by someone else's id) a 200 carrying none of A's data."""
+    def is_role_refusal(who, method, path, resp):
+        """403 from a role gate: refused by role before any id is read (SEC-11)."""
+        if resp.status_code != 403 or not isinstance(resp.json().get("detail"), str):
+            return False
+        detail = resp.json()["detail"]
+        if detail == "Tutor account required":
+            return who in ("student", "parent")
+        if detail == "Student account required":
+            return who != "student"
+        return (who, method, path) in SPECIAL_REFUSALS.get(detail, set())
+
+    async def judge(label, who, route, method, resp, *, ghost=None, accept_200=False):
+        """The one verdict on an attack: 404; or a role refusal; or a 200 that is
+        accepted for this field and equals what a nonexistent id gets. `ghost` is a
+        coroutine function returning that second response."""
         if marker in resp.content.lower():
             leaks.append(f"{label} -> {resp.status_code}: response contains workspace A's data")
-        elif resp.status_code == 403 and resp.json().get("detail") in ROLE_REFUSALS:
-            refusals_seen.add(label)  # refused by role before any id is read (SEC-11)
-        elif resp.status_code == 200 and (allow_empty_200 or silent_200):
-            pass  # a filter that matches nothing of A's: no data crossed over
+        elif is_role_refusal(who, method, route.path, resp):
+            refusals.add((who, method, route.path))
+        elif resp.status_code == 200 and accept_200:
+            if ghost is not None:
+                g = await ghost()
+                if (g.status_code, g.text) != (resp.status_code, resp.text):
+                    leaks.append(f"{label} -> 200 differs from the answer for a nonexistent id")
         elif resp.status_code != 404:
             detail = resp.text[:160] if resp.status_code in (422, 403) else ""
             leaks.append(f"{label} -> {resp.status_code} {detail}")
 
-    # DELETEs last, deepest path first: a handler that leaked would remove A's row
-    # and every later call on it would 404 for the wrong reason.
-    ops = sorted(
-        ((r, m) for r in routes for m in sorted(r.methods - {"HEAD"})),
-        key=lambda rm: (
-            rm[1] == "DELETE",
-            -len(rm[0].path) if rm[1] == "DELETE" else 0,
-            rm[0].path,
-            rm[1],
-        ),
-    )
     plan = []  # (route, method, kind, field) for the control pass
     before = await _fingerprint()
 
@@ -998,6 +1109,7 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
             continue
         has_path_ids = bool(_path_int_params(spec, route, method))
         public = get_current_user not in _dependency_calls(route)
+        is_listing = method == "GET" and not public and "{" not in route.path
         for who in _callers(route):
             if has_path_ids:
                 req, missing = _build(spec, route, method, _ids_for(a, who, route.path, method))
@@ -1005,71 +1117,118 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
                     unlisted.append(f"{key}: no seeded row for {{{missing}}}")
                     break
                 req["method"] = method
-                stats["path"] += 1
-                judge(f"{who} {method} {route.path}", await call(b, who, req))
-            elif method == "GET" and not public and "{" not in route.path:
-                req, missing = _build(spec, route, method, b["ids"])
+                resp = await call(b, who, req)
+                await judge(f"{who} {method} {route.path}", who, route, method, resp)
+            elif is_listing:
+                req, _ = _build(spec, route, method, b["ids"])
                 req["method"] = method
-                stats["list"] += 1
-                judge(
+                resp = await call(b, who, req)
+                # A listing is not asked for anyone's row: any 200 is fine so long as
+                # none of A's data is in it (checked per endpoint against the owner below).
+                await judge(
                     f"{who} {method} {route.path} (listing)",
-                    await call(b, who, req),
-                    allow_empty_200=True,
+                    who,
+                    route,
+                    method,
+                    resp,
+                    accept_200=True,
                 )
-        if has_path_ids or (method == "GET" and not public and "{" not in route.path):
+        if has_path_ids or is_listing:
             plan.append((route, method, "path" if has_path_ids else "list", None))
         for field in _id_fields(spec, route, method):
-            name = field[1][-1]
-            fkey = _id_key(name, route.path)
-            if (method, route.path, ".".join(field[1])) in FIELD_UNRESOLVED:
+            fkey = _id_key(field[1][-1], route.path)
+            dotted = ".".join(field[1])
+            if (method, route.path, dotted) in FIELD_UNRESOLVED:
                 continue
             if fkey not in a["ids"]:
-                unlisted.append(f"{key} {'.'.join(field[1])}: no seeded row for {fkey}")
+                unlisted.append(f"{key} {dotted}: no seeded row for {fkey}")
                 continue
+            force = field[1][0] if len(field[1]) > 1 and field[0] == "json" else None
             for who in _callers(route):
-                force = field[1][0] if len(field[1]) > 1 and field[0] == "json" else None
-                req, missing = _build(
-                    spec, route, method, _ids_for(b, who, route.path, method), force
-                )
-                if req is None:
+                ids_b = _ids_for(b, who, route.path, method)
+
+                async def aimed(
+                    value,
+                    who=who,
+                    ids_b=ids_b,
+                    route=route,
+                    method=method,
+                    field=field,
+                    force=force,
+                ):
+                    req, missing = _build(spec, route, method, ids_b, force)
+                    if req is None:
+                        return None, missing
+                    req["method"] = method
+                    _aim(req, field, value)
+                    return await call(b, who, req), None
+
+                resp, missing = await aimed(a["ids"][fkey])
+                if resp is None:
                     unlisted.append(f"{key}: no seeded row for {{{missing}}}")
                     break
-                req["method"] = method
-                _aim(req, field, a["ids"][fkey])
-                stats["field"] += 1
-                # A listing that filters by someone else's id may answer 200 with
-                # an empty list instead of 404, so long as none of A's data is in it.
-                dotted = ".".join(field[1])
-                resp = await call(b, who, req)
-                if (method, route.path, dotted) in INDISTINGUISHABLE and resp.status_code != 404:
-                    ghost, _ = _build(
-                        spec, route, method, _ids_for(b, who, route.path, method), force
-                    )
-                    ghost["method"] = method
-                    _aim(ghost, field, 10**9)
-                    gresp = await call(b, who, ghost)
-                    if (gresp.status_code, gresp.text) == (resp.status_code, resp.text):
-                        continue
-                    leaks.append(f"{who} {method} {route.path} [{dotted}]: differs from a ghost id")
+                label = f"{who} {method} {route.path} [{dotted}]"
+
+                async def ghost(aimed=aimed):
+                    return (await aimed(10**9))[0]
+
+                if is_role_refusal(who, method, route.path, resp):
+                    refusals.add((who, method, route.path))
                     continue
-                judge(
-                    f"{who} {method} {route.path} [{dotted}]",
+                if (method, route.path, dotted) in INDISTINGUISHABLE and resp.status_code != 404:
+                    # A validation answer instead of 404: fine only if the handler
+                    # itself answered (409/422 with a text detail), nothing of A's is
+                    # in it, and a nonexistent id gets word for word the same.
+                    body = (
+                        resp.json()
+                        if resp.headers.get("content-type", "").startswith("application/json")
+                        else {}
+                    )
+                    g = await ghost()
+                    if marker in resp.content.lower():
+                        leaks.append(f"{label} -> {resp.status_code}: contains A's data")
+                    elif not (
+                        resp.status_code in (409, 422) and isinstance(body.get("detail"), str)
+                    ):
+                        leaks.append(f"{label} -> {resp.status_code}: not a handler's refusal")
+                    elif (g.status_code, g.text) != (resp.status_code, resp.text):
+                        leaks.append(f"{label}: differs from a nonexistent id")
+                    continue
+                silent = (method, route.path, dotted) in SILENT_200
+                if silent:
+                    silent_200_seen.add((method, route.path, dotted))
+                await judge(
+                    label,
+                    who,
+                    route,
+                    method,
                     resp,
-                    allow_empty_200=(method == "GET" and not has_path_ids),
-                    silent_200=(method, route.path, dotted) in SILENT_200,
+                    ghost=ghost,
+                    # A listing filtered by someone else's id may answer 200, and a few
+                    # handlers deliberately skip an id they cannot use; either way the
+                    # answer must equal what a nonexistent id gets.
+                    accept_200=silent or (method == "GET" and not has_path_ids),
                 )
             plan.append((route, method, "field", field))
 
     after = await _fingerprint()
-    changed = {
-        t: sorted(set(before[t]) ^ set(after[t]))
-        for t in before
-        # Insert-only for the listed tables: nothing that existed may change or go.
-        if (not set(before[t]) <= set(after[t]) if t in WRITTEN_BY_READS else before[t] != after[t])
-    }
+    changed = {}
+    for t in before:
+        old, new = before[t], after[t]
+        if t in WRITTEN_BY_READS:
+            # Insert-only: nothing that existed may change or go, and every row
+            # that appeared must be one of B's own.
+            gone = sorted(set(old) - set(new))
+            foreign = sorted(
+                k for k in set(new) - set(old) if not WRITTEN_BY_READS[t][1](new[k], b)
+            )
+            if gone or foreign:
+                changed[t] = gone + foreign
+        elif old != new:
+            changed[t] = sorted(set(old) ^ set(new))
 
     # Control pass: the same calls, with ids that belong to the caller's own
-    # workspace, must succeed. Otherwise a 404 above might be about something
+    # workspace, should succeed. Otherwise a 404 above might be about something
     # else (a missing file, a bad body) and prove nothing about tenancy.
     for route, method, kind, field in plan:
         # A DELETE can only be shown to succeed once: the next caller finds the row gone.
@@ -1081,51 +1240,73 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
                 continue
             req["method"] = method
             if kind == "field":
-                fkey = _id_key(field[1][-1], route.path)
-                _aim(req, field, ws["ids"][fkey])
+                _aim(req, field, ws["ids"][_id_key(field[1][-1], route.path)])
             resp = await call(ws, who, req)
-            label = (who, method, route.path, ".".join(field[1]) if field else "")
-            if resp.status_code == 403 and resp.json().get("detail") in ROLE_REFUSALS:
-                continue  # this caller is not admitted to the route at all
-            if not 200 <= resp.status_code < 300:
-                controls.append((label, resp.status_code))
-    # The marker check above is only evidence if the marker can be seen at all.
-    a_visible = 0
-    for route, method in ops:
-        if (
-            method == "GET"
-            and not _path_int_params(spec, route, method)
-            and get_current_user in _dependency_calls(route)
-        ):
+            if is_role_refusal(who, method, route.path, resp):
+                control_refusals.add((who, method, route.path))  # not admitted at all
+            elif not 200 <= resp.status_code < 300:
+                label = (who, method, route.path, ".".join(field[1]) if field else "")
+                controls[label] = resp.status_code
+
+    # Each listing must show the marker to its owner, or the "none of A's data"
+    # check on it could never fail. Asked of A's own first admitted caller.
+    async def owner_sees_marker(route, method):
+        for who in _callers(route):
             req, _ = _build(spec, route, method, a["ids"])
             req["method"] = method
-            resp = await call(a, "tutor", req)
-            a_visible += marker in resp.content.lower()
+            if marker in (await call(a, who, req)).content.lower():
+                return True
+        return False
 
-    unexplained = sorted(k for k, _ in controls if k not in CONTROL_EXCEPTIONS)
-    stale_exceptions = sorted(set(CONTROL_EXCEPTIONS) - {k for k, _ in controls})
+    listings = [(r, m) for r, m, k, _ in plan if k == "list"]
+    invisible = [
+        f"{m} {r.path}"
+        for r, m in listings
+        if (m, r.path) not in NO_MARKER and not await owner_sees_marker(r, m)
+    ]
+    seen_invisible = {(m, r.path) for r, m in listings if (m, r.path) in NO_MARKER} - {
+        (m, r.path) for r, m in listings if await owner_sees_marker(r, m)
+    }
+
+    counts = {k: sum(p[2] == k for p in plan) for k in ("path", "field", "list")}
     seen_ops = {(m, r.path) for r, m in ops}
     stale = [k for k in UNRESOLVED if k not in seen_ops]
     stale += [k for k in FIELD_UNRESOLVED if k[:2] not in seen_ops]
+    wrong_status = {
+        k: (code, CONTROL_EXCEPTIONS[k][0])
+        for k, code in controls.items()
+        if k in CONTROL_EXCEPTIONS and CONTROL_EXCEPTIONS[k][0] != code
+    }
 
     with capsys.disabled():
         print(
-            f"\ntenancy sweep: {sum(k == 'path' for _, _, k, _ in plan)} path-id operations, "
-            f"{sum(k == 'field' for _, _, k, _ in plan)} aimed id fields, "
-            f"{sum(k == 'list' for _, _, k, _ in plan)} listings; {stats['path']} path-id calls, {stats['field']} aimed-field calls, "
-            f"{stats['list']} listing calls, {stats['calls']} requests in all, "
-            f"{len(refusals_seen)} role refusals, A's marker visible to its own tutor in "
-            f"{a_visible} listings, {time.perf_counter() - started:.1f}s"
+            f"\ntenancy sweep: {counts['path']} path-id operations, {counts['field']} aimed "
+            f"id fields, {counts['list']} listings; {stats['calls']} requests, "
+            f"{len(refusals)} role refusals, {time.perf_counter() - started:.1f}s"
         )
+    assert counts["path"] >= 120, counts
+    assert counts["field"] >= 45, counts
+    assert counts["list"] >= 40, counts
     assert not unlisted, "neither swept nor listed:\n" + "\n".join(unlisted)
     assert not leaks, "another workspace was not refused:\n" + "\n".join(leaks)
     assert not changed, f"refused requests changed rows: {changed}"
-    assert a_visible >= 10, f"A's marker shows in only {a_visible} listings; the check is hollow"
+    assert not invisible, "the owner cannot see the marker here, so the check is hollow:\n" + (
+        "\n".join(invisible)
+    )
+    assert seen_invisible == set(NO_MARKER), (
+        f"NO_MARKER out of date: {sorted(set(NO_MARKER) ^ seen_invisible)}"
+    )
+    assert refusals == EXPECTED_REFUSALS, (
+        f"role refusals changed: extra {sorted(refusals - EXPECTED_REFUSALS)}, "
+        f"missing {sorted(EXPECTED_REFUSALS - refusals)}"
+    )
+    assert control_refusals <= EXPECTED_REFUSALS, sorted(control_refusals - EXPECTED_REFUSALS)
+    assert silent_200_seen == set(SILENT_200), sorted(silent_200_seen ^ set(SILENT_200))
+    unexplained = {k: v for k, v in controls.items() if k not in CONTROL_EXCEPTIONS}
     assert not unexplained, (
-        "the owner's own call fails, so a refusal proves nothing:\n"
-        + "\n".join(f"{k} -> {code}" for k, code in controls if k in unexplained)
+        f"the owner's own call fails, so a refusal proves nothing: {unexplained}"
     )
-    assert not stale_exceptions, (
-        f"no longer failing, remove from CONTROL_EXCEPTIONS: {stale_exceptions}"
-    )
+    assert not wrong_status, f"owner status differs from CONTROL_EXCEPTIONS: {wrong_status}"
+    stale_exceptions = sorted(set(CONTROL_EXCEPTIONS) - set(controls))
+    assert not stale_exceptions, f"no longer failing, remove: {stale_exceptions}"
     assert not stale, f"listed but no longer a route: {stale}"

@@ -65,7 +65,9 @@ async def create_assessment(
     for s in body.scores:
         if not await _tutor_teaches(db, user.id, s.student_id, subject.id):
             raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
+                # 404, not 403: a student the caller does not teach may be in another
+                # workspace, and the answer must not say whether the id exists (`API-7`).
+                status.HTTP_404_NOT_FOUND,
                 "You can only enter marks for students you teach this subject",
             )
         if s.topic_id is not None:
