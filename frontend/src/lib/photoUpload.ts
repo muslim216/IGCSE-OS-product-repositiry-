@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { UploadRefused, isAbort } from "./uploadRefused";
 
 // Mirrors of the backend's limits, so a bad selection is refused before any
 // bytes leave the phone. Keep in step with:
@@ -16,14 +17,14 @@ export const JPEG_QUALITY = 0.85;
 // HEIC is deliberately absent: browsers mostly cannot decode it, and the
 // server transcodes it (storage.py). PDFs are not images.
 const SHRINKABLE = new Set(["image/jpeg", "image/png", "image/webp"]);
-
-/** A selection the server would refuse, caught first. The message is for the
-    student: it names the file and the limit. */
-export class UploadRefused extends Error {}
+// Some phones and file pickers give no MIME type at all; fall back to the name.
+const SHRINKABLE_NAME = /\.(jpe?g|png|webp)$/i;
 
 const mb = (bytes: number) => Math.ceil(bytes / (1024 * 1024));
+const cancelled = () => new DOMException("Upload cancelled", "AbortError");
 
-/** Throws `UploadRefused` for too many files, one too big, or too big together. */
+/** Throws `UploadRefused` for too many files, an empty one, one too big, or
+    too big together. */
 export function checkFiles(files: File[]): void {
   if (files.length > MAX_FILES_PER_UPLOAD) {
     throw new UploadRefused(
@@ -31,6 +32,9 @@ export function checkFiles(files: File[]): void {
     );
   }
   for (const f of files) {
+    if (f.size === 0) {
+      throw new UploadRefused(`${f.name} is empty. Pick it again, or leave it out.`);
+    }
     if (f.size > MAX_FILE_BYTES) {
       throw new UploadRefused(
         `${f.name} is too big (${mb(f.size)} MB). The limit is ${mb(MAX_FILE_BYTES)} MB per file.`,
@@ -57,80 +61,171 @@ export function shrunkSize(width: number, height: number): { w: number; h: numbe
     a shrinkable image, is small already, cannot be decoded, or would not get
     smaller. Never throws: an upload is not worth losing over an optimisation. */
 export async function shrinkImage(file: File): Promise<File> {
-  if (!SHRINKABLE.has(file.type)) return file;
+  const shrinkable = SHRINKABLE.has(file.type) || (!file.type && SHRINKABLE_NAME.test(file.name));
+  if (!shrinkable) return file;
+  let bitmap: ImageBitmap | undefined;
+  let canvas: HTMLCanvasElement | undefined;
   try {
-    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
     const size = shrunkSize(bitmap.width, bitmap.height);
-    if (!size) {
-      bitmap.close();
-      return file;
-    }
-    const canvas = document.createElement("canvas");
+    if (!size) return file;
+    canvas = document.createElement("canvas");
     canvas.width = size.w;
     canvas.height = size.h;
     const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      bitmap.close();
-      return file;
-    }
+    if (!ctx) return file;
     // JPEG has no alpha; a transparent PNG would otherwise turn black.
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, size.w, size.h);
     ctx.drawImage(bitmap, 0, 0, size.w, size.h);
-    bitmap.close();
-    const blob = await new Promise<Blob | null>((res) =>
-      canvas.toBlob(res, "image/jpeg", JPEG_QUALITY),
-    );
+    const c = canvas;
+    const blob = await new Promise<Blob | null>((res) => c.toBlob(res, "image/jpeg", JPEG_QUALITY));
     if (!blob || blob.size >= file.size) return file;
     const name = file.name.replace(/\.[^./\\]+$/, "") + ".jpg";
     return new File([blob], name, { type: "image/jpeg", lastModified: file.lastModified });
   } catch {
     return file;
+  } finally {
+    // A phone has little memory to spare across 15 photos: give both back now
+    // rather than when the garbage collector gets round to it.
+    bitmap?.close();
+    if (canvas) canvas.width = canvas.height = 0;
   }
 }
 
 /** Count check, shrink every photo, then size check on what will really be
-    sent (a 24 MB photo is usually small once shrunk). */
-export async function prepareFiles(files: File[]): Promise<File[]> {
+    sent (a 24 MB photo is usually small once shrunk). Stops between photos
+    when `signal` is aborted. */
+export async function prepareFiles(files: File[], signal?: AbortSignal): Promise<File[]> {
   if (files.length > MAX_FILES_PER_UPLOAD) checkFiles(files);
   const out: File[] = [];
-  for (const f of files) out.push(await shrinkImage(f));
+  for (const f of files) {
+    if (signal?.aborted) throw cancelled();
+    out.push(await shrinkImage(f));
+  }
+  if (signal?.aborted) throw cancelled();
   checkFiles(out);
   return out;
 }
 
+export type UploadPhase = "idle" | "preparing" | "sending" | "processing" | "reconnecting";
+
+export interface SendOptions {
+  signal: AbortSignal;
+  onProgress: (percent: number) => void;
+  onSent: () => void;
+  onReconnect: () => void;
+}
+
+export type UploadState = ReturnType<typeof useUpload>;
+
 /** Runs one hand-in: prepares the files, then calls `send` with progress and
-    an abort signal. `percent` is null before the upload starts. */
+    an abort signal. `percent` stays null until the browser reports a real
+    figure (`PROD-2`: no invented 0%). */
 export function useUpload() {
+  const [phase, setPhase] = useState<UploadPhase>("idle");
   const [percent, setPercent] = useState<number | null>(null);
-  const [preparing, setPreparing] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
+  const [wasCancelled, setWasCancelled] = useState(false);
+  const [attention, setAttention] = useState(0);
   const ctl = useRef<AbortController | null>(null);
+  const milestone = useRef(0);
+  const submitRef = useRef<HTMLButtonElement>(null);
+
+  // Leaving the page must not leave a request running that nobody can cancel.
+  useEffect(() => () => ctl.current?.abort(), []);
 
   const run = useCallback(
-    async <T>(
-      files: File[],
-      send: (
-        prepared: File[],
-        opts: { signal: AbortSignal; onProgress: (p: number) => void },
-      ) => Promise<T>,
-    ): Promise<T> => {
+    async <T>(files: File[], send: (prepared: File[], opts: SendOptions) => Promise<T>) => {
+      ctl.current?.abort();
       const c = new AbortController();
       ctl.current = c;
+      // A late callback from a superseded run must not touch the new one's state.
+      const mine = () => ctl.current === c;
+      milestone.current = 0;
+      setWasCancelled(false);
       setPercent(null);
-      setPreparing(true);
+      setPhase("preparing");
+      setAnnouncement("Getting your photos ready");
       try {
-        const prepared = await prepareFiles(files);
-        if (c.signal.aborted) throw new DOMException("Upload cancelled", "AbortError");
-        setPreparing(false);
-        setPercent(0);
-        return await send(prepared, { signal: c.signal, onProgress: setPercent });
+        const prepared = await prepareFiles(files, c.signal);
+        if (!mine()) throw cancelled();
+        setPhase("sending");
+        setAnnouncement("Sending");
+        const result = await send(prepared, {
+          signal: c.signal,
+          onProgress: (p) => {
+            if (!mine()) return;
+            setPercent(p);
+            if (p >= 100) {
+              setPhase("processing");
+              return;
+            }
+            setPhase("sending");
+            // Milestones only: a screen reader reading every percent is noise.
+            const m = [75, 50, 25].find((x) => p >= x) ?? 0;
+            if (m > milestone.current) {
+              milestone.current = m;
+              setAnnouncement(`Sending, ${m} percent`);
+            }
+          },
+          onSent: () => {
+            if (!mine()) return;
+            setPhase("processing");
+            setAnnouncement("Processing");
+          },
+          onReconnect: () => {
+            if (!mine()) return;
+            milestone.current = 0;
+            setPercent(null);
+            setPhase("reconnecting");
+            setAnnouncement("Reconnecting");
+          },
+        });
+        if (mine()) setAnnouncement("Sent");
+        return result;
+      } catch (e) {
+        if (mine()) {
+          if (isAbort(e)) {
+            setWasCancelled(true);
+            setAnnouncement("Upload cancelled. Your files are still here.");
+          } else {
+            setAnnouncement("");
+          }
+          setAttention((n) => n + 1);
+        }
+        throw e;
       } finally {
-        setPreparing(false);
-        setPercent(null);
+        if (mine()) {
+          setPhase("idle");
+          setPercent(null);
+        }
       }
     },
     [],
   );
   const cancel = useCallback(() => ctl.current?.abort(), []);
-  return { percent, preparing, run, cancel };
+  return {
+    phase,
+    percent,
+    announcement,
+    cancelled: wasCancelled,
+    attention,
+    submitRef,
+    run,
+    cancel,
+  };
+}
+
+/** After a refusal, failure or cancel, put focus back on the submit button so
+    the retry is one key press away. Waits until the button is enabled again. */
+export function useFocusSubmitOnFailure(up: UploadState, isPending: boolean) {
+  const handled = useRef(0);
+  const ref: RefObject<HTMLButtonElement | null> = up.submitRef;
+  useEffect(() => {
+    if (!isPending && up.attention !== handled.current) {
+      handled.current = up.attention;
+      ref.current?.focus();
+    }
+  });
 }

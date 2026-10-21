@@ -273,8 +273,12 @@ export async function api<T>(path: string, options: RequestInit = {}, retry = tr
 }
 
 export interface UploadOptions {
-  /** Called with 0-100 as the request body goes out. */
+  /** 0-100, only when the browser can say how big the body is. */
   onProgress?: (percent: number) => void;
+  /** Every byte has gone out; the server is now working on it. */
+  onSent?: () => void;
+  /** A 401 is being refreshed and the body will go out again from the start. */
+  onReconnect?: () => void;
   /** Aborting rejects with an `AbortError` DOMException. */
   signal?: AbortSignal;
 }
@@ -290,9 +294,10 @@ export interface UploadOptions {
 export function upload<T>(
   path: string,
   form: FormData,
-  { onProgress, signal }: UploadOptions = {},
+  opts: UploadOptions = {},
   retry = true,
 ): Promise<T> {
+  const { onProgress, onSent, onReconnect, signal } = opts;
   const tokens = getStoredTokens();
   return new Promise<T>((resolve, reject) => {
     const aborted = () => new DOMException("Upload cancelled", "AbortError");
@@ -301,11 +306,13 @@ export function upload<T>(
     xhr.open("POST", apiUrl(path));
     xhr.withCredentials = true;
     if (tokens) xhr.setRequestHeader("Authorization", `Bearer ${tokens.access_token}`);
+    // Not computable means no honest percentage; say nothing rather than guess.
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && e.total > 0) {
         onProgress?.(Math.round((e.loaded / e.total) * 100));
       }
     };
+    xhr.upload.onload = () => onSent?.();
     const onAbort = () => xhr.abort();
     signal?.addEventListener("abort", onAbort);
     const done = () => signal?.removeEventListener("abort", onAbort);
@@ -318,25 +325,37 @@ export function upload<T>(
       done();
       reject(new TypeError("Network request failed"));
     };
-    xhr.onload = async () => {
+    const settle = async () => {
       done();
       if (xhr.status === 401 && tokens && retry) {
         const fresh = await refreshTokens().catch(() => null);
         if (fresh) {
-          onProgress?.(0);
-          upload<T>(path, form, { onProgress, signal }, false).then(resolve, reject);
+          onReconnect?.();
+          resolve(await upload<T>(path, form, opts, false));
           return;
         }
       }
       let body: unknown = null;
-      try {
-        body = xhr.responseText ? JSON.parse(xhr.responseText) : null;
-      } catch {
-        // non-JSON body
+      let parsed = true;
+      if (xhr.responseText) {
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          parsed = false;
+        }
       }
-      if (xhr.status >= 200 && xhr.status < 300) return resolve(body as T);
-      const parsed = parseErrorBody(body);
-      reject(new ApiError(xhr.status, parsed.detail || xhr.statusText, parsed.fields));
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (!parsed) throw new ApiError(xhr.status, "The server's answer couldn't be read.");
+        resolve((xhr.status === 204 || !xhr.responseText ? undefined : body) as T);
+        return;
+      }
+      const err = parseErrorBody(body);
+      throw new ApiError(xhr.status, err.detail || xhr.statusText, err.fields);
+    };
+    // An async handler's failure is otherwise an unhandled rejection and a
+    // promise that never settles — a spinner nobody can dismiss.
+    xhr.onload = () => {
+      settle().catch(reject);
     };
     xhr.send(form);
   });

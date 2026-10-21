@@ -5,8 +5,9 @@ import { AlertTriangle, CheckCircle2, Timer } from "lucide-react";
 import { getMock, mockPaperPath, myMockSubmission, openMock, sitMock } from "../api/mocks";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
-import { Button, Field, FileInput, Textarea, UploadProgress } from "../components/controls";
-import { useUpload } from "../lib/photoUpload";
+import { Button, Field, FileInput, Textarea, UploadStatus } from "../components/controls";
+import { useFocusSubmitOnFailure, useUpload } from "../lib/photoUpload";
+import { isAbort } from "../lib/uploadRefused";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
@@ -92,8 +93,11 @@ export default function SitMockPage() {
       queryClient.invalidateQueries({ queryKey: ["my-mock-submission", id] });
     },
     onError: (err) =>
-      setError(friendlyError(err, "Your answers couldn't be handed in. Try again.")),
+      setError(
+        isAbort(err) ? null : friendlyError(err, "Your answers couldn't be handed in. Try again."),
+      ),
   });
+  useFocusSubmitOnFailure(up, submit.isPending);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -230,12 +234,7 @@ export default function SitMockPage() {
               <Textarea value={typed} onChange={(e) => setTyped(e.target.value)} rows={6} />
             </Field>
 
-            {error && (
-              <p role="alert" aria-live="assertive" className="text-sm text-risk-600">
-                {error}
-              </p>
-            )}
-            <UploadProgress percent={up.percent} preparing={up.preparing} onCancel={up.cancel} />
+            <UploadStatus up={up} error={error} />
             {clock.isPending && <p className="text-sm text-ink-500">Starting your clock…</p>}
             {clock.isError && (
               <p className="text-sm text-warn-700">
@@ -250,6 +249,7 @@ export default function SitMockPage() {
                 answers is worse than losing the measurement. And a late hand-in
                 is accepted in full and flagged, which is the point of `AV-116`. */}
             <Button
+              ref={up.submitRef}
               type="submit"
               loading={submit.isPending}
               disabled={

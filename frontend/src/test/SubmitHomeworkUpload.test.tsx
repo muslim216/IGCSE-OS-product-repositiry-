@@ -86,9 +86,28 @@ test("a failed upload keeps the files so the retry needs no re-picking", async (
 
 test("progress shows as an accessible bar with a percentage, and can be cancelled", () => {
   const onCancel = vi.fn();
-  render(<UploadProgress percent={42} preparing={false} onCancel={onCancel} />);
+  render(<UploadProgress phase="sending" percent={42} onCancel={onCancel} />);
   expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "42");
   expect(screen.getByText("42%")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel upload" }));
   expect(onCancel).toHaveBeenCalled();
+});
+
+test("no number before the first real progress event", () => {
+  render(<UploadProgress phase="sending" percent={null} onCancel={vi.fn()} />);
+  expect(screen.getByText("Sending…")).toBeInTheDocument();
+  expect(screen.queryByText(/%/)).toBeNull();
+  expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+});
+
+test("once every byte is sent it says Processing and offers no Cancel", () => {
+  render(<UploadProgress phase="processing" percent={100} onCancel={vi.fn()} />);
+  expect(screen.getByText("Processing…")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Cancel upload" })).toBeNull();
+});
+
+test("a 401 refresh reads Reconnecting, not 0%", () => {
+  render(<UploadProgress phase="reconnecting" percent={null} onCancel={vi.fn()} />);
+  expect(screen.getByText("Reconnecting…")).toBeInTheDocument();
+  expect(screen.queryByText("0%")).toBeNull();
 });

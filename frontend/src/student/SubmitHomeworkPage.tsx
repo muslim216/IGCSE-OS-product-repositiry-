@@ -11,8 +11,9 @@ import {
   type StudentMarkRow,
 } from "../api/homework";
 import { ApiError } from "../api/client";
-import { Button, Field, FileInput, Textarea, UploadProgress } from "../components/controls";
-import { useUpload } from "../lib/photoUpload";
+import { Button, Field, FileInput, Textarea, UploadStatus } from "../components/controls";
+import { useFocusSubmitOnFailure, useUpload } from "../lib/photoUpload";
+import { isAbort } from "../lib/uploadRefused";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
@@ -56,8 +57,10 @@ export default function SubmitHomeworkPage() {
       queryClient.invalidateQueries({ queryKey: ["my-submission", id] });
       queryClient.invalidateQueries({ queryKey: ["my-assignments"] });
     },
-    onError: (err) => setError(friendlyError(err, "Your work couldn't be sent. Try again.")),
+    onError: (err) =>
+      setError(isAbort(err) ? null : friendlyError(err, "Your work couldn't be sent. Try again.")),
   });
+  useFocusSubmitOnFailure(up, submit.isPending);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -190,14 +193,10 @@ export default function SubmitHomeworkPage() {
                   placeholder={"1. ...\n2. ..."}
                 />
               </Field>
-              {error && (
-                <p role="alert" aria-live="assertive" className="text-sm text-risk-600">
-                  {error}
-                </p>
-              )}
-              <UploadProgress percent={up.percent} preparing={up.preparing} onCancel={up.cancel} />
+              <UploadStatus up={up} error={error} />
               {/* Channel-neutral: typed-only work uploads nothing (cubic). */}
               <Button
+                ref={up.submitRef}
                 type="submit"
                 loading={submit.isPending}
                 disabled={files.length === 0 && typed.trim() === ""}

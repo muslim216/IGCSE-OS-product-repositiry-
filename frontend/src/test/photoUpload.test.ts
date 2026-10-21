@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { renderHook, act } from "@testing-library/react";
+import { UploadRefused } from "../lib/uploadRefused";
 import {
   MAX_FILE_BYTES,
   MAX_FILES_PER_UPLOAD,
-  UploadRefused,
   checkFiles,
   prepareFiles,
+  useUpload,
   shrinkImage,
   shrunkSize,
 } from "../lib/photoUpload";
@@ -28,8 +30,11 @@ function mockImaging(width: number, height: number, outBytes: number) {
     width: 0,
     height: 0,
     getContext: () => ctx,
-    toBlob: (cb: (b: Blob | null) => void) =>
-      cb(new Blob([new Uint8Array(outBytes)], { type: "image/jpeg" })),
+    seen: [0, 0] as number[],
+    toBlob(cb: (b: Blob | null) => void) {
+      canvas.seen = [canvas.width, canvas.height];
+      cb(new Blob([new Uint8Array(outBytes)], { type: "image/jpeg" }));
+    },
   };
   vi.spyOn(document, "createElement").mockReturnValue(canvas as unknown as HTMLElement);
   return { bitmap, canvas, ctx };
@@ -59,7 +64,9 @@ describe("shrinkImage", () => {
     expect(createImageBitmap).toHaveBeenCalledWith(expect.anything(), {
       imageOrientation: "from-image",
     });
-    expect([canvas.width, canvas.height]).toEqual([2000, 1500]);
+    expect(canvas.seen).toEqual([2000, 1500]);
+    // and handed back once the blob exists
+    expect([canvas.width, canvas.height]).toEqual([0, 0]);
     expect(toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.85);
     expect(out.name).toBe("page-1.jpg");
     expect(out.type).toBe("image/jpeg");
@@ -131,5 +138,117 @@ describe("prepareFiles", () => {
     await expect(prepareFiles([fakeFile("scan.pdf", "application/pdf", 24 * MB)])).rejects.toThrow(
       "scan.pdf is too big",
     );
+  });
+});
+
+describe("edge cases", () => {
+  test("an empty file is refused by name", () => {
+    expect(() => checkFiles([fakeFile("blank.jpg", "image/jpeg", 0)])).toThrow(
+      "blank.jpg is empty",
+    );
+  });
+
+  test("a file with no MIME type but a .jpg name is still shrunk", async () => {
+    mockImaging(4000, 3000, 300_000);
+    const out = await shrinkImage(fakeFile("IMG_9.JPG", "", 5 * MB));
+    expect(out.type).toBe("image/jpeg");
+    expect(out.size).toBe(300_000);
+  });
+
+  test("the bitmap is closed even when drawing throws", async () => {
+    const { bitmap, ctx } = mockImaging(4000, 3000, 1000);
+    ctx.drawImage.mockImplementation(() => {
+      throw new Error("out of memory");
+    });
+    const f = fakeFile("a.jpg", "image/jpeg", 5 * MB);
+    expect(await shrinkImage(f)).toBe(f);
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+  });
+
+  test("cancelling while preparing stops before the next photo", async () => {
+    const decode = vi.fn(async () => ({ width: 100, height: 100, close: vi.fn() }));
+    vi.stubGlobal("createImageBitmap", decode);
+    const ac = new AbortController();
+    decode.mockImplementationOnce(async () => {
+      ac.abort();
+      return { width: 100, height: 100, close: vi.fn() };
+    });
+    const files = [1, 2, 3].map((i) => fakeFile(`p${i}.jpg`, "image/jpeg", MB));
+    await expect(prepareFiles(files, ac.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(decode).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useUpload", () => {
+  const pdf = () => fakeFile("a.pdf", "application/pdf", 1000);
+
+  test("leaving the page aborts the request in flight", async () => {
+    let signal!: AbortSignal;
+    const { result, unmount } = renderHook(() => useUpload());
+    let p!: Promise<unknown>;
+    act(() => {
+      p = result.current.run([pdf()], (_f, o) => {
+        signal = o.signal;
+        return new Promise(() => {});
+      });
+      p.catch(() => {});
+    });
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    expect(signal.aborted).toBe(false);
+    unmount();
+    expect(signal.aborted).toBe(true);
+  });
+
+  test("a new run aborts the old one, and the old one's end leaves the new state alone", async () => {
+    const signals: AbortSignal[] = [];
+    let release1!: () => void;
+    const { result } = renderHook(() => useUpload());
+    let first!: Promise<unknown>;
+    act(() => {
+      first = result.current.run([pdf()], (_f, o) => {
+        signals.push(o.signal);
+        return new Promise((_res, rej) => {
+          release1 = () => rej(new DOMException("x", "AbortError"));
+        });
+      });
+      first.catch(() => {});
+    });
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    act(() => {
+      result.current.run([pdf()], (_f, o) => {
+        signals.push(o.signal);
+        o.onProgress(40);
+        return new Promise(() => {});
+      });
+    });
+    await vi.waitFor(() => expect(result.current.percent).toBe(40));
+    expect(signals[0].aborted).toBe(true);
+    await act(async () => {
+      release1();
+      await first.catch(() => {});
+    });
+    // the first run finishing must not reset the second's bar or mark a cancel
+    expect(result.current.percent).toBe(40);
+    expect(result.current.phase).toBe("sending");
+    expect(result.current.cancelled).toBe(false);
+  });
+
+  test("no percent is shown until the browser reports one, and 100 means processing", async () => {
+    const { result } = renderHook(() => useUpload());
+    let emit!: (p: number) => void;
+    act(() => {
+      result.current
+        .run([pdf()], (_f, o) => {
+          emit = o.onProgress;
+          return new Promise(() => {});
+        })
+        .catch(() => {});
+    });
+    await vi.waitFor(() => expect(result.current.phase).toBe("sending"));
+    expect(result.current.percent).toBeNull();
+    act(() => emit(50));
+    expect(result.current.announcement).toBe("Sending, 50 percent");
+    act(() => emit(100));
+    expect(result.current.phase).toBe("processing");
   });
 });

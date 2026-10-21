@@ -12,6 +12,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import type { UploadPhase, UploadState } from "../lib/photoUpload";
 import { Loader2, Upload } from "lucide-react";
 
 /* Form and action primitives. Before these existed every page hand-rolled its
@@ -266,48 +267,83 @@ export function FileInput({
   );
 }
 
-/** Upload progress with a cancel button. While `preparing`, the photos are
-    still being made smaller and nothing has been sent. */
+/** The bar and Cancel for one upload. No number until the browser reports one,
+    and no Cancel once every byte is sent: the server is then committing the
+    hand-in, and aborting would only leave the student unsure whether it
+    counted (they would send it again). */
 export function UploadProgress({
+  phase,
   percent,
-  preparing,
   onCancel,
 }: {
+  phase: UploadPhase;
   percent: number | null;
-  preparing: boolean;
   onCancel: () => void;
 }) {
-  if (!preparing && percent === null) return null;
+  const labelId = useId();
+  if (phase === "idle") return null;
+  const label =
+    phase === "preparing"
+      ? "Getting your photos ready…"
+      : phase === "processing"
+        ? "Processing…"
+        : phase === "reconnecting"
+          ? "Reconnecting…"
+          : "Sending…";
+  const known = phase === "sending" && percent !== null;
+  const full = phase === "processing";
   return (
     <div className="space-y-2" data-testid="upload-progress">
-      {preparing ? (
-        <p className="text-sm text-ink-700" role="status">
-          Getting your photos ready…
-        </p>
-      ) : (
-        <>
-          <div className="flex items-center justify-between text-sm text-ink-700">
-            <span>Sending…</span>
-            <span className="tabular-nums">{percent}%</span>
-          </div>
+      <div className="flex items-center justify-between text-sm text-ink-700">
+        <span id={labelId}>{label}</span>
+        {known && <span className="tabular-nums">{percent}%</span>}
+      </div>
+      {phase !== "preparing" && (
+        <div
+          role="progressbar"
+          aria-labelledby={labelId}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={known ? percent : full ? 100 : undefined}
+          aria-valuetext={known ? `${percent} percent sent` : label.replace("…", "")}
+          className="h-2 overflow-hidden rounded-full bg-surface-muted"
+        >
           <div
-            role="progressbar"
-            aria-label="Upload progress"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent ?? 0}
-            className="h-2 overflow-hidden rounded-full bg-surface-muted"
-          >
-            <div
-              className="h-full bg-brand-600 transition-[width]"
-              style={{ width: `${percent ?? 0}%` }}
-            />
-          </div>
-        </>
+            className={`h-full bg-brand-600 transition-[width] ${known ? "" : "animate-pulse"}`}
+            style={{ width: known ? `${percent}%` : full ? "100%" : "35%" }}
+          />
+        </div>
       )}
-      <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-        Cancel
-      </Button>
+      {phase !== "processing" && (
+        <Button type="button" variant="ghost" size="lg" onClick={onCancel}>
+          Cancel upload
+        </Button>
+      )}
     </div>
+  );
+}
+
+/** Everything a hand-in form shows about its upload, in one place: a polite
+    status region that is always mounted (a region added with its text already
+    in it is often not announced), the bar, a blocking error, and the cancel
+    note. */
+export function UploadStatus({ up, error }: { up: UploadState; error: string | null }) {
+  return (
+    <>
+      <p role="status" className="sr-only">
+        {up.announcement}
+      </p>
+      {error && (
+        <p role="alert" className="text-sm text-risk-600">
+          {error}
+        </p>
+      )}
+      {up.cancelled && !error && (
+        <p className="text-sm text-ink-700">
+          Upload cancelled. Your files are still here — press the button to send them again.
+        </p>
+      )}
+      <UploadProgress phase={up.phase} percent={up.percent} onCancel={up.cancel} />
+    </>
   );
 }

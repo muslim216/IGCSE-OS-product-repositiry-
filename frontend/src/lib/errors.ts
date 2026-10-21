@@ -1,5 +1,5 @@
 import { ApiError } from "../api/client";
-import { UploadRefused } from "./photoUpload";
+import { UploadRefused, isAbort } from "./uploadRefused";
 
 /**
  * The sentence a person sees when something fails.
@@ -13,7 +13,7 @@ import { UploadRefused } from "./photoUpload";
 export function friendlyError(err: unknown, fallback = "Something went wrong. Try again."): string {
   // Refused before sending: the message already names the file and the limit.
   if (err instanceof UploadRefused) return err.message;
-  if (err instanceof DOMException && err.name === "AbortError") {
+  if (isAbort(err)) {
     return "Upload cancelled. Your files are still here — press the button to send them again.";
   }
   if (err instanceof ApiError) {

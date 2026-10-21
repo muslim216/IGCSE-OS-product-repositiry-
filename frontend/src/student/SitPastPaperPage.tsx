@@ -5,8 +5,9 @@ import { CheckCircle2, Clock } from "lucide-react";
 import { getPastPaper, logAttempt, myAttempt, pastPaperPaperPath } from "../api/pastPapers";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
-import { Button, Field, FileInput, Input, UploadProgress } from "../components/controls";
-import { useUpload } from "../lib/photoUpload";
+import { Button, Field, FileInput, Input, UploadStatus } from "../components/controls";
+import { useFocusSubmitOnFailure, useUpload } from "../lib/photoUpload";
+import { isAbort } from "../lib/uploadRefused";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
@@ -71,8 +72,12 @@ export default function SitPastPaperPage() {
       setPickerKey((k) => k + 1);
       queryClient.invalidateQueries({ queryKey: ["past-paper-attempt", id] });
     },
-    onError: (err) => setError(friendlyError(err, "Your answers couldn't be uploaded. Try again.")),
+    onError: (err) =>
+      setError(
+        isAbort(err) ? null : friendlyError(err, "Your answers couldn't be uploaded. Try again."),
+      ),
   });
+  useFocusSubmitOnFailure(up, submit.isPending);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -225,13 +230,13 @@ export default function SitPastPaperPage() {
               </p>
             </div>
 
-            {error && (
-              <p role="alert" aria-live="assertive" className="text-sm text-risk-600">
-                {error}
-              </p>
-            )}
-            <UploadProgress percent={up.percent} preparing={up.preparing} onCancel={up.cancel} />
-            <Button type="submit" loading={submit.isPending} disabled={files.length === 0}>
+            <UploadStatus up={up} error={error} />
+            <Button
+              ref={up.submitRef}
+              type="submit"
+              loading={submit.isPending}
+              disabled={files.length === 0}
+            >
               Submit for marking
             </Button>
           </form>
