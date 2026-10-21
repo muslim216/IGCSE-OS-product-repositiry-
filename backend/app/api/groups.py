@@ -192,7 +192,7 @@ async def delete_group(group_id: int, db: DbSession, user: TutorUser) -> None:
     await db.commit()
 
 
-@router.get("/{group_id}/invites", response_model=list[InviteOut])
+@router.get("/{group_id}/invites")
 async def list_live_invites(group_id: int, db: DbSession, user: TutorUser) -> list[InviteOut]:
     """The class's live join links (at most one, since a new link revokes the old)."""
     group = await _owned_group(db, user, group_id)
@@ -229,7 +229,7 @@ async def revoke_invites(group_id: int, db: DbSession, user: TutorUser) -> None:
     await db.commit()
 
 
-@router.get("/{group_id}/removals", response_model=list[RemovedStudentOut])
+@router.get("/{group_id}/removals")
 async def list_removals(group_id: int, db: DbSession, user: TutorUser) -> list[RemovedStudentOut]:
     """Students removed from this class who cannot rejoin by link."""
     group = await _owned_group(db, user, group_id)

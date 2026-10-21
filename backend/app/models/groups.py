@@ -17,6 +17,8 @@ from app.models.base import Base, TimestampMixin
 from app.models.syllabus import Subject
 from app.models.users import User
 
+_ORGANIZATIONS_ID = "organizations.id"
+
 
 class Group(TimestampMixin, Base):
     """A class. Deleting one is soft: `deleted_at` hides it, nothing is removed.
@@ -33,7 +35,7 @@ class Group(TimestampMixin, Base):
     __tablename__ = "groups"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[int] = mapped_column(ForeignKey(_ORGANIZATIONS_ID), nullable=False)
     tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -75,9 +77,7 @@ class TaughtBeforeTopic(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(
-        ForeignKey(
-            "organizations.id", name="fk_taught_before_topics_organization_id_organizations"
-        ),
+        ForeignKey(_ORGANIZATIONS_ID, name="fk_taught_before_topics_organization_id_organizations"),
         nullable=False,
     )
     # Deleting a class removes these through ON DELETE CASCADE, as for its plans
@@ -148,7 +148,7 @@ class GroupRemoval(TimestampMixin, Base):
     __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_group_removals_group_user"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[int] = mapped_column(ForeignKey(_ORGANIZATIONS_ID), nullable=False)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     removed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
