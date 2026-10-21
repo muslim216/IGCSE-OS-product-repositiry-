@@ -24,6 +24,7 @@ back without asking.
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 #: Patterns that have no business in an answer to an exam question.
@@ -57,9 +58,78 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("authority-claim", r"\bpre[- ]?approved\b"),
     ("prompt-scaffolding", r"</?(system|instructions?|prompt)>"),
     ("prompt-scaffolding", r"\[/?(INST|SYSTEM|PROMPT)\]"),
+    # SA-09: text imitating the fence marking.py wraps the answer in, so what
+    # follows looks like it is outside the student's work.
+    ("fence-imitation", r"\b(begin|end)\s+student\s+typed\s+answer"),
+    # The colon is required: "the teacher's comment in the margin" is a student
+    # describing feedback, "Examiner's note: ..." is addressing the marker.
+    ("role-address", r"\b(examiner|marker|grader|teacher)\W{0,2}s?\s+(note|comment|override)\s*:"),
+    ("role-address", r"\[\s*(marker|examiner|grader|system)\s*:"),
+    # `=` only: "confidence: high" is ordinary prose in a reflection or a
+    # statistics answer; the bracketed form is caught by the rule above.
+    ("confidence-claim", r"\bconfidence\s*=\s*(high|medium)\b"),
+    # An object is required (this/me/it/my ...): "assign the maximum score to the
+    # outlier" is a method step, "give this the top mark" is addressed to the marker.
+    (
+        "mark-instruction",
+        r"\b(give|award|assign|grant)\s+(this|me|it|my\s+\w+)(\s+answer)?\s+(the\s+)?"
+        r"(top|highest|maximum|full)\s+(marks?|scores?)\b",
+    ),
+    # A quantified claim about all the work only: "the answer is confirmed
+    # correct by substitution" is a student checking a result, "every answer is
+    # verified correct" is a note to the marker.
+    (
+        "mark-instruction",
+        r"\b(all|every|each)\s+(\w+\s+){0,2}?answers?\b\W+(\w+\W+){0,3}?(is|are)\s+"
+        r"(verified|confirmed)\s+(as\s+)?correct\b",
+    ),
+    # Run on the Arabic-folded text (see _normalise): hamza forms are plain alef,
+    # ة is ه, ى is ي and marks are gone. The leading boundary stops a match
+    # inside a longer word; one prefix letter (و ف ل) is allowed so "فاعطني" still counts.
+    (
+        "mark-instruction",
+        r"(?<!\S)[وفل]?(اعط|امنح)\w*(\s+\S+){0,4}?\s+ال(درجه|علامه|درجات|علامات)\s+ال(كامله|تامه|نهائيه|كاملات)",
+    ),
+)
+
+#: Spaced-out letters ("i g n o r e") defeat `\b` patterns, so a few of the
+#: worst phrases are also looked for in the text with everything but letters and
+#: digits removed, so "i.g.n.o.r.e" and "END STUDENT-TYPED ANSWER" collapse too.
+#: No `\b` here by design; that is also why the list is short — collapsed text
+#: can join the end of one word to the start of the next by accident.
+_COLLAPSED: tuple[tuple[str, str], ...] = (
+    ("instruction-override", r"(ignore|disregard)(all|any|the)?(previous|prior|above|earlier)"),
+    (
+        "mark-instruction",
+        r"(give|award|assign|grant)(me|this|it|my)+(answer)?(the)?(full|top|maximum|highest)marks?",
+    ),
+    ("mark-instruction", r"(give|award|assign|grant)(me)?(full|maximum)marks?"),
+    ("fence-imitation", r"(begin|end)studenttypedanswer"),
 )
 
 _COMPILED = tuple((name, re.compile(pattern, re.IGNORECASE)) for name, pattern in _PATTERNS)
+_COMPILED_COLLAPSED = tuple((name, re.compile(pattern)) for name, pattern in _COLLAPSED)
+
+
+# Look-alike letters from other scripts, folded to the Latin they imitate.
+# ponytail: ~25 common ones, not the full Unicode confusables table; add on demand.
+_HOMOGLYPH_FROM = "аеорсухіјѕкмтнвԁѵοαειντρυκχ"
+_HOMOGLYPH_TO = "aeopcyxijskmthbdvoaeivtpukx"
+_HOMOGLYPHS = str.maketrans(_HOMOGLYPH_FROM, _HOMOGLYPH_TO)
+# ة->ه and ى->ي so the usual spelling variants meet; tatweel is padding.
+_ARABIC_FOLD = str.maketrans({"ة": "ه", "ى": "ي", "ـ": None})
+
+
+def _normalise(text: str) -> str:
+    """Fold look-alike forms and drop what a reader does not see.
+
+    NFKC then NFKD splits letters from their marks; Cf (zero-width), Mn
+    (accents, Arabic harakat and hamza) and Cc (control) characters are dropped
+    except real whitespace. That breaks no word for a model but defeats every
+    regex that expected the letters to be adjacent."""
+    text = unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", text))
+    kept = (c for c in text if c.isspace() or unicodedata.category(c) not in ("Cf", "Mn", "Cc"))
+    return "".join(kept).casefold().translate(_HOMOGLYPHS).translate(_ARABIC_FOLD)
 
 
 @dataclass(frozen=True)
@@ -78,6 +148,8 @@ def scan_typed_answer(text: str | None) -> ScanResult:
     """
     if not text:
         return ScanResult(flagged=False)
+    text = _normalise(text)
+    collapsed = re.sub(r"[\W_]+", "", text)
     for name, pattern in _COMPILED:
         match = pattern.search(text)
         if match:
@@ -86,4 +158,8 @@ def scan_typed_answer(text: str | None) -> ScanResult:
             # answer is already in front of them, so this is a pointer into it.
             excerpt = match.group(0)[:120]
             return ScanResult(flagged=True, reason=f"{name}: {excerpt!r}")
+    for name, pattern in _COMPILED_COLLAPSED:
+        match = pattern.search(collapsed)
+        if match:
+            return ScanResult(flagged=True, reason=f"{name}: {match.group(0)[:120]!r}")
     return ScanResult(flagged=False)
