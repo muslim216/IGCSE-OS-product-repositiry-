@@ -11,7 +11,8 @@ import {
   type StudentMarkRow,
 } from "../api/homework";
 import { ApiError } from "../api/client";
-import { Button, Field, FileInput, Textarea } from "../components/controls";
+import { Button, Field, FileInput, Textarea, UploadProgress } from "../components/controls";
+import { useUpload } from "../lib/photoUpload";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
@@ -45,8 +46,9 @@ export default function SubmitHomeworkPage() {
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const up = useUpload();
   const submit = useMutation({
-    mutationFn: () => submitWork(id, files, typed),
+    mutationFn: () => up.run(files, (prepared, o) => submitWork(id, prepared, typed, o)),
     onSuccess: () => {
       setFiles([]);
       setPickerKey((k) => k + 1);
@@ -189,10 +191,11 @@ export default function SubmitHomeworkPage() {
                 />
               </Field>
               {error && (
-                <p role="alert" className="text-sm text-risk-600">
+                <p role="alert" aria-live="assertive" className="text-sm text-risk-600">
                   {error}
                 </p>
               )}
+              <UploadProgress percent={up.percent} preparing={up.preparing} onCancel={up.cancel} />
               {/* Channel-neutral: typed-only work uploads nothing (cubic). */}
               <Button
                 type="submit"

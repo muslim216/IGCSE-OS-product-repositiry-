@@ -265,3 +265,49 @@ export function FileInput({
     </label>
   );
 }
+
+/** Upload progress with a cancel button. While `preparing`, the photos are
+    still being made smaller and nothing has been sent. */
+export function UploadProgress({
+  percent,
+  preparing,
+  onCancel,
+}: {
+  percent: number | null;
+  preparing: boolean;
+  onCancel: () => void;
+}) {
+  if (!preparing && percent === null) return null;
+  return (
+    <div className="space-y-2" data-testid="upload-progress">
+      {preparing ? (
+        <p className="text-sm text-ink-700" role="status">
+          Getting your photos ready…
+        </p>
+      ) : (
+        <>
+          <div className="flex items-center justify-between text-sm text-ink-700">
+            <span>Sending…</span>
+            <span className="tabular-nums">{percent}%</span>
+          </div>
+          <div
+            role="progressbar"
+            aria-label="Upload progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent ?? 0}
+            className="h-2 overflow-hidden rounded-full bg-surface-muted"
+          >
+            <div
+              className="h-full bg-brand-600 transition-[width]"
+              style={{ width: `${percent ?? 0}%` }}
+            />
+          </div>
+        </>
+      )}
+      <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+        Cancel
+      </Button>
+    </div>
+  );
+}

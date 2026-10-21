@@ -5,7 +5,8 @@ import { CheckCircle2, Clock } from "lucide-react";
 import { getPastPaper, logAttempt, myAttempt, pastPaperPaperPath } from "../api/pastPapers";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
-import { Button, Field, FileInput, Input } from "../components/controls";
+import { Button, Field, FileInput, Input, UploadProgress } from "../components/controls";
+import { useUpload } from "../lib/photoUpload";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
@@ -50,14 +51,21 @@ export default function SitPastPaperPage() {
   const [minutes, setMinutes] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const up = useUpload();
   const submit = useMutation({
     mutationFn: () =>
-      logAttempt(id, {
-        files,
-        attempted_at: attemptedAt,
-        timed,
-        time_taken_minutes: minutes ? Number(minutes) : null,
-      }),
+      up.run(files, (prepared, o) =>
+        logAttempt(
+          id,
+          {
+            files: prepared,
+            attempted_at: attemptedAt,
+            timed,
+            time_taken_minutes: minutes ? Number(minutes) : null,
+          },
+          o,
+        ),
+      ),
     onSuccess: () => {
       setFiles([]);
       setPickerKey((k) => k + 1);
@@ -218,10 +226,11 @@ export default function SitPastPaperPage() {
             </div>
 
             {error && (
-              <p role="alert" className="text-sm text-risk-600">
+              <p role="alert" aria-live="assertive" className="text-sm text-risk-600">
                 {error}
               </p>
             )}
+            <UploadProgress percent={up.percent} preparing={up.preparing} onCancel={up.cancel} />
             <Button type="submit" loading={submit.isPending} disabled={files.length === 0}>
               Submit for marking
             </Button>

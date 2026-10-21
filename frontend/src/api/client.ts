@@ -271,3 +271,73 @@ export async function api<T>(path: string, options: RequestInit = {}, retry = tr
   if (resp.status === 204) return undefined as T;
   return (await resp.json()) as T;
 }
+
+export interface UploadOptions {
+  /** Called with 0-100 as the request body goes out. */
+  onProgress?: (percent: number) => void;
+  /** Aborting rejects with an `AbortError` DOMException. */
+  signal?: AbortSignal;
+}
+
+/**
+ * `api()` for a multipart body, with upload progress and cancel.
+ *
+ * `fetch` cannot report how much of a request body has gone out, so this is
+ * XMLHttpRequest. It lives here, not in a page, because `client.ts` is the one
+ * HTTP entry point (`FE-1`): same bearer token, same refresh-once-on-401. An
+ * upload that came back 401 is sent again from the start with the new token.
+ */
+export function upload<T>(
+  path: string,
+  form: FormData,
+  { onProgress, signal }: UploadOptions = {},
+  retry = true,
+): Promise<T> {
+  const tokens = getStoredTokens();
+  return new Promise<T>((resolve, reject) => {
+    const aborted = () => new DOMException("Upload cancelled", "AbortError");
+    if (signal?.aborted) return reject(aborted());
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", apiUrl(path));
+    xhr.withCredentials = true;
+    if (tokens) xhr.setRequestHeader("Authorization", `Bearer ${tokens.access_token}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) {
+        onProgress?.(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    const onAbort = () => xhr.abort();
+    signal?.addEventListener("abort", onAbort);
+    const done = () => signal?.removeEventListener("abort", onAbort);
+    xhr.onabort = () => {
+      done();
+      reject(aborted());
+    };
+    // Same type `fetch` throws for no connection, so `friendlyError` words it.
+    xhr.onerror = () => {
+      done();
+      reject(new TypeError("Network request failed"));
+    };
+    xhr.onload = async () => {
+      done();
+      if (xhr.status === 401 && tokens && retry) {
+        const fresh = await refreshTokens().catch(() => null);
+        if (fresh) {
+          onProgress?.(0);
+          upload<T>(path, form, { onProgress, signal }, false).then(resolve, reject);
+          return;
+        }
+      }
+      let body: unknown = null;
+      try {
+        body = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        // non-JSON body
+      }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(body as T);
+      const parsed = parseErrorBody(body);
+      reject(new ApiError(xhr.status, parsed.detail || xhr.statusText, parsed.fields));
+    };
+    xhr.send(form);
+  });
+}
