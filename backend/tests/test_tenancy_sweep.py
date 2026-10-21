@@ -27,10 +27,14 @@ What it asserts, exactly:
    it cannot tell A's rows from nothing. A has non-default readiness weights, so a
    weights read that followed the id would differ.
 3. Listings. Every signed-in GET without a path id (at least 40) is called as B's
-   callers. For each, A's own admitted caller must see A's marker (or the listing
-   is in `NO_MARKER` with a reason: nothing seeded to show), so "none of A's data
-   came back" can actually fail.
-4. Nothing of A's comes back: A's marker is in no response body in 1-3.
+   callers. For each admitted caller of A, the listing must show A's data (its
+   marker, or the distinctive token count of A's one AI usage event), or the exact
+   (caller, listing) pair is in `NO_MARKER` with a reason, so "none of A's data came
+   back" can actually fail. A few listings stay blind for the tutor too (today's
+   reminders and lessons, weekly-sends/latest, counts and switches); that is an
+   accepted gap.
+4. Nothing of A's comes back: A's marker and usage token count are in no response
+   body in 1-3.
 5. Refusals change nothing. Every table's rows are compared before and after the
    attacks and must be identical. Only `assignment_questions` may gain rows, and
    each new row must belong to B's own draft.
@@ -41,7 +45,8 @@ What it asserts, exactly:
    owner gets 404 (a parent, a student, an admin who is not the row's tutor, or
    state the seed does not build) B's 404 does not prove the filter, only that the
    route refuses B; the same route is covered by the callers who do reach the row.
-   Admins are never the seeded rows' tutor, so a missing organization filter on a
+   Admin and parent coverage of tutor-owned rows rests on the `tutor_id` filter and
+   the parent link, not on an organization filter. Admins are never the seeded rows' tutor, so a missing organization filter on a
    handler's admin-only branch is caught on the attack side (an admin of B is
    given A's ids) but not by a successful admin control.
 7. Role refusals. A 403 is accepted only when it is a role gate speaking: "Tutor
@@ -73,10 +78,14 @@ from app.api.deps import get_current_user, require_student, require_tutor
 from app.db import async_session, engine
 from app.main import app
 from app.models import (
+    AiFeature,
+    AiUsageEvent,
     Assessment,
     AssessmentScore,
     AssessmentType,
     AssignmentStatus,
+    AttendanceSource,
+    AttendanceState,
     Base,
     Booklet,
     Chapter,
@@ -85,11 +94,16 @@ from app.models import (
     CustomCriterion,
     GroupResource,
     Lesson,
+    LessonAttendance,
+    MeetingConnection,
     Mistake,
     MistakeSource,
     Mock,
     MockStatus,
+    Notification,
     NotificationChannel,
+    NotificationKind,
+    NotificationStatus,
     Organization,
     PlanBreak,
     PlanSlot,
@@ -110,6 +124,7 @@ from app.models import (
     WeeklySendAudience,
     WorkKind,
 )
+from app.models.base import utcnow
 from app.models.integrations import MeetingParticipant, MeetingProvider
 from app.services import storage
 from app.services.work import create_work
@@ -225,22 +240,71 @@ EXPECTED_REFUSALS: set[tuple[str, str, str]] = {
 
 #: Listings whose owner does not see the marker, each with the reason: the check
 #: "none of A's data came back" could never fail on them.
-NO_MARKER: dict[tuple[str, str], str] = {
-    ("GET", "/ai-usage/analytics"): "no model call is made, so there are no usage events",
-    ("GET", "/ai-usage/summary"): "no model call is made, so there are no usage events",
-    ("GET", "/integrations"): "no meeting provider is connected",
-    ("GET", "/me/attendance"): "no attendance is recorded for the seeded student",
-    ("GET", "/me/dismissals"): "keys only, no free text",
-    ("GET", "/me/notification-preferences"): "switches only, no free text",
-    ("GET", "/me/today-lessons"): "lists lessons held at today's schedule slot; none is",
-    ("GET", "/notifications/status"): "counts only",
-    ("GET", "/notifications/undelivered"): "nothing is queued",
-    ("GET", "/readiness/weights"): (
-        "numbers only; the aimed subject_id variant is compared with a nonexistent subject "
-        "while A has non-default weights"
-    ),
-    ("GET", "/today/reminders"): "no reminder is due",
-    ("GET", "/weekly-sends/latest"): "facts are counts, and the seeded send has no classes",
+_ADMIN = (
+    "an admin is not the seeded rows' tutor, and this listing is filtered by tutor_id, not "
+    "organization: the admin and parent coverage of tutor-owned rows rests on that tutor_id filter"
+)
+_PARENT = "a parent sees only their linked child's records, and this is not one"
+_STUDENT = "a student sees only their own records, and this is not one"
+
+NO_MARKER: dict[tuple[str, str, str], str] = {
+    ("admin", "GET", "/assessments"): _ADMIN,
+    ("admin", "GET", "/classifieds"): _ADMIN,
+    ("admin", "GET", "/groups"): _ADMIN,
+    ("admin", "GET", "/integrations"): _ADMIN,
+    ("admin", "GET", "/me/children"): _ADMIN,
+    ("admin", "GET", "/me/contacts"): _ADMIN,
+    ("admin", "GET", "/me/dismissals"): _ADMIN,
+    ("admin", "GET", "/me/groups"): _ADMIN,
+    ("admin", "GET", "/me/lessons"): _ADMIN,
+    ("admin", "GET", "/me/notification-preferences"): _ADMIN,
+    ("admin", "GET", "/me/today-lessons"): _ADMIN,
+    ("admin", "GET", "/mocks"): _ADMIN,
+    ("admin", "GET", "/notifications/status"): _ADMIN,
+    ("admin", "GET", "/readiness/weights"): _ADMIN,
+    ("admin", "GET", "/resources"): _ADMIN,
+    ("admin", "GET", "/today"): _ADMIN,
+    ("admin", "GET", "/today/overview"): _ADMIN,
+    ("admin", "GET", "/today/reminders"): _ADMIN,
+    ("admin", "GET", "/weekly-sends"): _ADMIN,
+    ("admin", "GET", "/weekly-sends/latest"): _ADMIN,
+    ("parent", "GET", "/booklets"): _PARENT,
+    ("parent", "GET", "/me/activity"): _PARENT,
+    ("parent", "GET", "/me/groups"): _PARENT,
+    ("parent", "GET", "/me/lessons"): _PARENT,
+    ("parent", "GET", "/me/notification-preferences"): _PARENT,
+    ("parent", "GET", "/past-papers"): _PARENT,
+    ("parent", "GET", "/reports"): _PARENT,
+    ("parent", "GET", "/weekly-sends"): _PARENT,
+    ("parent", "GET", "/weekly-sends/latest"): _PARENT,
+    ("student", "GET", "/me/activity"): _STUDENT,
+    ("student", "GET", "/me/children"): _STUDENT,
+    ("student", "GET", "/me/notification-preferences"): _STUDENT,
+    ("student", "GET", "/reports"): _STUDENT,
+    ("student", "GET", "/weekly-sends"): _STUDENT,
+    ("student", "GET", "/weekly-sends/latest"): _STUDENT,
+    ("tutor", "GET", "/me/children"): "lists a parent's linked children; a tutor has none",
+    ("tutor", "GET", "/me/dismissals"): "keys only, no free text",
+    ("tutor", "GET", "/me/groups"): "a student's classes; a tutor has none as a member",
+    ("tutor", "GET", "/me/lessons"): "a student's lessons; a tutor has none as a member",
+    ("tutor", "GET", "/me/notification-preferences"): "switches only, no free text",
+    (
+        "tutor",
+        "GET",
+        "/me/today-lessons",
+    ): "lists lessons held at today's schedule slot; none is. Accepted gap",
+    ("tutor", "GET", "/notifications/status"): "counts only",
+    (
+        "tutor",
+        "GET",
+        "/readiness/weights",
+    ): "numbers only; the aimed subject_id variant is compared with a nonexistent subject while A has non-default weights",
+    ("tutor", "GET", "/today/reminders"): "no reminder is due. Accepted gap",
+    (
+        "tutor",
+        "GET",
+        "/weekly-sends/latest",
+    ): "facts are counts and the seeded send has no classes. Accepted gap",
 }
 
 #: Bodies the generic generator cannot guess because the model validates across
@@ -724,6 +788,49 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             email=f"parent-{tag}@example.com",
         )
         await link_parent(s, parent.id, student_id)
+        usage_tokens = 7_000_000 + ord(tag)  # a number only this workspace has
+        s.add_all(
+            [
+                AiUsageEvent(
+                    organization_id=organization_id,
+                    tutor_id=uid,
+                    feature=AiFeature.marking,
+                    model=f"model-{tag}",
+                    input_tokens=usage_tokens,
+                    output_tokens=1,
+                    cost_usd=1.5,
+                ),
+                LessonAttendance(
+                    organization_id=organization_id,
+                    lesson_id=lesson.id,
+                    student_id=student_id,
+                    state=AttendanceState.present,
+                    source=AttendanceSource.tutor,
+                    recorded_by_id=uid,
+                    recorded_at=utcnow(),
+                ),
+                Notification(
+                    organization_id=organization_id,
+                    recipient_user_id=student_id,
+                    kind=NotificationKind.homework_set,
+                    channel=NotificationChannel.email,
+                    template="homework_set",
+                    params={},
+                    idempotency_key=f"sweep-{marker}",
+                    status=NotificationStatus.failed,
+                    error="boom",
+                ),
+                MeetingConnection(
+                    organization_id=organization_id,
+                    tutor_id=uid,
+                    provider=MeetingProvider.zoom,
+                    encrypted_refresh_token="x",
+                    account_email=f"zoom-{marker}@example.com",
+                    connected_at=utcnow(),
+                ),
+            ]
+        )
+        ids["_usage_tokens"] = usage_tokens
         s.add_all([plan_slot, plan_break, participant, tutor_contact])
         s.add(
             # Not the defaults, so a listing that returned A's weights would differ
@@ -1052,7 +1159,12 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
     ]
     assert not not_in_spec, f"routes missing from the OpenAPI schema, so unswept: {not_in_spec}"
 
-    marker = a["marker"].lower().encode()
+    # What only A has: its marker in names, and its distinctive usage token count.
+    needles = (a["marker"].lower().encode(), str(a["ids"]["_usage_tokens"]).encode())
+
+    def has_a(content: bytes) -> bool:
+        return any(n in content.lower() for n in needles)
+
     stats = {"calls": 0}
     leaks, unlisted, controls = [], [], {}
     refusals, control_refusals, silent_200_seen = set(), set(), set()
@@ -1084,7 +1196,7 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
         """The one verdict on an attack: 404; or a role refusal; or a 200 that is
         accepted for this field and equals what a nonexistent id gets. `ghost` is a
         coroutine function returning that second response."""
-        if marker in resp.content.lower():
+        if has_a(resp.content):
             leaks.append(f"{label} -> {resp.status_code}: response contains workspace A's data")
         elif is_role_refusal(who, method, route.path, resp):
             refusals.add((who, method, route.path))
@@ -1185,7 +1297,7 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
                         else {}
                     )
                     g = await ghost()
-                    if marker in resp.content.lower():
+                    if has_a(resp.content):
                         leaks.append(f"{label} -> {resp.status_code}: contains A's data")
                     elif not (
                         resp.status_code in (409, 422) and isinstance(body.get("detail"), str)
@@ -1248,25 +1360,18 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
                 label = (who, method, route.path, ".".join(field[1]) if field else "")
                 controls[label] = resp.status_code
 
-    # Each listing must show the marker to its owner, or the "none of A's data"
-    # check on it could never fail. Asked of A's own first admitted caller.
-    async def owner_sees_marker(route, method):
+    # Each listing must show A's data to every caller it admits, or the "none of A's
+    # data came back" check on that (caller, listing) could never fail. The pairs
+    # that cannot are NO_MARKER, exactly.
+    blind = set()
+    for route, method, kind, _ in plan:
+        if kind != "list":
+            continue
         for who in _callers(route):
             req, _ = _build(spec, route, method, a["ids"])
             req["method"] = method
-            if marker in (await call(a, who, req)).content.lower():
-                return True
-        return False
-
-    listings = [(r, m) for r, m, k, _ in plan if k == "list"]
-    invisible = [
-        f"{m} {r.path}"
-        for r, m in listings
-        if (m, r.path) not in NO_MARKER and not await owner_sees_marker(r, m)
-    ]
-    seen_invisible = {(m, r.path) for r, m in listings if (m, r.path) in NO_MARKER} - {
-        (m, r.path) for r, m in listings if await owner_sees_marker(r, m)
-    }
+            if not has_a((await call(a, who, req)).content):
+                blind.add((who, method, route.path))
 
     counts = {k: sum(p[2] == k for p in plan) for k in ("path", "field", "list")}
     seen_ops = {(m, r.path) for r, m in ops}
@@ -1290,11 +1395,9 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
     assert not unlisted, "neither swept nor listed:\n" + "\n".join(unlisted)
     assert not leaks, "another workspace was not refused:\n" + "\n".join(leaks)
     assert not changed, f"refused requests changed rows: {changed}"
-    assert not invisible, "the owner cannot see the marker here, so the check is hollow:\n" + (
-        "\n".join(invisible)
-    )
-    assert seen_invisible == set(NO_MARKER), (
-        f"NO_MARKER out of date: {sorted(set(NO_MARKER) ^ seen_invisible)}"
+    assert blind == set(NO_MARKER), (
+        f"callers who cannot see A's data on a listing changed: new {sorted(blind - set(NO_MARKER))}, "
+        f"stale {sorted(set(NO_MARKER) - blind)}"
     )
     assert refusals == EXPECTED_REFUSALS, (
         f"role refusals changed: extra {sorted(refusals - EXPECTED_REFUSALS)}, "
