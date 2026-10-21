@@ -402,9 +402,10 @@ class Settings(BaseSettings):
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
     refresh_cookie_secure: bool = True
 
-    #: Render sets `RENDER=true` in every service it runs. Read only to decide
-    #: whether a weak sign-in secret stops startup (below); nothing else
-    #: branches on where the app runs.
+    #: Render sets `RENDER=true` in every service it runs. Read to decide
+    #: whether a weak sign-in secret stops startup (below) and whether the API
+    #: docs are published (`main.create_app`); nothing else branches on where
+    #: the app runs. Another host would need the same two checks.
     render: bool = False
 
     #: The most one file-upload request may send, all files together

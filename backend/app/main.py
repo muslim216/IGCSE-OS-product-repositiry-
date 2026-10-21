@@ -186,6 +186,7 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
 }
 
+#: Only served off Render: a deployment registers no docs routes (SA-12).
 DOCS_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect"})
 
 

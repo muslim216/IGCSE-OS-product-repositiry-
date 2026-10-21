@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.main import create_app
 
-PATHS = ["/docs", "/redoc", "/openapi.json"]
+PATHS = ["/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"]
 
 
 @pytest.mark.parametrize("path", PATHS)
