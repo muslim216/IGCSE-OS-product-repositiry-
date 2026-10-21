@@ -967,6 +967,15 @@ def _sample(spec, node, name, ids, route_path):
     return "x" * max(1, node.get("minLength", 1))
 
 
+def _without_ids(body):
+    """A response with every `id` key removed, at any depth."""
+    if isinstance(body, dict):
+        return {k: _without_ids(v) for k, v in body.items() if k != "id"}
+    if isinstance(body, list):
+        return [_without_ids(v) for v in body]
+    return body
+
+
 def _spec_path(route):
     # The health routes are mounted with the prefix already in their path.
     return route.path_format if route.path_format.startswith(PREFIX) else PREFIX + route.path_format
@@ -1203,7 +1212,9 @@ async def test_every_route_refuses_another_workspace(client, workspaces, capsys)
         elif resp.status_code == 200 and accept_200:
             if ghost is not None:
                 g = await ghost()
-                if (g.status_code, g.text) != (resp.status_code, resp.text):
+                # Row ids are dropped: a route that writes rows (PUT questions) hands
+                # back fresh ids, which Postgres sequences never reuse and SQLite does.
+                if (g.status_code, _without_ids(g.json())) != (200, _without_ids(resp.json())):
                     leaks.append(f"{label} -> 200 differs from the answer for a nonexistent id")
         elif resp.status_code != 404:
             detail = resp.text[:160] if resp.status_code in (422, 403) else ""
