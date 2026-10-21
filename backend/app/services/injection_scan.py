@@ -24,6 +24,7 @@ back without asking.
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 #: Patterns that have no business in an answer to an exam question.
@@ -57,9 +58,47 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     ("authority-claim", r"\bpre[- ]?approved\b"),
     ("prompt-scaffolding", r"</?(system|instructions?|prompt)>"),
     ("prompt-scaffolding", r"\[/?(INST|SYSTEM|PROMPT)\]"),
+    # SA-09: text imitating the fence marking.py wraps the answer in, so what
+    # follows looks like it is outside the student's work.
+    ("fence-imitation", r"\b(begin|end)\s+student\s+typed\s+answer"),
+    ("role-address", r"\b(examiner|marker|grader|teacher)\W{0,2}s?\s+(note|comment|override)\b"),
+    ("role-address", r"\[\s*(marker|examiner|grader|system)\s*:"),
+    ("confidence-claim", r"\bconfidence\s*[=:]\s*(high|medium)\b"),
+    (
+        "mark-instruction",
+        r"\b(give|award|assign|grant)\s+(this\s+|me\s+|it\s+)*(the\s+)?"
+        r"(top|highest|maximum|full)\s+(marks?|score)\b",
+    ),
+    ("mark-instruction", r"\b(answers?\s+)?(is|are)\s+(verified|confirmed)\s+(as\s+)?correct\b"),
+    (
+        "mark-instruction",
+        r"[اأ](عط|منح)\w*(\s+\S+){0,4}?\s+ال(درجة|علامة|درجات|علامات)\s+ال(كاملة|تامة|نهائية)",
+    ),
+)
+
+#: Spaced-out letters ("i g n o r e") defeat `\b` patterns, so a few of the
+#: worst phrases are also looked for in the text with all whitespace removed.
+#: No `\b` here by design; that is also why the list is short — collapsed text
+#: can join the end of one word to the start of the next by accident.
+_COLLAPSED: tuple[tuple[str, str], ...] = (
+    ("instruction-override", r"(ignore|disregard)(all|any|the)?(previous|prior|above|earlier)"),
+    (
+        "mark-instruction",
+        r"(give|award|assign|grant)(me|this|it)*(the)?(full|top|maximum|highest)marks?",
+    ),
+    ("fence-imitation", r"(begin|end)studenttypedanswer"),
 )
 
 _COMPILED = tuple((name, re.compile(pattern, re.IGNORECASE)) for name, pattern in _PATTERNS)
+_COMPILED_COLLAPSED = tuple((name, re.compile(pattern)) for name, pattern in _COLLAPSED)
+
+
+def _normalise(text: str) -> str:
+    """Fold look-alike forms (full-width, ligatures) and drop invisible format
+    characters such as zero-width spaces, which sit between letters of a phrase
+    and break every regex without changing what a model reads."""
+    text = unicodedata.normalize("NFKC", text)
+    return "".join(c for c in text if unicodedata.category(c) != "Cf").casefold()
 
 
 @dataclass(frozen=True)
@@ -78,6 +117,8 @@ def scan_typed_answer(text: str | None) -> ScanResult:
     """
     if not text:
         return ScanResult(flagged=False)
+    text = _normalise(text)
+    collapsed = "".join(text.split())
     for name, pattern in _COMPILED:
         match = pattern.search(text)
         if match:
@@ -86,4 +127,8 @@ def scan_typed_answer(text: str | None) -> ScanResult:
             # answer is already in front of them, so this is a pointer into it.
             excerpt = match.group(0)[:120]
             return ScanResult(flagged=True, reason=f"{name}: {excerpt!r}")
+    for name, pattern in _COMPILED_COLLAPSED:
+        match = pattern.search(collapsed)
+        if match:
+            return ScanResult(flagged=True, reason=f"{name}: {match.group(0)[:120]!r}")
     return ScanResult(flagged=False)
