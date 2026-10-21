@@ -20,6 +20,7 @@ import { friendlyError } from "../lib/errors";
  */
 export default function LinkedParents({ studentId }: Readonly<{ studentId?: number }>) {
   const queryClient = useQueryClient();
+  const own = studentId === undefined;
   const key = ["linked-parents", studentId ?? "me"];
   const parents = useQuery({
     queryKey: key,
@@ -43,7 +44,7 @@ export default function LinkedParents({ studentId }: Readonly<{ studentId?: numb
     <SectionCard>
       <SectionHeader
         title="Linked parents"
-        description="These people can see marks, reports and attendance."
+        description={`These people can see ${own ? "your" : "this child's"} marks, reports and attendance.`}
       />
       {parents.isLoading ? (
         <div className="mt-4">
@@ -71,6 +72,7 @@ export default function LinkedParents({ studentId }: Readonly<{ studentId?: numb
               <Button
                 variant="secondary"
                 size="sm"
+                aria-label={`Remove ${p.name}`}
                 onClick={() => {
                   remove.reset();
                   setTarget(p);
@@ -89,8 +91,8 @@ export default function LinkedParents({ studentId }: Readonly<{ studentId?: numb
         body={
           <>
             <p>
-              They will stop seeing this child&apos;s marks, reports and attendance straight away.
-              To see them again they would need a new link from the tutor.
+              They will stop seeing {own ? "your" : "this child's"} marks, reports and attendance
+              straight away. To see them again they would need a new link from the tutor.
             </p>
             {remove.isError && (
               <p role="alert" className="mt-3 text-risk-600">

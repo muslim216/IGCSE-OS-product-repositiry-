@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { myChildren } from "../api/groups";
 import { studentNarrative } from "../api/narrative";
@@ -100,7 +100,22 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export default function ParentDashboard() {
   const children = useQuery({ queryKey: ["my-children"], queryFn: myChildren });
   const [activeChild, setActiveChild] = useState<number | null>(null);
-  const selected = activeChild ?? children.data?.[0]?.id ?? null;
+  // A child who has been stopped is no longer in the list, so a stale choice
+  // falls back to the first one left.
+  const selected =
+    children.data?.find((c) => c.id === activeChild)?.id ?? children.data?.[0]?.id ?? null;
+  // Set once a child has been stopped; says so, and gives focus to the page
+  // heading so a keyboard or screen-reader user is not left on a button that
+  // has gone.
+  const [stopped, setStopped] = useState<string | null>(null);
+  useEffect(() => {
+    if (stopped !== null) document.querySelector<HTMLElement>("main h1, h1")?.focus();
+  }, [stopped]);
+  const notice = stopped !== null && (
+    <p role="status" className="rounded-md bg-surface-muted px-4 py-3 text-sm text-ink-900">
+      You&apos;ve stopped following {stopped}.
+    </p>
+  );
 
   const readiness = useQuery({
     queryKey: ["child-readiness", selected],
@@ -135,6 +150,7 @@ export default function ParentDashboard() {
     return (
       <div className="max-w-3xl">
         <PageHeader title="Welcome to avora" />
+        {notice}
         <SectionCard>
           <EmptyState
             title="No child is linked to this account yet."
@@ -184,6 +200,7 @@ export default function ParentDashboard() {
     <div className="max-w-3xl space-y-6">
       {readiness.isLoading || !name ? (
         <>
+          {notice}
           <PageHeader
             eyebrow={childName}
             title={<Skeleton className="h-8 w-80 max-w-full" />}
@@ -197,14 +214,19 @@ export default function ParentDashboard() {
       ) : readiness.isError ? (
         <>
           <PageHeader eyebrow="Overview" title={name} actions={switcher} />
+          {notice}
           <ErrorState
             title="We couldn't load this right now."
             error={readiness.error}
             onRetry={() => void readiness.refetch()}
           />
+          {/* Still reachable when the readiness read fails: not being able to
+              see a child is no reason to be unable to stop following them. */}
+          <StopFollowing studentId={selected!} name={name} onDone={setStopped} />
         </>
       ) : (
         <>
+          {notice}
           <PageHeader
             eyebrow={name}
             title={parentVerdict(name, subjects)}
@@ -257,7 +279,7 @@ export default function ParentDashboard() {
             <p className="max-w-prose text-sm text-ink-700">{whatYouCanDo(subjects)}</p>
           </Section>
 
-          <StopFollowing studentId={selected!} name={name} onDone={() => setActiveChild(null)} />
+          <StopFollowing studentId={selected!} name={name} onDone={setStopped} />
         </>
       )}
 

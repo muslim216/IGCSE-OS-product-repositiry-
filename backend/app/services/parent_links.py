@@ -13,12 +13,18 @@ from app.models import ParentLink, ParentLinkRemoval, User
 from app.schemas.parent_links import LinkedParentOut
 
 
-async def linked_parents(db: AsyncSession, student_id: int) -> list[LinkedParentOut]:
+async def linked_parents(
+    db: AsyncSession, student_id: int, organization_id: int
+) -> list[LinkedParentOut]:
     rows = (
         await db.execute(
             select(ParentLink, User)
             .join(User, User.id == ParentLink.parent_id)
-            .where(ParentLink.student_id == student_id)
+            .where(
+                ParentLink.student_id == student_id,
+                # SEC-7: a parent homed elsewhere is never listed.
+                User.organization_id == organization_id,
+            )
             .order_by(ParentLink.created_at, ParentLink.id)
         )
     ).all()
@@ -53,7 +59,9 @@ async def remove_link(
         if link_id is not None
         else q.where(ParentLink.parent_id == parent_id)
     )
-    link = await db.scalar(q)
+    # Locked so two simultaneous removals serialize: the second finds no row and
+    # gets a 404 rather than a stale-delete 500.
+    link = await db.scalar(q.with_for_update())
     if link is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Link not found")
     student = await db.get(User, student_id)

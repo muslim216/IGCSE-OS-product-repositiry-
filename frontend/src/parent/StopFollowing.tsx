@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { User } from "../api/client";
 import { stopFollowingChild } from "../api/parentLinks";
 import { Button } from "../components/controls";
 import { ConfirmDialog } from "../components/page";
@@ -11,17 +12,23 @@ export default function StopFollowing({
   studentId,
   name,
   onDone,
-}: Readonly<{ studentId: number; name: string; onDone: () => void }>) {
+}: Readonly<{ studentId: number; name: string; onDone: (name: string) => void }>) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const stop = useMutation({
     mutationFn: () => stopFollowingChild(studentId),
-    onSuccess: () => {
+    onSuccess: async () => {
       setOpen(false);
-      // Everything read for this child now 404s; drop it rather than refetch.
-      queryClient.removeQueries({ predicate: (q) => q.queryKey.includes(studentId) });
-      void queryClient.invalidateQueries({ queryKey: ["my-children"] });
-      onDone();
+      // Everything read for this child now 404s, so nothing may ask again. Stop
+      // what is in flight, take the child out of the list (which unmounts the
+      // panels that read for them), and only then drop their cached reads.
+      const isChild = (q: { queryKey: readonly unknown[] }) => q.queryKey.includes(studentId);
+      await queryClient.cancelQueries({ predicate: isChild });
+      queryClient.setQueryData<User[]>(["my-children"], (list) =>
+        (list ?? []).filter((c) => c.id !== studentId),
+      );
+      onDone(name);
+      setTimeout(() => queryClient.removeQueries({ predicate: isChild }), 0);
     },
   });
 

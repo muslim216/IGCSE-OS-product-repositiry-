@@ -4,8 +4,24 @@ access ends at once, and every removal is recorded (PROD-7)."""
 from sqlalchemy import select
 
 from app.db import async_session
-from app.models import Invite, ParentLink, ParentLinkRemoval, User, UserRole
-from tests.factories import make_user, register_other_tutor, register_parent
+from app.models import (
+    Invite,
+    Notification,
+    NotificationKind,
+    NotificationStatus,
+    ParentLink,
+    ParentLinkRemoval,
+    User,
+    UserRole,
+)
+from app.services.notifications import notify, send_notification
+from tests.factories import (
+    add_contact,
+    make_user,
+    patch_channels,
+    register_other_tutor,
+    register_parent,
+)
 
 API = "/api/v1"
 
@@ -160,3 +176,52 @@ async def test_the_code_that_made_a_removed_link_is_already_spent(client, tutor,
     async with async_session() as s:
         used = (await s.scalars(select(Invite).where(Invite.student_id == sid))).all()
     assert used and all(i.used_at is not None for i in used)
+
+
+async def test_a_parent_in_another_organization_is_not_listed(client, tutor, student):
+    """SEC-7: the list is also scoped by organization, whatever a link row says."""
+    _, sid, _ = await _setup(client, tutor, student)
+    async with async_session() as s:
+        other = await register_other_tutor(client)
+        outsider = await make_user(
+            s,
+            organization_id=(await s.get(User, other["user"]["id"])).organization_id,
+            role=UserRole.parent,
+            name="Outsider",
+            email="outsider@example.com",
+        )
+        s.add(ParentLink(parent_id=outsider.id, student_id=sid))
+        await s.commit()
+    listed = await client.get(f"{API}/students/{sid}/parents", headers=tutor["headers"])
+    assert "Outsider" not in [p["name"] for p in listed.json()]
+    assert "Outsider" not in [
+        p["name"]
+        for p in (await client.get(f"{API}/me/parent-links", headers=student["headers"])).json()
+    ]
+
+
+async def test_a_queued_message_is_not_sent_after_the_parent_is_unlinked(
+    monkeypatch, client, tutor, student
+):
+    fakes = patch_channels(monkeypatch)
+    parent, sid, link_id = await _setup(client, tutor, student)
+    async with async_session() as s:
+        user = await s.get(User, parent["user"]["id"])
+        await add_contact(s, user.id, channel="email", address="p@example.com")
+        note = await notify(
+            s,
+            recipient=user,
+            kind=NotificationKind.review_queue,
+            params={"pending_count": 1},
+            link_path="/x",
+            idempotency_key="unlink-1",
+        )
+        await s.commit()
+        note_id = note.id
+    await client.delete(f"{API}/students/{sid}/parents/{link_id}", headers=tutor["headers"])
+    async with async_session() as s:
+        await send_notification(s, {"notification_id": note_id})
+        await s.commit()
+        note = await s.get(Notification, note_id)
+        assert note.status == NotificationStatus.suppressed
+    assert all(not f.sent for f in fakes.values())

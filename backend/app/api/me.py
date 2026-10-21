@@ -258,7 +258,7 @@ async def my_mistakes(db: DbSession, user: StudentUser) -> list[MyMistakePattern
 @router.get("/parent-links", response_model=list[LinkedParentOut])
 async def my_parent_links(db: DbSession, user: StudentUser) -> list[LinkedParentOut]:
     """Who is linked to the caller. The student is the token's (`SEC-7`)."""
-    return await parent_links.linked_parents(db, user.id)
+    return await parent_links.linked_parents(db, user.id, user.organization_id)
 
 
 @router.delete("/parent-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)

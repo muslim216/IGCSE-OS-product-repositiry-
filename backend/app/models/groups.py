@@ -154,7 +154,9 @@ class ParentLinkRemoval(Base):
 
     **Append-only. There is no API to edit or delete a row** (`PROD-7`): who cut a
     parent off, and when, must stay answerable. `link_id` is a plain integer, not
-    a foreign key, because the `parent_links` row it names is deleted.
+    a foreign key, because the `parent_links` row it names is deleted. The user
+    keys are nullable `SET NULL`, so deleting an account never blocks on, or
+    erases, this record; `removed_by_role` keeps saying who acted.
     """
 
     __tablename__ = "parent_link_removals"
@@ -163,9 +165,15 @@ class ParentLinkRemoval(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     link_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    parent_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    removed_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    student_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    removed_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # The remover's role at the time: tutor, admin, parent or student.
     removed_by_role: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

@@ -153,7 +153,7 @@ async def create_parent_code(student_id: int, db: DbSession, user: CurrentUser) 
 async def student_parents(student_id: int, db: DbSession, user: TutorUser) -> list[LinkedParentOut]:
     """Who can read this child's record. A tutor who teaches the child sees it."""
     await _tutor_student(db, user, student_id)
-    return await parent_links.linked_parents(db, student_id)
+    return await parent_links.linked_parents(db, student_id, user.organization_id)
 
 
 @router.delete("/{student_id}/parents/{link_id}", status_code=status.HTTP_204_NO_CONTENT)

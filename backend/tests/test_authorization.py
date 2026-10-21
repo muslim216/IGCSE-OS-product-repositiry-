@@ -21,7 +21,7 @@ import re
 import pytest
 from fastapi.routing import APIRoute
 
-from app.api.deps import get_current_user, require_student, require_tutor
+from app.api.deps import get_current_user, require_parent, require_student, require_tutor
 from app.main import app
 
 #: Everything reachable without a token. Registration and login cannot require
@@ -109,7 +109,11 @@ def test_the_api_still_has_the_routes_this_file_thinks_it_does():
 def test_role_gates_are_one_shared_dependency():
     """Identity, not shape. Two functions that both happen to check the role are
     exactly the situation this replaced."""
-    gated = [r for r in _routes() if {require_tutor, require_student} & _dependency_calls(r)]
+    gated = [
+        r
+        for r in _routes()
+        if {require_tutor, require_student, require_parent} & _dependency_calls(r)
+    ]
     assert len(gated) > 40, f"only {len(gated)} routes carry a role gate"
 
 
@@ -178,6 +182,21 @@ STUDENT_ONLY = [
     "/api/v1/me/attendance",
     "/api/v1/readiness/me",
 ]
+
+
+#: Parent-only routes carry their method, since the only one is a DELETE.
+PARENT_ONLY = [("DELETE", "/api/v1/me/children/1")]
+
+
+@pytest.mark.parametrize(("method", "path"), PARENT_ONLY)
+async def test_a_tutor_and_a_student_cannot_reach_a_parent_endpoint(
+    client, tutor, student, method, path
+):
+    for who in (tutor, student):
+        resp = await client.request(method, path, headers=who["headers"])
+        assert resp.status_code == 403, f"{path} let a {who['user']['role']} in"
+        assert resp.json()["detail"] == "Parent account required"
+    assert (await client.request(method, path)).status_code == 401
 
 
 @pytest.mark.parametrize("path", TUTOR_ONLY)
