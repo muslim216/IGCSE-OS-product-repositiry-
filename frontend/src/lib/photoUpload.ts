@@ -101,8 +101,7 @@ export async function prepareFiles(files: File[], signal?: AbortSignal): Promise
   const out: File[] = [];
   for (const f of files) {
     if (signal?.aborted) throw cancelled();
-    // NOSONAR sequential on purpose: one decoded image in memory at a time, abort checked per file
-    out.push(await shrinkImage(f));
+    out.push(await shrinkImage(f)); // NOSONAR sequential on purpose: one decoded image in memory at a time, abort checked per file
   }
   if (signal?.aborted) throw cancelled();
   checkFiles(out);

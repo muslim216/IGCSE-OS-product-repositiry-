@@ -285,6 +285,13 @@ const KNOWN_BAR =
   "[&::-webkit-progress-bar]:bg-surface-muted [&::-webkit-progress-value]:bg-brand-600 " +
   "[&::-moz-progress-bar]:bg-brand-600";
 
+// Indeterminate (preparing/processing/reconnecting/awaiting the first byte
+// count): same flattened track so iOS draws no stock bar, and a pulse that
+// stays still under reduced motion.
+const WAITING_BAR =
+  "h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-surface-muted " +
+  "[&::-webkit-progress-bar]:bg-surface-muted motion-safe:animate-pulse";
+
 export function UploadProgress({
   phase,
   percent,
@@ -298,7 +305,8 @@ export function UploadProgress({
   if (phase === "idle") return null;
   const label = PHASE_LABEL[phase];
   const known = phase === "sending" && percent !== null;
-  const value = known ? percent : phase === "processing" ? 100 : undefined;
+  // Processing has no honest number: 100 would be read out as "done".
+  const value = known ? percent : undefined;
   const spoken = known ? `${percent} percent sent` : label.replace("…", "");
   return (
     <div className="space-y-2" data-testid="upload-progress">
@@ -316,7 +324,7 @@ export function UploadProgress({
           aria-valuetext={spoken}
           max={100}
           value={value}
-          className={value === undefined ? "h-2 w-full animate-pulse" : KNOWN_BAR}
+          className={value === undefined ? WAITING_BAR : KNOWN_BAR}
         />
       )}
       {phase !== "processing" && (
