@@ -428,28 +428,15 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     response = await _tag_call(organization_id, categories, lost)
 
     tutor_id = await resolve_org_tutor_id(session, organization_id)
-    if tutor_id is None:
-        # `narrative.py`'s `_store` skips metering silently when this
-        # happens (single-tutor-per-org today, so it should never be None) —
-        # right there, because nothing is lost but a report a tutor may never
-        # open. Here it is louder: losing this call's meter row means "what
-        # does tagging cost" (PROD-1) can never be answered for this org, and
-        # the tags are worth writing anyway, so the call proceeds unmetered
-        # rather than failing the job over a bookkeeping gap.
-        log.warning(
-            "tag_mistakes: organization %s has no tutor to meter this call against; "
-            "writing tags unmetered",
-            organization_id,
-        )
-    else:
-        await record_usage(
-            session,
-            response,
-            organization_id=organization_id,
-            tutor_id=tutor_id,
-            student_id=student_id,
-            feature=AiFeature.mistake_tagging,
-        )
+    # No tutor still records the call (tutor_id NULL = system usage, C-14).
+    await record_usage(
+        session,
+        response,
+        organization_id=organization_id,
+        tutor_id=tutor_id,
+        student_id=student_id,
+        feature=AiFeature.mistake_tagging,
+    )
 
     parsed = require_parsed(response)
 

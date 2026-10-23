@@ -21,7 +21,6 @@ import asyncio
 import base64
 import contextlib
 import enum
-import json
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -34,7 +33,7 @@ from anthropic.types import TextBlockParam
 from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+from app.config import get_settings, parse_model_pricing
 from app.models import AiFeature, AiUsageEvent
 from app.services.prompts import get_prompt
 from app.services.rate_limit import (
@@ -271,6 +270,12 @@ class AiResponse(Generic[ParsedT]):
     prompt_version: str
     input_tokens: int = 0
     output_tokens: int = 0
+    #: Prompt-cache tokens, counted apart from input_tokens (never inside it) so
+    #: nothing is billed twice. Anthropic reports them separately already;
+    #: Gemini folds cached tokens into its prompt count, so _gemini_usage
+    #: subtracts them back out. Gemini has no cache-write figure.
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
     parsed: ParsedT | None = None
     text: str = ""
     #: The model stopped at `max_tokens` rather than finishing. Only the Anthropic
@@ -835,8 +840,7 @@ async def structured_complete(
             provider=provider,
             model=getattr(final, "model", model),
             prompt_version=prompt.version,
-            input_tokens=getattr(usage, "input_tokens", 0) or 0,
-            output_tokens=getattr(usage, "output_tokens", 0) or 0,
+            **_anthropic_usage(usage),
             parsed=parsed,
         )
 
@@ -933,8 +937,7 @@ async def text_complete(
             provider=provider,
             model=getattr(final, "model", model),
             prompt_version=template.version,
-            input_tokens=getattr(usage, "input_tokens", 0) or 0,
-            output_tokens=getattr(usage, "output_tokens", 0) or 0,
+            **_anthropic_usage(usage),
             text=text,
             truncated=truncated,
         )
@@ -960,6 +963,24 @@ async def text_complete(
     )
 
 
+class _AnthropicUsage(TypedDict):
+    input_tokens: int
+    output_tokens: int
+    cache_write_tokens: int
+    cache_read_tokens: int
+
+
+def _anthropic_usage(usage: object) -> _AnthropicUsage:
+    """Anthropic's input_tokens already excludes cache reads and writes, which
+    arrive as their own counters — so the three are added, never subtracted."""
+    return {
+        "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+        "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+        "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", 0) or 0,
+        "cache_read_tokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
+    }
+
+
 class _GeminiUsage(TypedDict):
     """The exact keys _gemini_usage yields.
 
@@ -970,15 +991,21 @@ class _GeminiUsage(TypedDict):
 
     input_tokens: int
     output_tokens: int
+    cache_read_tokens: int
 
 
 def _gemini_usage(response: object) -> _GeminiUsage:
     meta = getattr(response, "usage_metadata", None)
     if meta is None:
-        return {"input_tokens": 0, "output_tokens": 0}
+        return {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0}
+    prompt = getattr(meta, "prompt_token_count", 0) or 0
+    cached = min(getattr(meta, "cached_content_token_count", 0) or 0, prompt)
     return {
-        "input_tokens": getattr(meta, "prompt_token_count", 0) or 0,
+        # Gemini's prompt count includes the cached tokens; take them out so
+        # they are priced once, at the cache-read rate.
+        "input_tokens": prompt - cached,
         "output_tokens": getattr(meta, "candidates_token_count", 0) or 0,
+        "cache_read_tokens": cached,
     }
 
 
@@ -997,33 +1024,38 @@ MODEL_PRICING: dict[str, dict[str, float]] = {}
 @lru_cache
 def model_pricing() -> dict[str, dict[str, float]]:
     """MODEL_PRICING merged with the AI_MODEL_PRICING env override (env wins).
-    Malformed JSON is ignored rather than breaking every AI call."""
+    A malformed value raises: Settings refuses it at load (CFG-5), and this
+    re-checks so a value patched in afterwards cannot be silently ignored."""
     prices = dict(MODEL_PRICING)
-    raw = get_settings().ai_model_pricing
-    try:
-        configured = json.loads(raw) if raw else {}
-    except (TypeError, ValueError):
-        return prices
-    if isinstance(configured, dict):
-        for model, entry in configured.items():
-            if isinstance(entry, dict):
-                prices[model] = entry
+    prices.update(parse_model_pricing(get_settings().ai_model_pricing))
     return prices
 
 
-def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float | None:
-    """None when the model has no configured price — never a guess."""
+def estimate_cost_usd(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_write_tokens: int = 0,
+    cache_read_tokens: int = 0,
+) -> float | None:
+    """None when the model has no configured price, or when cache tokens were
+    used and it has no cache rate for them — never a guess (AI-17)."""
     entry = model_pricing().get(model)
     if not entry:
         return None
-    try:
-        return round(
-            input_tokens / 1_000_000 * float(entry.get("input_per_1m", 0))
-            + output_tokens / 1_000_000 * float(entry.get("output_per_1m", 0)),
-            6,
-        )
-    except (TypeError, ValueError):
+    cache_write_rate = entry.get("cache_write_per_1m")
+    cache_read_rate = entry.get("cache_read_per_1m")
+    if (cache_write_tokens and cache_write_rate is None) or (
+        cache_read_tokens and cache_read_rate is None
+    ):
         return None
+    return round(
+        input_tokens / 1_000_000 * entry.get("input_per_1m", 0)
+        + output_tokens / 1_000_000 * entry.get("output_per_1m", 0)
+        + cache_write_tokens / 1_000_000 * (cache_write_rate or 0)
+        + cache_read_tokens / 1_000_000 * (cache_read_rate or 0),
+        6,
+    )
 
 
 async def record_usage(
@@ -1031,12 +1063,14 @@ async def record_usage(
     response: AiResponse,
     *,
     organization_id: int,
-    tutor_id: int,
+    tutor_id: int | None,
     student_id: int | None,
     feature: AiFeature,
 ) -> None:
     """Record one AI call's usage, including its provider, prompt version and
-    estimated cost. Best-effort: anything that isn't a normalized AiResponse
+    estimated cost. tutor_id is None for system work with no tutor to charge
+    (sweeps, an organization with no tutor): still recorded, never dropped.
+    Best-effort: anything that isn't a normalized AiResponse
     (e.g. a test double) is skipped rather than breaking the calling feature."""
     if not isinstance(response, AiResponse):
         return
@@ -1051,8 +1085,14 @@ async def record_usage(
             prompt_version=response.prompt_version,
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
+            cache_write_tokens=response.cache_write_tokens,
+            cache_read_tokens=response.cache_read_tokens,
             cost_usd=estimate_cost_usd(
-                response.model, response.input_tokens, response.output_tokens
+                response.model,
+                response.input_tokens,
+                response.output_tokens,
+                response.cache_write_tokens,
+                response.cache_read_tokens,
             ),
         )
     )

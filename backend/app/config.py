@@ -1,3 +1,5 @@
+import json
+import math
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit
@@ -10,6 +12,41 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PLACEHOLDER_JWT_SECRET = "change-me-in-production"
 #: HS256 signs with the secret itself; under 32 bytes it can be brute-forced.
 MIN_JWT_SECRET_BYTES = 32
+
+
+PRICE_KEYS = frozenset({"input_per_1m", "output_per_1m", "cache_write_per_1m", "cache_read_per_1m"})
+
+
+def parse_model_pricing(raw: str) -> dict[str, dict[str, float]]:
+    """AI_MODEL_PRICING as {model: {rate: dollars per 1M tokens}}. Empty is
+    valid (every model unpriced, AI-17); anything malformed raises ValueError
+    with a short message that never echoes the whole value (CFG-5)."""
+    if not raw or not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise ValueError("AI_MODEL_PRICING is not valid JSON") from exc
+    if not isinstance(data, dict):
+        raise ValueError("AI_MODEL_PRICING must be a JSON object keyed by model id")
+    out: dict[str, dict[str, float]] = {}
+    for model, entry in data.items():
+        if not isinstance(entry, dict):
+            raise ValueError(f"AI_MODEL_PRICING entry for {model!r} must be an object")
+        rates: dict[str, float] = {}
+        for key, price in entry.items():
+            if key not in PRICE_KEYS:
+                raise ValueError(
+                    f"AI_MODEL_PRICING entry for {model!r} has unknown key {key!r}; "
+                    f"allowed: {', '.join(sorted(PRICE_KEYS))}"
+                )
+            if isinstance(price, bool) or not isinstance(price, int | float):
+                raise ValueError(f"AI_MODEL_PRICING {model!r}.{key} must be a number")
+            if not math.isfinite(price) or price < 0:
+                raise ValueError(f"AI_MODEL_PRICING {model!r}.{key} must not be negative")
+            rates[key] = float(price)
+        out[model] = rates
+    return out
 
 
 class Settings(BaseSettings):
@@ -217,10 +254,21 @@ class Settings(BaseSettings):
     # instead.
     ai_text_call_timeout_seconds: float = 120.0
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
-    # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
+    # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}, plus optional
+    # "cache_write_per_1m" / "cache_read_per_1m"; without them cache tokens are unpriced. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather
     # than a guessed figure (see services/ai.py model_pricing()).
     ai_model_pricing: str = "{}"
+
+    @field_validator("ai_model_pricing")
+    @classmethod
+    def _pricing_table_is_well_formed(cls, v: str) -> str:
+        # Unset or empty is fine (every model unpriced). A WRONG value is not:
+        # silently ignoring it meant every call recorded as unpriced with no
+        # sign why (CFG-5). AI-20 only protects a *missing* key.
+        parse_model_pricing(v)
+        return v
+
     # Readiness Engine v2 is now what the readiness UI/API serve. This is the
     # kill switch, not a shadow flag: turning it off stops v2 runs being
     # enqueued, and since 5.3b deleted v1 there is nothing behind it — every
