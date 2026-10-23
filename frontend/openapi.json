@@ -228,18 +228,11 @@
           "400": {
             "description": "The current password is wrong."
           },
+          "422": {
+            "description": "The new password is invalid or the same as the current one."
+          },
           "429": {
             "description": "Too many wrong current passwords; wait and retry."
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
         },
         "security": [
@@ -7420,6 +7413,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "No such student among those you teach."
           },
           "422": {
             "description": "Validation Error",

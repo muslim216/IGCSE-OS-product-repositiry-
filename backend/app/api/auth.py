@@ -250,6 +250,7 @@ async def logout(response: Response, db: DbSession, user: CurrentUser) -> None:
     response_model=AccessToken,
     responses={
         400: {"description": "The current password is wrong."},
+        422: {"description": "The new password is invalid or the same as the current one."},
         429: {"description": "Too many wrong current passwords; wait and retry."},
     },
 )
@@ -271,6 +272,11 @@ async def change_password(
     if not await verify_password_async(body.current_password, user.password_hash):
         await login_limiter.record(key)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your current password is incorrect.")
+    if body.new_password == body.current_password:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Choose a new password that is different from your current one.",
+        )
     user.password_hash = await hash_password_async(body.new_password)
     user.token_version += 1
     await refresh_sessions.end_all(db, user)

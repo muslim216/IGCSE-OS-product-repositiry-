@@ -43,7 +43,9 @@ test("success stores the fresh access token and says so", async () => {
   renderForm();
   fill("old-password", "new-password-1", "new-password-1");
   await screen.findByText(/Password changed/);
-  expect(localStorage.getItem("avora.tokens") ?? JSON.stringify(localStorage)).toContain("fresh");
+  const stored = localStorage.getItem("avora-tokens") ?? "";
+  expect(JSON.parse(stored).access_token).toBe("fresh");
+  expect(stored).not.toContain("refresh_token");
 });
 
 test("a wrong current password shows the server's plain message", async () => {
@@ -96,7 +98,7 @@ test("the show toggle reveals the fields", () => {
   expect(toggle.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(toggle);
   expect(screen.getByLabelText("Current password").getAttribute("type")).toBe("text");
-  expect(screen.getByRole("button", { name: "Hide passwords" }).getAttribute("aria-pressed")).toBe(
+  expect(screen.getByRole("button", { name: "Show passwords" }).getAttribute("aria-pressed")).toBe(
     "true",
   );
 });

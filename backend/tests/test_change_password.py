@@ -47,6 +47,14 @@ async def test_new_password_keeps_registration_rules(client, tutor):
     assert (await _pw(client, tutor["headers"], "password123", "x" * 73)).status_code == 422
 
 
+async def test_new_password_must_differ_from_the_current_one(client, tutor):
+    before = await _hash_of(tutor["user"]["id"])
+    resp = await _pw(client, tutor["headers"], "password123", "password123")
+    assert resp.status_code == 422
+    assert await _hash_of(tutor["user"]["id"]) == before
+    assert (await client.get("/api/v1/auth/me", headers=tutor["headers"])).status_code == 200
+
+
 async def test_password_change_requires_auth(client):
     assert (await _pw(client, {}, "a", "bbbbbbbb")).status_code == 401
 

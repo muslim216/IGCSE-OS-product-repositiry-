@@ -268,7 +268,7 @@ export default function StudentDetailPage() {
 
         <ReportsPanel studentId={sid} audiences={["student", "tutor", "parent"]} />
 
-        <RenameStudent key={r.student_name} studentId={sid} name={r.student_name} />
+        <RenameStudent studentId={sid} name={r.student_name} />
 
         {/* Where this learner and their parents are reached; each address is
             confirmed here before anything is sent to it (threat review F5). */}

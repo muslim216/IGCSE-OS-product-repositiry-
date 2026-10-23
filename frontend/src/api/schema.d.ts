@@ -8258,14 +8258,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Validation Error */
+            /** @description The new password is invalid or the same as the current one. */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
+                content?: never;
             };
             /** @description Too many wrong current passwords; wait and retry. */
             429: {
@@ -12792,6 +12790,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["StudentRenamed"];
                 };
+            };
+            /** @description No such student among those you teach. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

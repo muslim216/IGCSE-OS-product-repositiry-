@@ -79,7 +79,10 @@ export default function ChangePasswordForm() {
             required
             minLength={8}
             value={next}
-            onChange={edited(setNext)}
+            onChange={(e) => {
+              edited(setNext)(e);
+              setMismatch(false);
+            }}
           />
         </Field>
         <Field
@@ -104,18 +107,17 @@ export default function ChangePasswordForm() {
           aria-pressed={visible}
           className="rounded px-2 py-1 text-xs font-medium text-ink-500 hover:text-ink-900"
         >
-          {visible ? "Hide passwords" : "Show passwords"}
+          Show passwords
         </button>
         {save.isError && (
           <p role="alert" className="text-sm text-risk-600">
             {friendlyError(save.error, "Couldn't change your password. Try again.")}
           </p>
         )}
-        {save.isSuccess && (
-          <p role="status" className="text-sm text-ink-700">
-            Password changed. Other devices have been signed out.
-          </p>
-        )}
+        {/* Mounted empty and filled after success, so it is announced. */}
+        <p role="status" className="text-sm text-ink-700 empty:hidden">
+          {save.isSuccess ? "Password changed. Other devices have been signed out." : ""}
+        </p>
         <Button type="submit" disabled={save.isPending}>
           {save.isPending ? "Saving…" : "Change password"}
         </Button>

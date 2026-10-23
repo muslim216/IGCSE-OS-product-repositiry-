@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { renameStudent } from "../api/students";
 import { Button, Field, Input } from "../components/controls";
@@ -10,9 +10,18 @@ import { friendlyError } from "../lib/errors";
 export default function RenameStudent({ studentId, name }: { studentId: number; name: string }) {
   const queryClient = useQueryClient();
   const [value, setValue] = useState(name);
+  // Set while the tutor has typed something not yet saved, so a refetch that
+  // brings a new name in does not overwrite their edit.
+  const dirty = useRef(false);
+  useEffect(() => {
+    if (!dirty.current) setValue(name);
+  }, [name]);
   const save = useMutation({
     mutationFn: () => renameStudent(studentId, value.trim()),
-    onSuccess: () => queryClient.invalidateQueries(),
+    onSuccess: () => {
+      dirty.current = false;
+      return queryClient.invalidateQueries();
+    },
   });
   const unchanged = value.trim() === name || value.trim() === "";
 
@@ -37,6 +46,7 @@ export default function RenameStudent({ studentId, name }: { studentId: number; 
             value={value}
             maxLength={128}
             onChange={(e) => {
+              dirty.current = true;
               setValue(e.target.value);
               save.reset();
             }}
@@ -46,11 +56,10 @@ export default function RenameStudent({ studentId, name }: { studentId: number; 
           Save name
         </Button>
       </form>
-      {save.isSuccess && (
-        <p role="status" className="mt-2 text-sm text-ink-700">
-          Saved.
-        </p>
-      )}
+      {/* Mounted empty and filled after success, so it is announced. */}
+      <p role="status" className="mt-2 text-sm text-ink-700 empty:hidden">
+        {save.isSuccess ? "Saved." : ""}
+      </p>
     </SectionCard>
   );
 }
