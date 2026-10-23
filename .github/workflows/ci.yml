@@ -205,9 +205,10 @@ jobs:
   backend-postgres:
     name: Backend tests (Postgres)
     runs-on: ubuntu-latest
-    # About 30 minutes today; a test stuck on a row lock should not hold a
-    # runner for the six-hour default.
-    timeout-minutes: 45
+    # About 40-45 minutes by late October 2026 and growing; a test stuck on a
+    # row lock should still not hold a runner for the six-hour default.
+    # ponytail: raised ceiling, shard the job with pytest-xdist when it nears 60.
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: backend
