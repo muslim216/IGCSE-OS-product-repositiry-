@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2 } from "lucide-react";
@@ -214,6 +214,34 @@ export default function StudentsTab() {
 
   const count = group.members.length;
 
+  let linkPanel: ReactNode;
+  if (inviteLink) {
+    linkPanel = (
+      <>
+        <CopyBox label="Invite link" value={inviteLink} />
+        <Button
+          size="sm"
+          variant="secondary"
+          className="mt-2"
+          disabled={invite.isPending}
+          onClick={() => setSwitchingOff(true)}
+        >
+          Switch off link
+        </Button>
+      </>
+    );
+  } else if (liveInvites.isPending) {
+    linkPanel = <p className="mt-2 text-sm text-ink-500">Loading the invite link…</p>;
+  } else if (liveInvites.isError) {
+    linkPanel = (
+      <p role="alert" className="mt-2 text-sm text-risk-600">
+        Couldn't load the invite link. Refresh to try again.
+      </p>
+    );
+  } else {
+    linkPanel = <p className="mt-2 text-sm text-ink-500">No active link</p>;
+  }
+
   return (
     <div className="space-y-6">
       {actionError && (
@@ -242,32 +270,11 @@ export default function StudentsTab() {
             Make a new link
           </Button>
         </div>
-        {inviteLink ? (
-          <>
-            <CopyBox label="Invite link" value={inviteLink} />
-            <Button
-              size="sm"
-              variant="secondary"
-              className="mt-2"
-              disabled={invite.isPending}
-              onClick={() => setSwitchingOff(true)}
-            >
-              Switch off link
-            </Button>
-          </>
-        ) : liveInvites.isPending ? (
-          <p className="mt-2 text-sm text-ink-500">Loading the invite link…</p>
-        ) : liveInvites.isError ? (
-          <p role="alert" className="mt-2 text-sm text-risk-600">
-            Couldn't load the invite link. Refresh to try again.
-          </p>
-        ) : (
-          <p className="mt-2 text-sm text-ink-500">No active link</p>
-        )}
-        <p role="status" className="sr-only">
+        {linkPanel}
+        <output className="sr-only">
           {status.text}
           {status.n % 2 === 0 ? "\u00A0" : ""}
-        </p>
+        </output>
 
         {count === 0 ? (
           <SectionCard className="mt-4">
