@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import SitPastPaperPage from "../student/SitPastPaperPage";
+import { stubXhr } from "./fakeXhr";
 
 /* Sitting a past paper: what the page promises once it is marked, and what the
    picker shows once the answers have gone. */
@@ -43,15 +44,13 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 /** `attempt` is what my-attempt answers, before and after an upload. */
 function stubFetch(attempt: unknown) {
+  stubXhr(() => ({ status: 201, body: { ...MARKED, status: "being_marked", raw_marks: null } }));
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       // Most specific first — "/past-papers/5" is a prefix of every other path.
       if (url.includes("/my-attempt")) return json(attempt);
-      if (url.includes("/attempts") && init?.method === "POST") {
-        return json({ ...MARKED, status: "being_marked", raw_marks: null }, 201);
-      }
       if (url.includes("/past-papers/5")) return json(PAPER);
       return json(null);
     }),

@@ -5,7 +5,9 @@ import { AlertTriangle, CheckCircle2, Timer } from "lucide-react";
 import { getMock, mockPaperPath, myMockSubmission, openMock, sitMock } from "../api/mocks";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
-import { Button, Field, FileInput, Textarea } from "../components/controls";
+import { Button, Field, FileInput, Textarea, UploadStatus } from "../components/controls";
+import { useFocusSubmitOnFailure, useUpload } from "../lib/photoUpload";
+import { isAbort } from "../lib/uploadRefused";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
@@ -81,8 +83,9 @@ export default function SitMockPage() {
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const up = useUpload();
   const submit = useMutation({
-    mutationFn: () => sitMock(id, files, typed),
+    mutationFn: () => up.run(files, (prepared, o) => sitMock(id, prepared, typed, o)),
     onSuccess: () => {
       setFiles([]);
       setPickerKey((k) => k + 1);
@@ -90,8 +93,11 @@ export default function SitMockPage() {
       queryClient.invalidateQueries({ queryKey: ["my-mock-submission", id] });
     },
     onError: (err) =>
-      setError(friendlyError(err, "Your answers couldn't be handed in. Try again.")),
+      setError(
+        isAbort(err) ? null : friendlyError(err, "Your answers couldn't be handed in. Try again."),
+      ),
   });
+  useFocusSubmitOnFailure(up, submit.isPending);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -187,6 +193,7 @@ export default function SitMockPage() {
             <CheckCircle2 aria-hidden className="h-5 w-5 text-ok-700" />
             Handed in
           </h2>
+          <output className="sr-only">Your answers are handed in.</output>
           {/* Measured by us from the clock, so it is stated plainly — unlike a
               past paper's self-declared minutes, which carry a caveat
               (`PROD-8`, `UX-20`). Absent stays absent (`PROD-2`). */}
@@ -228,11 +235,7 @@ export default function SitMockPage() {
               <Textarea value={typed} onChange={(e) => setTyped(e.target.value)} rows={6} />
             </Field>
 
-            {error && (
-              <p role="alert" className="text-sm text-risk-600">
-                {error}
-              </p>
-            )}
+            <UploadStatus up={up} error={error} />
             {clock.isPending && <p className="text-sm text-ink-500">Starting your clock…</p>}
             {clock.isError && (
               <p className="text-sm text-warn-700">
@@ -247,6 +250,7 @@ export default function SitMockPage() {
                 answers is worse than losing the measurement. And a late hand-in
                 is accepted in full and flagged, which is the point of `AV-116`. */}
             <Button
+              ref={up.submitRef}
               type="submit"
               loading={submit.isPending}
               disabled={

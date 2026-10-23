@@ -33,8 +33,10 @@ from app.models import (
     NotificationPreference,
     NotificationStatus,
     Organization,
+    ParentLink,
     SuppressionReason,
     User,
+    UserRole,
 )
 from app.models.base import utcnow
 from app.services.notifications.channels import Channel, ChannelError
@@ -245,6 +247,15 @@ async def send_notification(session: AsyncSession, payload: dict) -> None:
     recipient = await session.get(User, note.recipient_user_id)
     if recipient is None:
         _end(note, NotificationStatus.failed, "Recipient no longer exists")
+        return
+
+    # A parent whose every link has been removed since this was queued must not
+    # receive a child's news. The note stores no student id, so a parent who
+    # still follows another child is not caught here (known limit).
+    if recipient.role == UserRole.parent and not await session.scalar(
+        select(ParentLink.id).where(ParentLink.parent_id == recipient.id).limit(1)
+    ):
+        _end(note, NotificationStatus.suppressed, "This parent is no longer linked to a child")
         return
 
     note.attempts += 1

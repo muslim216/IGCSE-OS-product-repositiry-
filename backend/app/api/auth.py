@@ -23,6 +23,7 @@ from app.models.users import User, UserRole
 from app.schemas.auth import (
     AccessToken,
     AuthResponse,
+    ChangePasswordRequest,
     LoginRequest,
     RefreshRequest,
     TokenPair,
@@ -243,6 +244,45 @@ async def logout(response: Response, db: DbSession, user: CurrentUser) -> None:
     await refresh_sessions.end_all(db, user)
     await db.commit()
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
+
+
+@router.post(
+    "/password",
+    responses={
+        400: {"description": "The current password is wrong."},
+        422: {"description": "The new password is invalid or the same as the current one."},
+        429: {"description": "Too many wrong current passwords; wait and retry."},
+    },
+)
+async def change_password(
+    body: ChangePasswordRequest, response: Response, db: DbSession, user: CurrentUser
+) -> AccessToken:
+    """Any signed-in user changes their own password. Every other session dies
+    (`SEC-1`); this one is re-issued so the person is not signed out of the
+    page they are on."""
+    # The sign-in limiter, on a key of its own per user (`SEC-14`): a stolen
+    # access token must not be a free oracle for the password, but its wrong
+    # guesses must not spend the owner's login counter either.
+    key = f"user:{user.id}\x00chpw"
+    if await login_limiter.is_limited(key):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many failed attempts. Wait a few minutes and try again.",
+        )
+    if not await verify_password_async(body.current_password, user.password_hash):
+        await login_limiter.record(key)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your current password is incorrect.")
+    if body.new_password == body.current_password:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Choose a new password that is different from your current one.",
+        )
+    user.password_hash = await hash_password_async(body.new_password)
+    user.token_version += 1
+    await refresh_sessions.end_all(db, user)
+    tokens = await _sign_in(db, response, user)
+    await login_limiter.reset(key)
+    return tokens
 
 
 @router.get("/me", response_model=UserOut)

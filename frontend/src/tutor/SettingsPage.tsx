@@ -5,6 +5,7 @@ import IntegrationsSetting from "./IntegrationsSetting";
 import WeeklySendSetting from "./WeeklySendSetting";
 import MessagesSetting from "./MessagesSetting";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
+import ChangePasswordForm from "../components/ChangePasswordForm";
 import { PageHeader } from "../components/page";
 import SetupState from "./SetupState";
 import { hashTarget, PlainSection, SectionIndex, useFollowHash } from "./SectionedPage";
@@ -66,6 +67,7 @@ export default function SettingsPage() {
           <div className="space-y-6">
             <TimezoneSetting />
             <MyTimezoneSetting />
+            <ChangePasswordForm />
             <CustomCriteriaSetting />
             <IntegrationsSetting />
           </div>

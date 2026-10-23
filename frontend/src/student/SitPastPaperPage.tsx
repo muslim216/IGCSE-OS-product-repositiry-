@@ -5,7 +5,9 @@ import { CheckCircle2, Clock } from "lucide-react";
 import { getPastPaper, logAttempt, myAttempt, pastPaperPaperPath } from "../api/pastPapers";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
-import { Button, Field, FileInput, Input } from "../components/controls";
+import { Button, Field, FileInput, Input, UploadStatus } from "../components/controls";
+import { useFocusSubmitOnFailure, useUpload } from "../lib/photoUpload";
+import { isAbort } from "../lib/uploadRefused";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
@@ -50,21 +52,32 @@ export default function SitPastPaperPage() {
   const [minutes, setMinutes] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const up = useUpload();
   const submit = useMutation({
     mutationFn: () =>
-      logAttempt(id, {
-        files,
-        attempted_at: attemptedAt,
-        timed,
-        time_taken_minutes: minutes ? Number(minutes) : null,
-      }),
+      up.run(files, (prepared, o) =>
+        logAttempt(
+          id,
+          {
+            files: prepared,
+            attempted_at: attemptedAt,
+            timed,
+            time_taken_minutes: minutes ? Number(minutes) : null,
+          },
+          o,
+        ),
+      ),
     onSuccess: () => {
       setFiles([]);
       setPickerKey((k) => k + 1);
       queryClient.invalidateQueries({ queryKey: ["past-paper-attempt", id] });
     },
-    onError: (err) => setError(friendlyError(err, "Your answers couldn't be uploaded. Try again.")),
+    onError: (err) =>
+      setError(
+        isAbort(err) ? null : friendlyError(err, "Your answers couldn't be uploaded. Try again."),
+      ),
   });
+  useFocusSubmitOnFailure(up, submit.isPending);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -152,16 +165,13 @@ export default function SitPastPaperPage() {
           </p>
         </SectionCard>
       ) : a?.status === "being_marked" ? (
-        <div
-          aria-live="polite"
-          className="flex gap-3 rounded-xl border border-line bg-warn-100 p-4 text-sm text-warn-700"
-        >
+        <output className="flex gap-3 rounded-xl border border-line bg-warn-100 p-4 text-sm text-warn-700">
           <Clock aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>
+          <span>
             Your answers are being marked. Your result will appear here when it&apos;s ready. You
             can leave this page and come back later.
-          </p>
-        </div>
+          </span>
+        </output>
       ) : (
         <SectionCard>
           <form onSubmit={onSubmit} className="space-y-5">
@@ -217,12 +227,13 @@ export default function SitPastPaperPage() {
               </p>
             </div>
 
-            {error && (
-              <p role="alert" className="text-sm text-risk-600">
-                {error}
-              </p>
-            )}
-            <Button type="submit" loading={submit.isPending} disabled={files.length === 0}>
+            <UploadStatus up={up} error={error} />
+            <Button
+              ref={up.submitRef}
+              type="submit"
+              loading={submit.isPending}
+              disabled={files.length === 0}
+            >
               Submit for marking
             </Button>
           </form>

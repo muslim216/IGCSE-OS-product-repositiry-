@@ -1,4 +1,4 @@
-import { api, apiUrl, getStoredTokens } from "./client";
+import { api, apiUrl, getStoredTokens, upload, type UploadOptions } from "./client";
 import type { components } from "./schema";
 import type { AttemptRedo } from "./students";
 import type { Topic } from "./syllabus";
@@ -250,14 +250,20 @@ export const MAX_TYPED_ANSWER = 20000;
 
 /** Photos, typed text, or both (`AV-73`). Neither is not a submission, and the
     server says so. */
-export function submitWork(assignmentId: number, files: File[], typedAnswer = "") {
+export function submitWork(
+  assignmentId: number,
+  files: File[],
+  typedAnswer = "",
+  opts?: UploadOptions,
+) {
   const form = new FormData();
   for (const f of files) form.append("files", f);
   if (typedAnswer.trim()) form.append("typed_answer", typedAnswer);
-  return api<StudentSubmissionView>(`/api/v1/assignments/${assignmentId}/submissions`, {
-    method: "POST",
-    body: form,
-  });
+  return upload<StudentSubmissionView>(
+    `/api/v1/assignments/${assignmentId}/submissions`,
+    form,
+    opts,
+  );
 }
 
 export const listSubmissions = (assignmentId: number) =>

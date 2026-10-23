@@ -1,4 +1,4 @@
-import { api } from "./client";
+import { api, upload, type UploadOptions } from "./client";
 import type { components } from "./schema";
 
 /** Aliased from the generated schema rather than hand-mirrored (`FE-4`).
@@ -43,6 +43,7 @@ export function logAttempt(
     timed: boolean;
     time_taken_minutes: number | null;
   },
+  opts?: UploadOptions,
 ) {
   const form = new FormData();
   for (const f of payload.files) form.append("files", f);
@@ -50,10 +51,7 @@ export function logAttempt(
   form.append("timed", String(payload.timed));
   if (payload.time_taken_minutes)
     form.append("time_taken_minutes", String(payload.time_taken_minutes));
-  return api<PastPaperAttempt>(`/api/v1/past-papers/${pastPaperId}/attempts`, {
-    method: "POST",
-    body: form,
-  });
+  return upload<PastPaperAttempt>(`/api/v1/past-papers/${pastPaperId}/attempts`, form, opts);
 }
 
 export const myAttempt = (pastPaperId: number) =>

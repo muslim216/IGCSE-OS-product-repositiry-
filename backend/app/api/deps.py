@@ -104,6 +104,15 @@ TutorUser = Annotated[User, Depends(require_tutor)]
 StudentUser = Annotated[User, Depends(require_student)]
 
 
+def require_parent(user: CurrentUser) -> User:
+    if user.role != UserRole.parent:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Parent account required")
+    return user
+
+
+ParentUser = Annotated[User, Depends(require_parent)]
+
+
 async def owned_subject(db: AsyncSession, subject_id: int, user: User) -> Subject:
     """A subject in the caller's own organization, or 404.
 
