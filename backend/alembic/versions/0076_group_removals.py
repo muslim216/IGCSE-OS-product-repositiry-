@@ -23,15 +23,36 @@ def upgrade() -> None:
         "group_removals",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column(
-            "organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False
+            "organization_id",
+            sa.Integer(),
+            sa.ForeignKey(
+                "organizations.id",
+                name="fk_group_removals_organization_id_organizations",
+                ondelete="CASCADE",
+            ),
+            nullable=False,
         ),
-        sa.Column("group_id", sa.Integer(), sa.ForeignKey("groups.id"), nullable=False),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column(
+            "group_id",
+            sa.Integer(),
+            sa.ForeignKey(
+                "groups.id", name="fk_group_removals_group_id_groups", ondelete="CASCADE"
+            ),
+            nullable=False,
+        ),
+        sa.Column(
+            "user_id",
+            sa.Integer(),
+            sa.ForeignKey("users.id", name="fk_group_removals_user_id_users", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("removed_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("group_id", "user_id", name="uq_group_removals_group_user"),
     )
+    op.create_index("ix_group_removals_user_id", "group_removals", ["user_id"])
 
 
 def downgrade() -> None:
+    op.drop_index("ix_group_removals_user_id", table_name="group_removals")
     op.drop_table("group_removals")

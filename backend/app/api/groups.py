@@ -1,7 +1,8 @@
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.analytics import group_analytics
@@ -229,6 +230,15 @@ async def revoke_invites(group_id: int, db: DbSession, user: TutorUser) -> None:
     await db.commit()
 
 
+async def _clear_removal(db, group_id: int, student_id: int) -> None:
+    """Every path that puts a student into a class clears a stale removal (GH-1)."""
+    await db.execute(
+        delete(GroupRemoval).where(
+            GroupRemoval.group_id == group_id, GroupRemoval.user_id == student_id
+        )
+    )
+
+
 @router.get("/{group_id}/removals")
 async def list_removals(group_id: int, db: DbSession, user: TutorUser) -> list[RemovedStudentOut]:
     """Students removed from this class who cannot rejoin by link."""
@@ -241,7 +251,7 @@ async def list_removals(group_id: int, db: DbSession, user: TutorUser) -> list[R
                 GroupRemoval.group_id == group.id,
                 GroupRemoval.organization_id == group.organization_id,
             )
-            .order_by(GroupRemoval.removed_at.desc())
+            .order_by(GroupRemoval.removed_at.desc(), GroupRemoval.id.desc())
         )
     ).all()
     return [RemovedStudentOut(id=r.id, name=r.name, removed_at=r.removed_at) for r in rows]
@@ -259,13 +269,7 @@ async def add_member(group_id: int, body: MemberAdd, db: DbSession, user: TutorU
         or student.organization_id != user.organization_id
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
-    removal = await db.scalar(
-        select(GroupRemoval).where(
-            GroupRemoval.group_id == group.id, GroupRemoval.user_id == student.id
-        )
-    )
-    if removal is not None:
-        await db.delete(removal)
+    await _clear_removal(db, group.id, student.id)
     already = await db.scalar(
         select(GroupMember.id).where(
             GroupMember.group_id == group.id, GroupMember.student_id == student.id
@@ -273,7 +277,13 @@ async def add_member(group_id: int, body: MemberAdd, db: DbSession, user: TutorU
     )
     if already is None:
         db.add(GroupMember(group_id=group.id, student_id=student.id))
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A concurrent add won the unique pair: the student is in, which is the goal.
+        await db.rollback()
+        await _clear_removal(db, group.id, student.id)
+        await db.commit()
 
 
 @router.delete("/{group_id}/members/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -287,15 +297,25 @@ async def remove_member(group_id: int, student_id: int, db: DbSession, user: Tut
     if member is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student is not in this group")
     await db.delete(member)
-    db.add(
-        GroupRemoval(
-            organization_id=group.organization_id,
-            group_id=group.id,
-            user_id=student_id,
-            removed_at=datetime.now(timezone.utc),
+    already_removed = await db.scalar(
+        select(GroupRemoval.id).where(
+            GroupRemoval.group_id == group.id, GroupRemoval.user_id == student_id
         )
     )
-    await db.commit()
+    if already_removed is None:
+        db.add(
+            GroupRemoval(
+                organization_id=group.organization_id,
+                group_id=group.id,
+                user_id=student_id,
+                removed_at=datetime.now(timezone.utc),
+            )
+        )
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A concurrent removal recorded it first: the removal stands.
+        await db.rollback()
 
 
 @router.post("/{group_id}/students", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -318,6 +338,7 @@ async def create_student_account(
     )
     db.add(student)
     await db.flush()
+    await _clear_removal(db, group.id, student.id)
     db.add(GroupMember(group_id=group.id, student_id=student.id))
     await db.commit()
     return UserOut.model_validate(student)

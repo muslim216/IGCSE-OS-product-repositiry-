@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2 } from "lucide-react";
@@ -96,6 +96,9 @@ export default function StudentsTab() {
   const onError = (err: unknown) => setActionError(friendlyError(err));
 
   const [switchingOff, setSwitchingOff] = useState(false);
+  // Spoken by a polite live region, and focus moves to the heading after an add back.
+  const [status, setStatus] = useState("");
+  const studentsHeading = useRef<HTMLHeadingElement>(null);
   const [parentCodes, setParentCodes] = useState<Record<number, string>>({});
   // Real dialogs instead of window.prompt/confirm.
   const [removing, setRemoving] = useState<{ id: number; name: string } | null>(null);
@@ -124,7 +127,10 @@ export default function StudentsTab() {
   });
   const addBack = useMutation({
     mutationFn: (studentId: number) => addMember(groupId, studentId),
-    onSuccess: () => {
+    onSuccess: (_, studentId) => {
+      const name = removals.data?.find((r) => r.id === studentId)?.name ?? "Student";
+      setStatus(`${name} added back`);
+      studentsHeading.current?.focus();
       queryClient.invalidateQueries({ queryKey: ["group-removals", groupId] });
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -137,6 +143,7 @@ export default function StudentsTab() {
     mutationFn: () => revokeInvites(groupId),
     onSuccess: () => {
       setSwitchingOff(false);
+      setStatus("Link switched off");
       return refreshInvites();
     },
     onMutate: () => setActionError(null),
@@ -150,7 +157,6 @@ export default function StudentsTab() {
   const addStudent = useMutation({
     mutationFn: () => createStudentAccount(groupId, studentForm),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["group-removals", groupId] });
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       // The cross-class Students and Homework lists count this class's members.
       queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -164,6 +170,8 @@ export default function StudentsTab() {
   const remove = useMutation({
     mutationFn: (studentId: number) => removeMember(groupId, studentId),
     onSuccess: () => {
+      // The student moves straight into the "Removed from this class" list.
+      queryClient.invalidateQueries({ queryKey: ["group-removals", groupId] });
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       // The cross-class Students and Homework lists count this class's members.
       queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -214,12 +222,19 @@ export default function StudentsTab() {
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg text-ink-900">Students</h2>
+            <h2 ref={studentsHeading} tabIndex={-1} className="text-lg text-ink-900">
+              Students
+            </h2>
             <p className="text-sm text-ink-500">
               {count} {count === 1 ? "student" : "students"} in this class
             </p>
           </div>
-          <Button size="sm" loading={invite.isPending} onClick={() => invite.mutate()}>
+          <Button
+            size="sm"
+            loading={invite.isPending}
+            disabled={switchOff.isPending}
+            onClick={() => invite.mutate()}
+          >
             <Link2 aria-hidden className="h-4 w-4" />
             Make a new link
           </Button>
@@ -231,14 +246,24 @@ export default function StudentsTab() {
               size="sm"
               variant="secondary"
               className="mt-2"
+              disabled={invite.isPending}
               onClick={() => setSwitchingOff(true)}
             >
               Switch off link
             </Button>
           </>
+        ) : liveInvites.isPending ? (
+          <p className="mt-2 text-sm text-ink-500">Loading the invite link…</p>
+        ) : liveInvites.isError ? (
+          <p role="alert" className="mt-2 text-sm text-risk-600">
+            Couldn't load the invite link. Refresh to try again.
+          </p>
         ) : (
-          liveInvites.isSuccess && <p className="mt-2 text-sm text-ink-500">No active link</p>
+          <p className="mt-2 text-sm text-ink-500">No active link</p>
         )}
+        <p role="status" className="sr-only">
+          {status}
+        </p>
 
         {count === 0 ? (
           <SectionCard className="mt-4">
@@ -338,6 +363,12 @@ export default function StudentsTab() {
         </form>
       </SectionCard>
 
+      {removals.isError && (
+        <p role="alert" className="text-sm text-risk-600">
+          Couldn't load the students removed from this class. Refresh to try again.
+        </p>
+      )}
+      {removals.isPending && <p className="text-sm text-ink-500">Loading removed students…</p>}
       {removals.data && removals.data.length > 0 && (
         <SectionCard>
           <h2 className="text-lg text-ink-900">Removed from this class</h2>

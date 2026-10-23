@@ -145,12 +145,33 @@ class GroupRemoval(TimestampMixin, Base):
     deletes it, minting a new link does not."""
 
     __tablename__ = "group_removals"
-    __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_group_removals_group_user"),)
+    __table_args__ = (
+        # Also the index for "who was removed from this class".
+        UniqueConstraint("group_id", "user_id", name="uq_group_removals_group_user"),
+        # "Is this student removed anywhere": the unique pair leads with group_id.
+        Index("ix_group_removals_user_id", "user_id"),
+    )
 
+    # CASCADE on all three: deleting a child's data (and their class or organization)
+    # must not be blocked by a removal row. Postgres only; the SQLite suite runs
+    # with foreign keys off.
     id: Mapped[int] = mapped_column(primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey(_ORGANIZATIONS_ID), nullable=False)
-    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            _ORGANIZATIONS_ID,
+            name="fk_group_removals_organization_id_organizations",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("groups.id", name="fk_group_removals_group_id_groups", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", name="fk_group_removals_user_id_users", ondelete="CASCADE"),
+        nullable=False,
+    )
     removed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
