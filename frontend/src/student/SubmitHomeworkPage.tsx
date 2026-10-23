@@ -11,7 +11,9 @@ import {
   type StudentMarkRow,
 } from "../api/homework";
 import { ApiError } from "../api/client";
-import { Button, Field, FileInput, Textarea } from "../components/controls";
+import { Button, Field, FileInput, Textarea, UploadStatus } from "../components/controls";
+import { useFocusSubmitOnFailure, useUpload } from "../lib/photoUpload";
+import { isAbort } from "../lib/uploadRefused";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
@@ -45,8 +47,9 @@ export default function SubmitHomeworkPage() {
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const up = useUpload();
   const submit = useMutation({
-    mutationFn: () => submitWork(id, files, typed),
+    mutationFn: () => up.run(files, (prepared, o) => submitWork(id, prepared, typed, o)),
     onSuccess: () => {
       setFiles([]);
       setPickerKey((k) => k + 1);
@@ -54,8 +57,10 @@ export default function SubmitHomeworkPage() {
       queryClient.invalidateQueries({ queryKey: ["my-submission", id] });
       queryClient.invalidateQueries({ queryKey: ["my-assignments"] });
     },
-    onError: (err) => setError(friendlyError(err, "Your work couldn't be sent. Try again.")),
+    onError: (err) =>
+      setError(isAbort(err) ? null : friendlyError(err, "Your work couldn't be sent. Try again.")),
   });
+  useFocusSubmitOnFailure(up, submit.isPending);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -155,10 +160,10 @@ export default function SubmitHomeworkPage() {
       ) : (
         <>
           {v.status === "submitted" && (
-            <div className="flex gap-3 rounded-xl border border-line bg-ok-100 p-4 text-sm text-ok-700">
+            <output className="flex gap-3 rounded-xl border border-line bg-ok-100 p-4 text-sm text-ok-700">
               <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>Submitted. You can upload again before it&apos;s marked if you need to.</p>
-            </div>
+              <span>Submitted. You can upload again before it&apos;s marked if you need to.</span>
+            </output>
           )}
           <SectionCard>
             <form onSubmit={onSubmit} className="space-y-5">
@@ -188,13 +193,10 @@ export default function SubmitHomeworkPage() {
                   placeholder={"1. ...\n2. ..."}
                 />
               </Field>
-              {error && (
-                <p role="alert" className="text-sm text-risk-600">
-                  {error}
-                </p>
-              )}
+              <UploadStatus up={up} error={error} />
               {/* Channel-neutral: typed-only work uploads nothing (cubic). */}
               <Button
+                ref={up.submitRef}
                 type="submit"
                 loading={submit.isPending}
                 disabled={files.length === 0 && typed.trim() === ""}

@@ -234,8 +234,13 @@ async def test_one_browser_refreshing_from_several_requests_at_once_is_not_a_rep
     b = await client.post(REFRESH, json={"refresh_token": first})
     assert a.status_code == 200
     assert b.status_code == 200
-    # Both answers carry the same current token, so the chain carries on.
-    assert a.cookies.get("igcse_refresh") == b.cookies.get("igcse_refresh")
+    # Both answers name the same session and generation, so the chain carries on.
+    # Compared by identity, not text: `iat` is in whole seconds, so two answers
+    # signed either side of a second boundary differ as strings.
+    a_id = decode_refresh_token(a.cookies["igcse_refresh"])
+    b_id = decode_refresh_token(b.cookies["igcse_refresh"])
+    assert a_id is not None
+    assert a_id == b_id
     current = b.cookies.get("igcse_refresh")
     assert (await client.post(REFRESH, json={"refresh_token": current})).status_code == 200
 

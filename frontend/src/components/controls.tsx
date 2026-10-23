@@ -12,6 +12,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import type { UploadPhase, UploadState } from "../lib/photoUpload";
 import { Loader2, Upload } from "lucide-react";
 
 /* Form and action primitives. Before these existed every page hand-rolled its
@@ -263,5 +264,97 @@ export function FileInput({
         }}
       />
     </label>
+  );
+}
+
+/** The bar and Cancel for one upload. No number until the browser reports one,
+    and no Cancel once every byte is sent: the server is then committing the
+    hand-in, and aborting would only leave the student unsure whether it
+    counted (they would send it again). */
+const PHASE_LABEL: Record<Exclude<UploadPhase, "idle">, string> = {
+  preparing: "Getting your photos ready…",
+  sending: "Sending…",
+  processing: "Processing…",
+  reconnecting: "Reconnecting…",
+};
+
+// A native <progress> has the progressbar role built in. Only a known value
+// gets the custom bar; with none it keeps the browser's own indeterminate look.
+const KNOWN_BAR =
+  "h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-surface-muted " +
+  "[&::-webkit-progress-bar]:bg-surface-muted [&::-webkit-progress-value]:bg-brand-600 " +
+  "[&::-moz-progress-bar]:bg-brand-600";
+
+// Indeterminate (preparing/processing/reconnecting/awaiting the first byte
+// count): same flattened track so iOS draws no stock bar, and a pulse that
+// stays still under reduced motion.
+const WAITING_BAR =
+  "h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-surface-muted " +
+  "[&::-webkit-progress-bar]:bg-surface-muted motion-safe:animate-pulse";
+
+export function UploadProgress({
+  phase,
+  percent,
+  onCancel,
+}: Readonly<{
+  phase: UploadPhase;
+  percent: number | null;
+  onCancel: () => void;
+}>) {
+  const labelId = useId();
+  if (phase === "idle") return null;
+  const label = PHASE_LABEL[phase];
+  const known = phase === "sending" && percent !== null;
+  // Processing has no honest number: 100 would be read out as "done".
+  const value = known ? percent : undefined;
+  const spoken = known ? `${percent} percent sent` : label.replace("…", "");
+  return (
+    <div className="space-y-2" data-testid="upload-progress">
+      <div className="flex items-center justify-between text-sm text-ink-700">
+        <span id={labelId}>{label}</span>
+        {known && (
+          <span aria-hidden className="tabular-nums">
+            {percent}%
+          </span>
+        )}
+      </div>
+      {phase !== "preparing" && (
+        <progress
+          aria-labelledby={labelId}
+          aria-valuetext={spoken}
+          max={100}
+          value={value}
+          className={value === undefined ? WAITING_BAR : KNOWN_BAR}
+        />
+      )}
+      {phase !== "processing" && (
+        <Button type="button" variant="ghost" size="lg" onClick={onCancel}>
+          Cancel upload
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Everything a hand-in form shows about its upload, in one place: a polite
+    status region that is always mounted (a region added with its text already
+    in it is often not announced), the bar, a blocking error, and the cancel
+    note. */
+export function UploadStatus({ up, error }: Readonly<{ up: UploadState; error: string | null }>) {
+  return (
+    <>
+      <output className="sr-only">{up.announcement}</output>
+      {error && (
+        <p role="alert" className="text-sm text-risk-600">
+          {error}
+        </p>
+      )}
+      {up.cancelled && !error && (
+        <p className="text-sm text-ink-700">
+          Upload cancelled. Your files are still here — press the button to send them again.
+        </p>
+      )}
+      <UploadProgress phase={up.phase} percent={up.percent} onCancel={up.cancel} />
+    </>
   );
 }

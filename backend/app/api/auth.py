@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.models import (
     Group,
     GroupMember,
+    GroupRemoval,
     Invite,
     InviteKind,
     Organization,
@@ -336,6 +337,17 @@ async def _add_to_group(db: AsyncSession, group_id: int, student_id: int) -> Non
         )
     )
     if existing is None:
+        # A tutor's removal outlasts the link (it is the whole point of removing).
+        removed = await db.scalar(
+            select(GroupRemoval.id).where(
+                GroupRemoval.group_id == group_id, GroupRemoval.user_id == student_id
+            )
+        )
+        if removed is not None:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "You can't join this class. Ask the tutor to add you back.",
+            )
         db.add(GroupMember(group_id=group_id, student_id=student_id))
 
 
