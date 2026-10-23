@@ -271,3 +271,94 @@ export async function api<T>(path: string, options: RequestInit = {}, retry = tr
   if (resp.status === 204) return undefined as T;
   return (await resp.json()) as T;
 }
+
+export interface UploadOptions {
+  /** 0-100, only when the browser can say how big the body is. */
+  onProgress?: (percent: number) => void;
+  /** Every byte has gone out; the server is now working on it. */
+  onSent?: () => void;
+  /** A 401 is being refreshed and the body will go out again from the start. */
+  onReconnect?: () => void;
+  /** Aborting rejects with an `AbortError` DOMException. */
+  signal?: AbortSignal;
+}
+
+/**
+ * `api()` for a multipart body, with upload progress and cancel.
+ *
+ * `fetch` cannot report how much of a request body has gone out, so this is
+ * XMLHttpRequest. It lives here, not in a page, because `client.ts` is the one
+ * HTTP entry point (`FE-1`): same bearer token, same refresh-once-on-401. An
+ * upload that came back 401 is sent again from the start with the new token.
+ */
+export function upload<T>(
+  path: string,
+  form: FormData,
+  opts: UploadOptions = {},
+  retry = true,
+): Promise<T> {
+  const { onProgress, onSent, onReconnect, signal } = opts;
+  const tokens = getStoredTokens();
+  return new Promise<T>((resolve, reject) => {
+    const aborted = () => new DOMException("Upload cancelled", "AbortError");
+    if (signal?.aborted) return reject(aborted());
+    const xhr = new XMLHttpRequest();
+    // No `xhr.timeout`, on purpose: a big hand-in on a slow phone connection
+    // is legitimately slow, so Cancel is the way out of a stalled one.
+    xhr.open("POST", apiUrl(path));
+    xhr.withCredentials = true;
+    if (tokens) xhr.setRequestHeader("Authorization", `Bearer ${tokens.access_token}`);
+    // Not computable means no honest percentage; say nothing rather than guess.
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) {
+        onProgress?.(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.upload.onload = () => onSent?.();
+    const onAbort = () => xhr.abort();
+    signal?.addEventListener("abort", onAbort);
+    const done = () => signal?.removeEventListener("abort", onAbort);
+    xhr.onabort = () => {
+      done();
+      reject(aborted());
+    };
+    // Same type `fetch` throws for no connection, so `friendlyError` words it.
+    xhr.onerror = () => {
+      done();
+      reject(new TypeError("Network request failed"));
+    };
+    const settle = async () => {
+      done();
+      if (xhr.status === 401 && tokens && retry) {
+        const fresh = await refreshTokens().catch(() => null);
+        if (fresh) {
+          onReconnect?.();
+          resolve(await upload<T>(path, form, opts, false));
+          return;
+        }
+      }
+      let body: unknown = null;
+      let parsed = true;
+      if (xhr.responseText) {
+        try {
+          body = JSON.parse(xhr.responseText);
+        } catch {
+          parsed = false;
+        }
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (!parsed) throw new ApiError(xhr.status, "The server's answer couldn't be read.");
+        resolve((xhr.status === 204 || !xhr.responseText ? undefined : body) as T);
+        return;
+      }
+      const err = parseErrorBody(body);
+      throw new ApiError(xhr.status, err.detail || xhr.statusText, err.fields);
+    };
+    // An async handler's failure is otherwise an unhandled rejection and a
+    // promise that never settles — a spinner nobody can dismiss.
+    xhr.onload = () => {
+      settle().catch(reject);
+    };
+    xhr.send(form);
+  });
+}

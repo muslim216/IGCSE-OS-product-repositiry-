@@ -27,6 +27,8 @@ from app.schemas.crm import (
     StudentCrmOut,
     StudentProfileOut,
     StudentProfileUpdate,
+    StudentRename,
+    StudentRenamed,
     StudentSubjectCreate,
     StudentSubjectOut,
     StudentSubjectUpdate,
@@ -236,9 +238,22 @@ async def student_crm(student_id: int, db: DbSession, user: CurrentUser) -> Stud
     )
 
 
+@router.patch(
+    "/{student_id}",
+    responses={404: {"description": "No such student among those you teach."}},
+)
+async def rename_student(
+    student_id: int, body: StudentRename, db: DbSession, user: TutorUser
+) -> StudentRenamed:
+    student = await _tutor_student(db, user, student_id)
+    student.name = body.name
+    await db.commit()
+    return StudentRenamed(id=student.id, name=student.name)
+
+
 @router.put("/{student_id}/profile", response_model=StudentProfileOut)
 async def update_student_profile(
-    student_id: int, body: StudentProfileUpdate, db: DbSession, user: CurrentUser
+    student_id: int, body: StudentProfileUpdate, db: DbSession, user: TutorUser
 ) -> StudentProfileOut:
     student = await _tutor_student(db, user, student_id)
     profile = await db.scalar(select(StudentProfile).where(StudentProfile.student_id == student.id))

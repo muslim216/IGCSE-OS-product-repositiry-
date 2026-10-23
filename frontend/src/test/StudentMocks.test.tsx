@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import SitMockPage from "../student/SitMockPage";
 import MocksPage from "../student/MocksPage";
+import { stubXhr } from "./fakeXhr";
 
 const mock = {
   id: 7,
@@ -43,9 +44,14 @@ let openCalls = 0;
 function mockFetch(clock: unknown, submission: unknown = null) {
   openCalls = 0;
   let current = submission;
+  // Hand-ins go out by XMLHttpRequest (upload progress), not fetch.
+  stubXhr(() => {
+    current = lateSubmission;
+    return { status: 200, body: lateSubmission };
+  });
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       // Most specific first — "/mocks/7" is a substring of every other path.
       if (url.includes("/open")) {
@@ -54,10 +60,6 @@ function mockFetch(clock: unknown, submission: unknown = null) {
       }
       if (url.includes("/my-submission")) {
         return new Response(JSON.stringify(current), { status: 200 });
-      }
-      if (url.includes("/submissions") && init?.method === "POST") {
-        current = lateSubmission;
-        return new Response(JSON.stringify(lateSubmission), { status: 200 });
       }
       if (url.includes("/mocks/7")) {
         return new Response(JSON.stringify(mock), { status: 200 });

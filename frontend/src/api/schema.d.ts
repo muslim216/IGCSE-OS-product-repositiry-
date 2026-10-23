@@ -139,6 +139,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Password
+         * @description Any signed-in user changes their own password. Every other session dies
+         *     (`SEC-1`); this one is re-issued so the person is not signed out of the
+         *     page they are on.
+         */
+        post: operations["change_password_api_v1_auth_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/me": {
         parameters: {
             query?: never;
@@ -2667,6 +2689,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/students/{student_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename Student */
+        patch: operations["rename_student_api_v1_students__student_id__patch"];
+        trace?: never;
+    };
     "/api/v1/students/{student_id}/profile": {
         parameters: {
             query?: never;
@@ -4394,6 +4433,13 @@ export interface components {
             mistakes: number;
             /** Severity Total */
             severity_total: number;
+        };
+        /** ChangePasswordRequest */
+        ChangePasswordRequest: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
         };
         /** ChannelStatusOut */
         ChannelStatusOut: {
@@ -7168,6 +7214,18 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** StudentRename */
+        StudentRename: {
+            /** Name */
+            name: string;
+        };
+        /** StudentRenamed */
+        StudentRenamed: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
         /** StudentSubjectCreate */
         StudentSubjectCreate: {
             /** Subject Id */
@@ -8347,6 +8405,51 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    change_password_api_v1_auth_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessToken"];
+                };
+            };
+            /** @description The current password is wrong. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The new password is invalid or the same as the current one. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many wrong current passwords; wait and retry. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13098,6 +13201,48 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["StudentCrmOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_student_api_v1_students__student_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StudentRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentRenamed"];
+                };
+            };
+            /** @description No such student among those you teach. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

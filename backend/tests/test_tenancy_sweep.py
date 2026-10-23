@@ -194,7 +194,6 @@ EXPECTED_REFUSALS: set[tuple[str, str, str]] = {
     ("parent", "POST", "/syllabus-uploads/{upload_id}/retry"),
     ("parent", "PUT", "/assignments/{assignment_id}/questions"),
     ("parent", "PUT", "/lessons/{lesson_id}/topics"),
-    ("parent", "PUT", "/students/{student_id}/profile"),
     ("parent", "PUT", "/submissions/{submission_id}/marks"),
     ("parent", "PUT", "/syllabus-uploads/{upload_id}/draft"),
     ("student", "DELETE", "/groups/{group_id}/lessons/{slot_id}"),
@@ -229,7 +228,6 @@ EXPECTED_REFUSALS: set[tuple[str, str, str]] = {
     ("student", "POST", "/syllabus-uploads/{upload_id}/retry"),
     ("student", "PUT", "/assignments/{assignment_id}/questions"),
     ("student", "PUT", "/lessons/{lesson_id}/topics"),
-    ("student", "PUT", "/students/{student_id}/profile"),
     ("student", "PUT", "/submissions/{submission_id}/marks"),
     ("student", "PUT", "/syllabus-uploads/{upload_id}/draft"),
 }
