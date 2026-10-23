@@ -1461,6 +1461,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/parent-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Parent Links
+         * @description Who is linked to the caller. The student is the token's (`SEC-7`).
+         */
+        get: operations["my_parent_links_api_v1_me_parent_links_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/parent-links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove My Parent Link */
+        delete: operations["remove_my_parent_link_api_v1_me_parent_links__link_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/children/{student_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop Following Child
+         * @description A parent ends their own access to a child. Only their own link can match.
+         */
+        delete: operations["stop_following_child_api_v1_me_children__student_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subjects/{subject_id}/mistake-categories": {
         parameters: {
             query?: never;
@@ -2566,6 +2623,46 @@ export interface paths {
          */
         post: operations["create_parent_code_api_v1_students__student_id__parent_code_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/{student_id}/parents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Student Parents
+         * @description Who can read this child's record. A tutor who teaches the child sees it.
+         */
+        get: operations["student_parents_api_v1_students__student_id__parents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/{student_id}/parents/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Student Parent
+         * @description Cut a parent off, e.g. a code that went to the wrong adult. Immediate.
+         */
+        delete: operations["remove_student_parent_api_v1_students__student_id__parents__link_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5337,6 +5434,26 @@ export interface components {
             created_at: string;
             /** Group Name */
             group_name: string;
+        };
+        /**
+         * LinkedParentOut
+         * @description One adult who can read a child's record. `id` is the link's, which is what
+         *     removing it takes.
+         */
+        LinkedParentOut: {
+            /** Id */
+            id: number;
+            /** Parent Id */
+            parent_id: number;
+            /** Name */
+            name: string;
+            /** Email */
+            email: string;
+            /**
+             * Linked At
+             * Format: date-time
+             */
+            linked_at: string;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -10766,6 +10883,84 @@ export interface operations {
             };
         };
     };
+    my_parent_links_api_v1_me_parent_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedParentOut"][];
+                };
+            };
+        };
+    };
+    remove_my_parent_link_api_v1_me_parent_links__link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_following_child_api_v1_me_children__student_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_mistake_categories_api_v1_subjects__subject_id__mistake_categories_get: {
         parameters: {
             query?: never;
@@ -12914,6 +13109,67 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["InviteOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    student_parents_api_v1_students__student_id__parents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedParentOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_student_parent_api_v1_students__student_id__parents__link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+                link_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

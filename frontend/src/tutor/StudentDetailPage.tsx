@@ -17,6 +17,7 @@ import { ReportsPanel } from "../components/ReportsPanel";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import AttendancePanel from "../components/AttendancePanel";
 import StudentContacts from "./StudentContacts";
+import LinkedParents from "../components/LinkedParents";
 import RenameStudent from "./RenameStudent";
 import { EarlierAttempts } from "./EarlierAttempts";
 import { ABSENT, sourceLabel } from "../lib/labels";
@@ -273,6 +274,8 @@ export default function StudentDetailPage() {
         {/* Where this learner and their parents are reached; each address is
             confirmed here before anything is sent to it (threat review F5). */}
         <StudentContacts studentId={sid} />
+
+        <LinkedParents studentId={sid} />
 
         {/* Seeding (spec §7.3). Optional, and deliberately late: students attach
             themselves by invite code, so a tutor finishing setup has no students

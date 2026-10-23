@@ -4008,6 +4008,118 @@
         ]
       }
     },
+    "/api/v1/me/parent-links": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "My Parent Links",
+        "description": "Who is linked to the caller. The student is the token's (`SEC-7`).",
+        "operationId": "my_parent_links_api_v1_me_parent_links_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedParentOut"
+                  },
+                  "type": "array",
+                  "title": "Response My Parent Links Api V1 Me Parent Links Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/parent-links/{link_id}": {
+      "delete": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Remove My Parent Link",
+        "operationId": "remove_my_parent_link_api_v1_me_parent_links__link_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/children/{student_id}": {
+      "delete": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Stop Following Child",
+        "description": "A parent ends their own access to a child. Only their own link can match.",
+        "operationId": "stop_following_child_api_v1_me_children__student_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/subjects/{subject_id}/mistake-categories": {
       "get": {
         "tags": [
@@ -7500,6 +7612,108 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/{student_id}/parents": {
+      "get": {
+        "tags": [
+          "students"
+        ],
+        "summary": "Student Parents",
+        "description": "Who can read this child's record. A tutor who teaches the child sees it.",
+        "operationId": "student_parents_api_v1_students__student_id__parents_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedParentOut"
+                  },
+                  "title": "Response Student Parents Api V1 Students  Student Id  Parents Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/{student_id}/parents/{link_id}": {
+      "delete": {
+        "tags": [
+          "students"
+        ],
+        "summary": "Remove Student Parent",
+        "description": "Cut a parent off, e.g. a code that went to the wrong adult. Immediate.",
+        "operationId": "remove_student_parent_api_v1_students__student_id__parents__link_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          },
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -15284,6 +15498,41 @@
         ],
         "title": "LibraryResourceOut",
         "description": "A shared file or recording with the class it was shared with, for the\ntutor's Library, which lists material across every class at once."
+      },
+      "LinkedParentOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "parent_id": {
+            "type": "integer",
+            "title": "Parent Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "linked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Linked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "parent_id",
+          "name",
+          "email",
+          "linked_at"
+        ],
+        "title": "LinkedParentOut",
+        "description": "One adult who can read a child's record. `id` is the link's, which is what\nremoving it takes."
       },
       "LoginRequest": {
         "properties": {

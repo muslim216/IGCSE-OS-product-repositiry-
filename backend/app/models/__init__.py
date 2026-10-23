@@ -17,6 +17,7 @@ from app.models.groups import (
     Invite,
     InviteKind,
     ParentLink,
+    ParentLinkRemoval,
     ScheduleSlot,
     TaughtBeforeTopic,
 )
@@ -185,6 +186,7 @@ __all__ = [
     "Organization",
     "ParentCommunication",
     "ParentLink",
+    "ParentLinkRemoval",
     "PastPaper",
     "PastPaperAttempt",
     "PastPaperQuestion",
