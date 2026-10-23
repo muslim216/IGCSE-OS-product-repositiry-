@@ -50,7 +50,7 @@ from app.api import (
     weekly_sends,
 )
 from app.body_limit import BodySizeLimit
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db import async_session, pool_status
 from app.models import Job, JobStatus
 from app.services.ai import SURFACES, AiProvider, resolve_surface
@@ -186,6 +186,7 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
 }
 
+#: Only served off Render: a deployment registers no docs routes (SA-12).
 DOCS_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect"})
 
 
@@ -363,9 +364,17 @@ def _busy(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+def _docs_urls(settings: Settings) -> dict[str, None]:
+    """SA-12: a real deployment does not publish its route map. Only the URLs
+    go; app.openapi() still works for the snapshot test and type generation."""
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None} if settings.render else {}
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title=settings.app_name, version="0.1.0", lifespan=lifespan, **_docs_urls(settings)
+    )
 
     # Innermost of the middleware, so a 413 still carries CORS, the request id
     # and the security headers that the layers added after it put on.
