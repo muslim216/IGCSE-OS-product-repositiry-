@@ -29,9 +29,10 @@ def _fk(table: str, col: str, target: str, **kw) -> sa.ForeignKeyConstraint:
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("users", naming_convention=NAMING) as batch:
-        batch.add_column(sa.Column("erasure_requested_at", sa.DateTime(timezone=True)))
-        batch.add_column(sa.Column("deleted_at", sa.DateTime(timezone=True)))
+    # Plain ADD/DROP COLUMN, not batch: a batch rebuild of `users` on SQLite drops
+    # the expression index uq_users_lower_username, which nothing re-creates.
+    op.add_column("users", sa.Column("erasure_requested_at", sa.DateTime(timezone=True)))
+    op.add_column("users", sa.Column("deleted_at", sa.DateTime(timezone=True)))
     with op.batch_alter_table("mark_override_audit", naming_convention=NAMING) as batch:
         batch.alter_column("question_mark_id", existing_type=sa.Integer(), nullable=True)
     with op.batch_alter_table("custom_criterion_score_audit", naming_convention=NAMING) as batch:
@@ -113,6 +114,5 @@ def downgrade() -> None:
         batch.alter_column("student_id", existing_type=sa.Integer(), nullable=False)
     with op.batch_alter_table("mark_override_audit", naming_convention=NAMING) as batch:
         batch.alter_column("question_mark_id", existing_type=sa.Integer(), nullable=False)
-    with op.batch_alter_table("users", naming_convention=NAMING) as batch:
-        batch.drop_column("deleted_at")
-        batch.drop_column("erasure_requested_at")
+    op.drop_column("users", "deleted_at")
+    op.drop_column("users", "erasure_requested_at")
