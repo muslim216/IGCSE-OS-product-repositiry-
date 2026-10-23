@@ -725,24 +725,31 @@ def _failure(
     )
 
 
+def _failed_anthropic_usage(
+    provider: AiProvider, prompt_version: str, final: Any
+) -> "AiResponse[Any] | None":
+    usage = getattr(final, "usage", None)
+    if usage is None:
+        return None
+    return AiResponse(
+        provider=provider,
+        model=getattr(final, "model", None) or "unknown",
+        prompt_version=prompt_version,
+        **_anthropic_usage(usage),
+    )
+
+
 async def _meter_failed(
-    surface: str, organization_id: int, provider: AiProvider, prompt_version: str, final: Any
+    surface: str, organization_id: int, response: "AiResponse[Any] | None"
 ) -> None:
     """Record what a call cost when the provider answered but the answer was
     unusable (cut off, refused, empty, wrong shape): the tokens were billed
     either way. Recorded as system usage (no tutor; the helper does not know
     one) in its own short transaction, since the caller's transaction is about
     to be abandoned. Best-effort: a metering fault must not mask the real error."""
-    usage = getattr(final, "usage", None)
     feature = SURFACE_FEATURE.get(surface)
-    if usage is None or feature is None:
+    if response is None or feature is None:
         return
-    response: AiResponse[Any] = AiResponse(
-        provider=provider,
-        model=getattr(final, "model", None) or "unknown",
-        prompt_version=prompt_version,
-        **_anthropic_usage(usage),
-    )
     try:
         async with async_session() as session:
             await record_usage(
@@ -871,7 +878,11 @@ async def structured_complete(
             # transport problem, and propagates unchanged as it did under `parse`.
             parsed = output_format.model_validate_json(text)
         except (AICallFailedError, ValidationError):
-            await _meter_failed(surface, organization_id, provider, prompt.version, final)
+            await _meter_failed(
+                surface,
+                organization_id,
+                _failed_anthropic_usage(provider, prompt.version, final),
+            )
             raise
         usage = final.usage
         return AiResponse(
@@ -896,11 +907,24 @@ async def structured_complete(
                 response_schema=output_format,
             ),
         )
-    parsed = response.parsed
-    if parsed is None:
-        raise ValueError("The AI returned no structured result")
-    if isinstance(parsed, dict):  # some SDK versions hand back the raw object
-        parsed = output_format.model_validate(parsed)
+    try:
+        parsed = response.parsed
+        if parsed is None:
+            raise ValueError("The AI returned no structured result")
+        if isinstance(parsed, dict):  # some SDK versions hand back the raw object
+            parsed = output_format.model_validate(parsed)
+    except ValueError:  # includes pydantic's ValidationError
+        await _meter_failed(
+            surface,
+            organization_id,
+            AiResponse(
+                provider=provider,
+                model=model,
+                prompt_version=prompt.version,
+                **_gemini_usage(response),
+            ),
+        )
+        raise
     return AiResponse(
         provider=provider,
         model=model,
@@ -963,7 +987,11 @@ async def text_complete(
                 # store it and hide the previous good paragraph behind a blank one.
                 raise _failure(AICallFailedError, "The AI returned an empty answer", final)
         except AICallFailedError:
-            await _meter_failed(surface, organization_id, provider, template.version, final)
+            await _meter_failed(
+                surface,
+                organization_id,
+                _failed_anthropic_usage(provider, template.version, final),
+            )
             raise
         if truncated:
             # Still returned: a plain-text answer cut short is usable (a shorter
@@ -996,11 +1024,25 @@ async def text_complete(
                 max_output_tokens=max_tokens,
             ),
         )
+    text = response.text or ""
+    if not text.strip():
+        # Same refusal as the Anthropic branch: a blank must not reach narrative.py.
+        await _meter_failed(
+            surface,
+            organization_id,
+            AiResponse(
+                provider=provider,
+                model=model,
+                prompt_version=template.version,
+                **_gemini_usage(response),
+            ),
+        )
+        raise AICallFailedError("The AI returned an empty answer", model=model)
     return AiResponse(
         provider=provider,
         model=model,
         prompt_version=template.version,
-        text=response.text or "",
+        text=text,
         **_gemini_usage(response),
     )
 

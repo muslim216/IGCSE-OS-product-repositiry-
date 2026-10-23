@@ -288,3 +288,66 @@ async def test_usage_api_sums_cache_tokens(client, tutor, prices):
     assert (summary["total_cache_write_tokens"], summary["total_cache_read_tokens"]) == (20, 200)
     analytics = (await client.get("/api/v1/ai-usage/analytics", headers=tutor["headers"])).json()
     assert analytics["buckets"][0]["cache_read_tokens"] == 200
+
+
+class _FakeGemini:
+    def __init__(self, response):
+        self.aio = SimpleNamespace(models=SimpleNamespace(generate_content=self._call))
+        self._response = response
+
+    async def _call(self, **kwargs):
+        return self._response
+
+
+@pytest.fixture
+def gemini(monkeypatch):
+    monkeypatch.setattr(
+        ai_service, "resolve_surface", lambda surface: (AiProvider.gemini, "gemini-test")
+    )
+
+    def _use(**fields):
+        meta = SimpleNamespace(
+            prompt_token_count=100,
+            candidates_token_count=40,
+            thoughts_token_count=0,
+            cached_content_token_count=0,
+        )
+        response = SimpleNamespace(**{"usage_metadata": meta, "parsed": None, "text": "", **fields})
+        monkeypatch.setattr(ai_service, "get_gemini_client", lambda: _FakeGemini(response))
+
+    return _use
+
+
+async def test_gemini_unparsed_structured_answer_records_its_tokens(client, tutor, gemini):
+    org = (await _user(tutor)).organization_id
+    gemini(parsed=None)
+    with pytest.raises(ValueError):
+        await _structured(org)
+    (event,) = await _events()
+    assert (event.provider, event.input_tokens, event.output_tokens) == ("gemini", 100, 40)
+
+
+async def test_gemini_wrong_shape_structured_answer_records_its_tokens(client, tutor, gemini):
+    org = (await _user(tutor)).organization_id
+    gemini(parsed={"mark": "nope"})
+    with pytest.raises(ValidationError):
+        await _structured(org)
+    assert len(await _events()) == 1
+
+
+async def test_gemini_empty_text_answer_records_its_tokens_and_is_refused(client, tutor, gemini):
+    org = (await _user(tutor)).organization_id
+    gemini(text="")
+    with pytest.raises(AICallFailedError):
+        await text_complete(organization_id=org, surface="narrative", prompt="p", max_tokens=50)
+    assert len(await _events()) == 1
+
+
+async def test_gemini_good_answers_are_not_recorded_by_the_helper(client, tutor, gemini):
+    org = (await _user(tutor)).organization_id
+    gemini(parsed={"mark": 3}, text="fine")
+    assert (await _structured(org)).parsed == Verdict(mark=3)
+    assert (
+        await text_complete(organization_id=org, surface="narrative", prompt="p", max_tokens=50)
+    ).text == "fine"
+    assert await _events() == []
