@@ -222,7 +222,6 @@ async def student_crm(student_id: int, db: DbSession, user: CurrentUser) -> Stud
 
 @router.patch(
     "/{student_id}",
-    response_model=StudentRenamed,
     responses={404: {"description": "No such student among those you teach."}},
 )
 async def rename_student(

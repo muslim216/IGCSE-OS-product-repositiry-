@@ -115,9 +115,9 @@ export default function ChangePasswordForm() {
           </p>
         )}
         {/* Mounted empty and filled after success, so it is announced. */}
-        <p role="status" className="text-sm text-ink-700 empty:hidden">
+        <output className="block text-sm text-ink-700">
           {save.isSuccess ? "Password changed. Other devices have been signed out." : ""}
-        </p>
+        </output>
         <Button type="submit" disabled={save.isPending}>
           {save.isPending ? "Saving…" : "Change password"}
         </Button>

@@ -65,7 +65,8 @@ async def test_password_change_kills_old_tokens_and_keeps_this_session(client, t
     assert resp.status_code == 200
     new_access = {"Authorization": f"Bearer {resp.json()['access_token']}"}
     new_refresh = resp.cookies.get("igcse_refresh")
-    assert new_refresh and new_refresh != old_refresh
+    assert new_refresh
+    assert new_refresh != old_refresh
 
     assert (await client.get("/api/v1/auth/me", headers=tutor["headers"])).status_code == 401
     old = await client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})

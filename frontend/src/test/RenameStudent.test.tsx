@@ -46,6 +46,15 @@ test("an unsaved edit is not overwritten by a refetched name", () => {
   expect(input().value).toBe("Sarah");
 });
 
+test("an edit reverted to the shown name lets a refetched name in again", () => {
+  vi.stubGlobal("fetch", vi.fn());
+  const { rerender } = renderIt();
+  fireEvent.change(input(), { target: { value: "Sarah" } });
+  fireEvent.change(input(), { target: { value: "Sara" } });
+  rerender("Sara B");
+  expect(input().value).toBe("Sara B");
+});
+
 test("a refused rename shows the error", async () => {
   vi.stubGlobal(
     "fetch",

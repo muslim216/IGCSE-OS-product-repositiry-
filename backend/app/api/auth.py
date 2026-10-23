@@ -247,7 +247,6 @@ async def logout(response: Response, db: DbSession, user: CurrentUser) -> None:
 
 @router.post(
     "/password",
-    response_model=AccessToken,
     responses={
         400: {"description": "The current password is wrong."},
         422: {"description": "The new password is invalid or the same as the current one."},

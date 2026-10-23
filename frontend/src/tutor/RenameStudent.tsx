@@ -7,19 +7,23 @@ import { friendlyError } from "../lib/errors";
 
 /** The tutor corrects how a student's name is spelled. It changes everywhere
  * the student is named, so the cached views are refetched. */
-export default function RenameStudent({ studentId, name }: { studentId: number; name: string }) {
+export default function RenameStudent({
+  studentId,
+  name,
+}: Readonly<{ studentId: number; name: string }>) {
   const queryClient = useQueryClient();
   const [value, setValue] = useState(name);
-  // Set while the tutor has typed something not yet saved, so a refetch that
-  // brings a new name in does not overwrite their edit.
-  const dirty = useRef(false);
+  // A refetch that brings a new name in replaces the field only if the tutor
+  // has not changed it from the name we last showed; otherwise their edit
+  // (typed before or during a save) stands.
+  const shown = useRef(name);
   useEffect(() => {
-    if (!dirty.current) setValue(name);
+    setValue((v) => (v.trim() === shown.current || v.trim() === name ? name : v));
+    shown.current = name;
   }, [name]);
   const save = useMutation({
     mutationFn: () => renameStudent(studentId, value.trim()),
     onSuccess: () => {
-      dirty.current = false;
       return queryClient.invalidateQueries();
     },
   });
@@ -46,7 +50,6 @@ export default function RenameStudent({ studentId, name }: { studentId: number; 
             value={value}
             maxLength={128}
             onChange={(e) => {
-              dirty.current = true;
               setValue(e.target.value);
               save.reset();
             }}
@@ -57,9 +60,7 @@ export default function RenameStudent({ studentId, name }: { studentId: number; 
         </Button>
       </form>
       {/* Mounted empty and filled after success, so it is announced. */}
-      <p role="status" className="mt-2 text-sm text-ink-700 empty:hidden">
-        {save.isSuccess ? "Saved." : ""}
-      </p>
+      <output className="mt-2 block text-sm text-ink-700">{save.isSuccess ? "Saved." : ""}</output>
     </SectionCard>
   );
 }
