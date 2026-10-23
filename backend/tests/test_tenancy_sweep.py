@@ -361,6 +361,10 @@ INDISTINGUISHABLE: dict[tuple[str, str, str], str] = {
 #: to reach the check at all: (METHOD, path-template) -> {path param: ids key}.
 ID_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     ("PUT", "/assignments/{assignment_id}/questions"): {"assignment_id": "_assignment_review_id"},
+    # Each of the three unlink routes has its own live link, so one control cannot
+    # remove the link another route's control (or attack) is aimed at.
+    ("DELETE", "/me/parent-links/{link_id}"): {"link_id": "_student_link_id"},
+    ("DELETE", "/me/children/{student_id}"): {"student_id": "_second_child_id"},
 }
 
 #: Tables a SILENT_200 request may add rows to: reason and a test of each new row.
@@ -390,14 +394,7 @@ _BODY = (
 )
 _FORBIDDEN = "the owner is refused by the handler's own rule (an admin who does not teach the student; accounts with email)"
 
-_LINK_GONE = (
-    "the workspace has one parent link and the tutor's own control (DELETE "
-    "/students/{student_id}/parents/{link_id}, 2xx) has already removed it"
-)
-
 CONTROL_EXCEPTIONS: dict[tuple[str, str, str, str], tuple[int, str]] = {
-    ("student", "DELETE", "/me/parent-links/{link_id}", ""): (404, _LINK_GONE),
-    ("parent", "DELETE", "/me/children/{student_id}", ""): (404, _LINK_GONE),
     ("parent", "GET", "/booklets/{booklet_id}", ""): (404, _NO_CLAIM_PARENT),
     ("parent", "GET", "/booklets/{booklet_id}/file", ""): (404, _NO_CLAIM_PARENT),
     ("parent", "GET", "/classifieds/{classified_id}/file", ""): (404, _NO_CLAIM_PARENT),
@@ -813,6 +810,28 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
         ids["link_id"] = await s.scalar(
             select(ParentLink.id).where(ParentLink.parent_id == parent.id)
         )
+        # Link 2 (the student's own unlink): a second parent on the same student.
+        # Link 3 (the parent's own unlink): the same parent on a second student.
+        other_parent = await make_user(
+            s,
+            organization_id=organization_id,
+            role=UserRole.parent,
+            name=f"Other parent {marker}",
+            email=f"parent2-{tag}@example.com",
+        )
+        second_child = await make_user(
+            s,
+            organization_id=organization_id,
+            role=UserRole.student,
+            name=f"Second child {marker}",
+            email=f"child2-{tag}@example.com",
+        )
+        await link_parent(s, other_parent.id, student_id)
+        await link_parent(s, parent.id, second_child.id)
+        ids["_student_link_id"] = await s.scalar(
+            select(ParentLink.id).where(ParentLink.parent_id == other_parent.id)
+        )
+        ids["_second_child_id"] = second_child.id
         usage_tokens = 7_000_000 + ord(tag)  # a number only this workspace has
         s.add_all(
             [
