@@ -1,3 +1,4 @@
+import unicodedata
 from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
@@ -6,18 +7,31 @@ from app.schemas.readiness import SubjectReadiness
 
 
 class StudentProfileUpdate(BaseModel):
-    # None leaves the name alone: the form sends the whole profile each save.
-    name: str | None = Field(default=None, min_length=1, max_length=128)
     school: str | None = Field(default=None, max_length=255)
     year_group: str | None = Field(default=None, max_length=64)
     parent_name: str | None = Field(default=None, max_length=128)
     parent_email: str | None = Field(default=None, max_length=255)
     parent_phone: str | None = Field(default=None, max_length=64)
 
+
+class StudentRename(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
     @field_validator("name", mode="before")
     @classmethod
-    def _trim(cls, v):
-        return v.strip() if isinstance(v, str) else v
+    def _clean(cls, v):
+        if not isinstance(v, str):
+            return v
+        # Control and format characters (newlines, zero-width, bidi overrides)
+        # have no place in a name that is printed into reports and messages.
+        if any(unicodedata.category(c).startswith("C") for c in v):
+            raise ValueError("Names can't contain control or invisible characters.")
+        return " ".join(v.split())
+
+
+class StudentRenamed(BaseModel):
+    id: int
+    name: str
 
 
 class StudentProfileOut(BaseModel):

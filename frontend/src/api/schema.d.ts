@@ -2543,6 +2543,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/students/{student_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename Student */
+        patch: operations["rename_student_api_v1_students__student_id__patch"];
+        trace?: never;
+    };
     "/api/v1/students/{student_id}/profile": {
         parameters: {
             query?: never;
@@ -6971,8 +6988,6 @@ export interface components {
         };
         /** StudentProfileUpdate */
         StudentProfileUpdate: {
-            /** Name */
-            name?: string | null;
             /** School */
             school?: string | null;
             /** Year Group */
@@ -7015,6 +7030,18 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** StudentRename */
+        StudentRename: {
+            /** Name */
+            name: string;
+        };
+        /** StudentRenamed */
+        StudentRenamed: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
         };
         /** StudentSubjectCreate */
         StudentSubjectCreate: {
@@ -8224,6 +8251,13 @@ export interface operations {
                     "application/json": components["schemas"]["AccessToken"];
                 };
             };
+            /** @description The current password is wrong. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -8232,6 +8266,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+            /** @description Too many wrong current passwords; wait and retry. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -12715,6 +12756,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StudentCrmOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_student_api_v1_students__student_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StudentRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentRenamed"];
                 };
             };
             /** @description Validation Error */

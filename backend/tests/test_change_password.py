@@ -1,8 +1,12 @@
 """Changing your own password, and a tutor renaming their student (GH-3)."""
 
+from sqlalchemy import select
+
 from app.db import async_session
-from app.models import User
-from app.services.rate_limit import login_limiter
+from app.models import Organization, User
+from app.models.users import UserRole
+from app.security import hash_password
+from app.services.rate_limit import LOGIN_FAILURE_LIMIT, login_limiter
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -35,7 +39,7 @@ async def test_wrong_current_password_spends_the_signin_throttle(client, tutor):
     assert r.status_code == 429
     # The shared per-identifier counter login uses (a browser with a device
     # cookie counts on its own key, so assert on the counter, not a login).
-    assert await login_limiter.is_limited("tutor@example.com")
+    assert await login_limiter.is_limited(f"user:{tutor['user']['id']}\x00chpw")
 
 
 async def test_new_password_keeps_registration_rules(client, tutor):
@@ -92,29 +96,99 @@ async def test_username_only_student_can_change_password(client, tutor, world): 
     assert again.status_code == 200
 
 
+async def test_a_successful_change_resets_the_counter(client, tutor):
+    for _ in range(3):
+        await _pw(client, tutor["headers"], "nope-nope", "brand-new-pass")
+    ok = await _pw(client, tutor["headers"], "password123", "brand-new-pass")
+    assert ok.status_code == 200
+    # Ten more wrong guesses are needed again before it locks.
+    new = {"Authorization": f"Bearer {ok.json()['access_token']}"}
+    for _ in range(LOGIN_FAILURE_LIMIT - 1):
+        r = await _pw(client, new, "nope-nope", "another-new-pass")
+    assert r.status_code == 400
+
+
+async def test_wrong_guesses_do_not_lock_the_owner_out_of_login(client, tutor):
+    for _ in range(LOGIN_FAILURE_LIMIT + 1):
+        r = await _pw(client, tutor["headers"], "nope-nope", "brand-new-pass")
+    assert r.status_code == 429
+    # No device cookie, so login counts on the shared per-identifier key.
+    client.cookies.clear()
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "tutor@example.com", "password": "password123"},
+    )
+    assert login.status_code == 200
+
+
+async def _make_user(role, email):
+    async with async_session() as session:
+        org = await session.scalar(select(Organization))
+        user = User(
+            email=email,
+            password_hash=hash_password("password123"),
+            role=role,
+            name="Someone",
+            organization_id=org.id,
+        )
+        session.add(user)
+        await session.commit()
+        return user.id
+
+
+async def _login(client, email):
+    r = await client.post(
+        "/api/v1/auth/login", json={"identifier": email, "password": "password123"}
+    )
+    return {"Authorization": f"Bearer {r.json()['tokens']['access_token']}"}
+
+
+async def test_parent_and_admin_can_change_their_own_password(client, tutor):
+    for role, email in ((UserRole.parent, "p@example.com"), (UserRole.admin, "a@example.com")):
+        await _make_user(role, email)
+        headers = await _login(client, email)
+        assert (await _pw(client, headers, "password123", "brand-new-pass")).status_code == 200
+        again = await client.post(
+            "/api/v1/auth/login", json={"identifier": email, "password": "brand-new-pass"}
+        )
+        assert again.status_code == 200
+
+
 # --- renaming a student -------------------------------------------------------
 
 
-async def test_tutor_renames_student_trimmed(client, tutor, world):  # noqa: F811
-    url = f"/api/v1/students/{world['student_id']}/profile"
-    resp = await client.put(url, json={"name": "  Sara Ahmed  "}, headers=tutor["headers"])
+def _url(world):
+    return f"/api/v1/students/{world['student_id']}"
+
+
+async def test_tutor_renames_student(client, tutor, world):  # noqa: F811
+    resp = await client.patch(_url(world), json={"name": "Sara Ahmed"}, headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
-    crm = await client.get(f"/api/v1/students/{world['student_id']}/crm", headers=tutor["headers"])
+    assert resp.json() == {"id": world["student_id"], "name": "Sara Ahmed"}
+    crm = await client.get(f"{_url(world)}/crm", headers=tutor["headers"])
     assert crm.json()["student_name"] == "Sara Ahmed"
-    # A name-only request is a rename, not a profile replace.
-    await client.put(url, json={"school": "Greenwood"}, headers=tutor["headers"])
-    kept = await client.put(url, json={"name": "Sara Ahmed"}, headers=tutor["headers"])
-    assert kept.json()["school"] == "Greenwood"
-    # Omitting the name leaves it alone; blank or oversize is refused.
-    await client.put(url, json={"school": "X"}, headers=tutor["headers"])
-    crm = await client.get(f"/api/v1/students/{world['student_id']}/crm", headers=tutor["headers"])
-    assert crm.json()["student_name"] == "Sara Ahmed"
-    assert (
-        await client.put(url, json={"name": "   "}, headers=tutor["headers"])
-    ).status_code == 422
-    assert (
-        await client.put(url, json={"name": "n" * 129}, headers=tutor["headers"])
-    ).status_code == 422
+
+
+async def test_rename_trims_and_collapses_whitespace(client, tutor, world):  # noqa: F811
+    resp = await client.patch(
+        _url(world), json={"name": "  Sara   Ahmed "}, headers=tutor["headers"]
+    )
+    assert resp.json()["name"] == "Sara Ahmed"
+
+
+async def test_rename_refuses_bad_names(client, tutor, world):  # noqa: F811
+    for bad in ("   ", "n" * 129, "Sara\nAhmed", "Sara\u200bAhmed", "Sara\u202eAhmed"):
+        resp = await client.patch(_url(world), json={"name": bad}, headers=tutor["headers"])
+        assert resp.status_code == 422, bad
+
+
+async def test_rename_does_not_touch_the_profile(client, tutor, world):  # noqa: F811
+    await client.put(
+        f"{_url(world)}/profile", json={"school": "Greenwood"}, headers=tutor["headers"]
+    )
+    await client.patch(_url(world), json={"name": "Sara Ahmed"}, headers=tutor["headers"])
+    crm = await client.get(f"{_url(world)}/crm", headers=tutor["headers"])
+    assert crm.json()["profile"]["school"] == "Greenwood"
 
 
 async def test_other_organizations_tutor_cannot_rename(client, tutor, world):  # noqa: F811
@@ -123,9 +197,7 @@ async def test_other_organizations_tutor_cannot_rename(client, tutor, world):  #
         json={"name": "Other", "email": "other-rename@example.com", "password": "password123"},
     )
     headers = {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
-    resp = await client.put(
-        f"/api/v1/students/{world['student_id']}/profile", json={"name": "Hijack"}, headers=headers
-    )
+    resp = await client.patch(_url(world), json={"name": "Hijack"}, headers=headers)
     assert resp.status_code == 404
     async with async_session() as session:
         assert (await session.get(User, world["student_id"])).name != "Hijack"
@@ -138,12 +210,6 @@ async def test_student_cannot_rename(client, tutor, world):  # noqa: F811
         headers=tutor["headers"],
     )
     assert made.status_code == 201, made.text
-    login = await client.post(
-        "/api/v1/auth/login", json={"identifier": "kid.two", "password": "password123"}
-    )
-    headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
-    resp = await client.put(
-        f"/api/v1/students/{world['student_id']}/profile", json={"name": "Me"}, headers=headers
-    )
-    assert resp.status_code in (403, 404)
-    assert resp.status_code != 200
+    headers = await _login(client, "kid.two")
+    resp = await client.patch(_url(world), json={"name": "Me"}, headers=headers)
+    assert resp.status_code == 403

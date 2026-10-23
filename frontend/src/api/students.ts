@@ -51,10 +51,11 @@ export type AttemptRedo = components["schemas"]["AttemptRedoOut"];
 export const studentRedos = (studentId: number) =>
   api<AttemptRedo[]>(`/api/v1/students/${studentId}/redos`);
 
-/** A tutor renames a student they teach. Sends only `name`, which the server
- * treats as a rename and not a replace of the whole profile. */
+export type StudentRenamed = components["schemas"]["StudentRenamed"];
+
+/** A tutor renames a student they teach. */
 export const renameStudent = (studentId: number, name: string) =>
-  api<unknown>(`/api/v1/students/${studentId}/profile`, {
-    method: "PUT",
+  api<StudentRenamed>(`/api/v1/students/${studentId}`, {
+    method: "PATCH",
     body: JSON.stringify({ name }),
   });

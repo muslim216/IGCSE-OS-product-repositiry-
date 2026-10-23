@@ -56,7 +56,7 @@ export function logout() {
  * this session's fresh access token (the refresh cookie rides alongside), which
  * must replace the stored one or the very next request is a 401. */
 export async function changePassword(current_password: string, new_password: string) {
-  const tokens = await api<{ access_token: string; token_type: string }>("/api/v1/auth/password", {
+  const tokens = await api<components["schemas"]["AccessToken"]>("/api/v1/auth/password", {
     method: "POST",
     body: JSON.stringify({ current_password, new_password }),
   });

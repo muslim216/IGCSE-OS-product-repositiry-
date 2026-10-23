@@ -32,7 +32,15 @@ export default function RenameStudent({ studentId, name }: { studentId: number; 
             save.isError ? friendlyError(save.error, "Couldn't save that name. Try again.") : null
           }
         >
-          <Input value={value} maxLength={128} onChange={(e) => setValue(e.target.value)} />
+          <Input
+            required
+            value={value}
+            maxLength={128}
+            onChange={(e) => {
+              setValue(e.target.value);
+              save.reset();
+            }}
+          />
         </Field>
         <Button type="submit" variant="secondary" disabled={save.isPending || unchanged}>
           Save name

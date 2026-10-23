@@ -245,17 +245,24 @@ async def logout(response: Response, db: DbSession, user: CurrentUser) -> None:
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
 
 
-@router.post("/password", response_model=AccessToken)
+@router.post(
+    "/password",
+    response_model=AccessToken,
+    responses={
+        400: {"description": "The current password is wrong."},
+        429: {"description": "Too many wrong current passwords; wait and retry."},
+    },
+)
 async def change_password(
     body: ChangePasswordRequest, response: Response, db: DbSession, user: CurrentUser
 ) -> AccessToken:
     """Any signed-in user changes their own password. Every other session dies
     (`SEC-1`); this one is re-issued so the person is not signed out of the
     page they are on."""
-    # The same counter a failed sign-in spends, under the same key login uses
-    # for a browser without a device cookie — a stolen access token must not be
-    # a free oracle for the password (`SEC-14`).
-    key = (user.email or user.username or "").strip().lower()
+    # The sign-in limiter, on a key of its own per user (`SEC-14`): a stolen
+    # access token must not be a free oracle for the password, but its wrong
+    # guesses must not spend the owner's login counter either.
+    key = f"user:{user.id}\x00chpw"
     if await login_limiter.is_limited(key):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -267,8 +274,9 @@ async def change_password(
     user.password_hash = await hash_password_async(body.new_password)
     user.token_version += 1
     await refresh_sessions.end_all(db, user)
+    tokens = await _sign_in(db, response, user)
     await login_limiter.reset(key)
-    return await _sign_in(db, response, user)
+    return tokens
 
 
 @router.get("/me", response_model=UserOut)

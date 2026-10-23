@@ -27,6 +27,8 @@ from app.schemas.crm import (
     StudentCrmOut,
     StudentProfileOut,
     StudentProfileUpdate,
+    StudentRename,
+    StudentRenamed,
     StudentSubjectCreate,
     StudentSubjectOut,
     StudentSubjectUpdate,
@@ -218,6 +220,16 @@ async def student_crm(student_id: int, db: DbSession, user: CurrentUser) -> Stud
     )
 
 
+@router.patch("/{student_id}", response_model=StudentRenamed)
+async def rename_student(
+    student_id: int, body: StudentRename, db: DbSession, user: TutorUser
+) -> StudentRenamed:
+    student = await _tutor_student(db, user, student_id)
+    student.name = body.name
+    await db.commit()
+    return StudentRenamed(id=student.id, name=student.name)
+
+
 @router.put("/{student_id}/profile", response_model=StudentProfileOut)
 async def update_student_profile(
     student_id: int, body: StudentProfileUpdate, db: DbSession, user: TutorUser
@@ -237,17 +249,11 @@ async def update_student_profile(
             status.HTTP_409_CONFLICT,
             "This student's profile is kept by another organization and can't be edited here.",
         )
-    if body.name is not None:
-        student.name = body.name
-    # A request carrying only `name` is a rename: the profile PUT replaces every
-    # field, so treating it as a full save would blank the school and the
-    # parent's contact details.
-    if body.model_fields_set != {"name"}:
-        profile.school = body.school
-        profile.year_group = body.year_group
-        profile.parent_name = body.parent_name
-        profile.parent_email = body.parent_email
-        profile.parent_phone = body.parent_phone
+    profile.school = body.school
+    profile.year_group = body.year_group
+    profile.parent_name = body.parent_name
+    profile.parent_email = body.parent_email
+    profile.parent_phone = body.parent_phone
     await db.commit()
     await db.refresh(profile)
     return StudentProfileOut(

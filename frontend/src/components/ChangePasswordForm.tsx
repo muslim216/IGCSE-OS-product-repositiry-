@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { changePassword } from "../api/auth";
+import { ApiError } from "../api/client";
 import { friendlyError } from "../lib/errors";
 import { Button, Field, Input } from "./controls";
 import { SectionCard, SectionHeader } from "./ui";
@@ -16,6 +17,10 @@ export default function ChangePasswordForm() {
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [mismatch, setMismatch] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const focusField = (name: string) =>
+    (formRef.current?.elements.namedItem(name) as HTMLInputElement | null)?.focus();
 
   const save = useMutation({
     mutationFn: () => changePassword(current, next),
@@ -24,15 +29,28 @@ export default function ChangePasswordForm() {
       setNext("");
       setConfirm("");
     },
+    // A wrong current password is the one failure the person can fix at once;
+    // put them on the field instead of leaving them to find it.
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 400) focusField("current");
+    },
   });
+
+  // Typing starts a fresh attempt, so the last attempt's message goes.
+  const edited = (set: (v: string) => void) => (e: { target: { value: string } }) => {
+    set(e.target.value);
+    if (save.isError || save.isSuccess) save.reset();
+  };
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (next !== confirm) {
       setMismatch(true);
+      focusField("confirm");
       return;
     }
     setMismatch(false);
+    save.reset();
     save.mutate();
   }
 
@@ -42,24 +60,26 @@ export default function ChangePasswordForm() {
         title="Change password"
         description="You'll stay signed in here. Any other device or browser will be signed out."
       />
-      <form onSubmit={onSubmit} className="mt-4 max-w-sm space-y-4">
+      <form ref={formRef} onSubmit={onSubmit} className="mt-4 max-w-sm space-y-4">
         <Field label="Current password">
           <Input
-            type="password"
+            type={visible ? "text" : "password"}
+            name="current"
             autoComplete="current-password"
             required
             value={current}
-            onChange={(e) => setCurrent(e.target.value)}
+            onChange={edited(setCurrent)}
           />
         </Field>
         <Field label="New password" hint="At least 8 characters.">
           <Input
-            type="password"
+            type={visible ? "text" : "password"}
+            name="new"
             autoComplete="new-password"
             required
             minLength={8}
             value={next}
-            onChange={(e) => setNext(e.target.value)}
+            onChange={edited(setNext)}
           />
         </Field>
         <Field
@@ -67,13 +87,25 @@ export default function ChangePasswordForm() {
           error={mismatch ? "The two passwords don't match." : null}
         >
           <Input
-            type="password"
+            type={visible ? "text" : "password"}
+            name="confirm"
             autoComplete="new-password"
             required
             value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
+            onChange={(e) => {
+              edited(setConfirm)(e);
+              setMismatch(false);
+            }}
           />
         </Field>
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          aria-pressed={visible}
+          className="rounded px-2 py-1 text-xs font-medium text-ink-500 hover:text-ink-900"
+        >
+          {visible ? "Hide passwords" : "Show passwords"}
+        </button>
         {save.isError && (
           <p role="alert" className="text-sm text-risk-600">
             {friendlyError(save.error, "Couldn't change your password. Try again.")}
