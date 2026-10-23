@@ -1,4 +1,4 @@
-import { api } from "./client";
+import { api, upload, type UploadOptions } from "./client";
 import type { components } from "./schema";
 
 /** Aliased from the generated schema rather than hand-mirrored (`FE-4`). */
@@ -19,11 +19,11 @@ export const getMock = (id: number) => api<MockDetail>(`/api/v1/mocks/${id}`);
 export const openMock = (id: number) =>
   api<MockClock>(`/api/v1/mocks/${id}/open`, { method: "POST" });
 
-export function sitMock(mockId: number, files: File[], typedAnswer = "") {
+export function sitMock(mockId: number, files: File[], typedAnswer = "", opts?: UploadOptions) {
   const form = new FormData();
   for (const f of files) form.append("files", f);
   if (typedAnswer.trim()) form.append("typed_answer", typedAnswer);
-  return api<MockSubmission>(`/api/v1/mocks/${mockId}/submissions`, { method: "POST", body: form });
+  return upload<MockSubmission>(`/api/v1/mocks/${mockId}/submissions`, form, opts);
 }
 
 export const myMockSubmission = (mockId: number) =>
