@@ -92,6 +92,7 @@ from app.models import (
     Classified,
     ContactPoint,
     CustomCriterion,
+    GroupRemoval,
     GroupResource,
     Lesson,
     LessonAttendance,
@@ -160,7 +161,6 @@ SPECIAL_REFUSALS: dict[str, set[tuple[str, str, str]]] = {
 #: Exact, so a gate that disappears (a route that starts answering) fails here.
 EXPECTED_REFUSALS: set[tuple[str, str, str]] = {
     ("parent", "DELETE", "/groups/{group_id}/lessons/{slot_id}"),
-    ("parent", "DELETE", "/groups/{group_id}/members/{student_id}"),
     ("parent", "DELETE", "/lessons/{lesson_id}"),
     ("parent", "DELETE", "/students/{student_id}/subjects/{subject_id}"),
     ("parent", "GET", "/assignments/{assignment_id}"),
@@ -180,9 +180,7 @@ EXPECTED_REFUSALS: set[tuple[str, str, str]] = {
     ("parent", "POST", "/assignments/{assignment_id}/publish"),
     ("parent", "POST", "/assignments/{assignment_id}/retry-extraction"),
     ("parent", "POST", "/groups/{group_id}/brief"),
-    ("parent", "POST", "/groups/{group_id}/invites"),
     ("parent", "POST", "/groups/{group_id}/lessons"),
-    ("parent", "POST", "/groups/{group_id}/students"),
     ("parent", "POST", "/groups/{group_id}/students/{student_id}/reset-password"),
     ("parent", "POST", "/lessons"),
     ("parent", "POST", "/lessons/{lesson_id}/observations"),
@@ -200,7 +198,6 @@ EXPECTED_REFUSALS: set[tuple[str, str, str]] = {
     ("parent", "PUT", "/submissions/{submission_id}/marks"),
     ("parent", "PUT", "/syllabus-uploads/{upload_id}/draft"),
     ("student", "DELETE", "/groups/{group_id}/lessons/{slot_id}"),
-    ("student", "DELETE", "/groups/{group_id}/members/{student_id}"),
     ("student", "DELETE", "/lessons/{lesson_id}"),
     ("student", "DELETE", "/students/{student_id}/subjects/{subject_id}"),
     ("student", "GET", "/assignments/{assignment_id}"),
@@ -218,9 +215,7 @@ EXPECTED_REFUSALS: set[tuple[str, str, str]] = {
     ("student", "POST", "/assignments/{assignment_id}/publish"),
     ("student", "POST", "/assignments/{assignment_id}/retry-extraction"),
     ("student", "POST", "/groups/{group_id}/brief"),
-    ("student", "POST", "/groups/{group_id}/invites"),
     ("student", "POST", "/groups/{group_id}/lessons"),
-    ("student", "POST", "/groups/{group_id}/students"),
     ("student", "POST", "/groups/{group_id}/students/{student_id}/reset-password"),
     ("student", "POST", "/lessons"),
     ("student", "POST", "/lessons/{lesson_id}/observations"),
@@ -578,6 +573,25 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             "student_id": student_id,
             "organization_id": organization_id,
         }
+        # A student the tutor removed, so the removals listing has this workspace's
+        # data for every other caller to be refused.
+        removed = User(
+            email=f"removed-{tag}@example.com",
+            password_hash="x",
+            role=UserRole.student,
+            name=f"Removed {marker}",
+            organization_id=organization_id,
+        )
+        s.add(removed)
+        await s.flush()
+        s.add(
+            GroupRemoval(
+                organization_id=organization_id,
+                group_id=group_id,
+                user_id=removed.id,
+                removed_at=utcnow(),
+            )
+        )
         assignment = await publish_assignment(
             s,
             group_id=group_id,

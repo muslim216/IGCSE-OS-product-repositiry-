@@ -2000,6 +2000,56 @@
       }
     },
     "/api/v1/groups/{group_id}/invites": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "List Live Invites",
+        "description": "The class's live join links (at most one, since a new link revokes the old).",
+        "operationId": "list_live_invites_api_v1_groups__group_id__invites_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InviteOut"
+                  },
+                  "title": "Response List Live Invites Api V1 Groups  Group Id  Invites Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "groups"
@@ -2032,6 +2082,148 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Revoke Invites",
+        "description": "Switch the class's join link off. Safe to repeat.",
+        "operationId": "revoke_invites_api_v1_groups__group_id__invites_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{group_id}/removals": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "List Removals",
+        "description": "Students removed from this class who cannot rejoin by link.",
+        "operationId": "list_removals_api_v1_groups__group_id__removals_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RemovedStudentOut"
+                  },
+                  "title": "Response List Removals Api V1 Groups  Group Id  Removals Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{group_id}/members": {
+      "post": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Add Member",
+        "description": "Add an existing student of this organization to the class. This is the only\nway back in after a removal, and it clears the removal.",
+        "operationId": "add_member_api_v1_groups__group_id__members_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberAdd"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -15681,6 +15873,19 @@
         ],
         "title": "MeetingProvider"
       },
+      "MemberAdd": {
+        "properties": {
+          "student_id": {
+            "type": "integer",
+            "title": "Student Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id"
+        ],
+        "title": "MemberAdd"
+      },
       "MistakeCategoriesIn": {
         "properties": {
           "categories": {
@@ -19024,6 +19229,30 @@
           "created_at"
         ],
         "title": "RemarkRequestOut"
+      },
+      "RemovedStudentOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "removed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Removed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "removed_at"
+        ],
+        "title": "RemovedStudentOut"
       },
       "ReportDetail": {
         "properties": {

@@ -107,3 +107,21 @@ async def consume(db: AsyncSession, invite: Invite) -> None:
             "This invite link has already been used — ask for a new one",
         )
     invite.used_at = now
+
+
+async def revoke_live_join_links(db: AsyncSession, group_id: int) -> int:
+    """Switch off every live join link of a class by expiring it now. Returns how
+    many were live. Expiring rather than deleting keeps the row, and the link then
+    answers with the usual "expired" message."""
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(Invite)
+        .where(
+            Invite.group_id == group_id,
+            Invite.kind == InviteKind.student_join,
+            Invite.expires_at > now,
+        )
+        .values(expires_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    return getattr(result, "rowcount", 0)  # type: ignore[attr-defined]

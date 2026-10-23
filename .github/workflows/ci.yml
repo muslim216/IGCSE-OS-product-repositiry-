@@ -458,6 +458,36 @@ jobs:
         run: |
           docker run --rm --entrypoint python avora-api-ci -c "import importlib.util as u, sys; found = [m for m in ('pytest', 'ruff', 'mypy', 'uv') if u.find_spec(m)]; print('dev tools in image:', found); sys.exit(1 if found else 0)"
 
+  # Known-vulnerable dependencies fail the build. pip-audit reads the hashed lock
+  # files directly (no install, no resolver) so it audits exactly what ships; the
+  # npm gate is high and above, production dependencies only. An advisory judged
+  # unreachable is accepted with `--ignore-vuln <ID>` on the pip-audit line and a
+  # comment giving the reason and the date to look again; an npm one is fixed by
+  # an upgrade, since npm audit has no per-advisory waiver.
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: pip-audit (backend lock file)
+        working-directory: backend
+        run: |
+          pip install --only-binary :all: pip-audit==2.10.1
+          pip-audit -r requirements.lock -r requirements-build.lock --require-hashes --disable-pip
+
+      - name: npm audit (frontend, production dependencies)
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
   frontend:
     name: Frontend tests and build
     runs-on: ubuntu-latest

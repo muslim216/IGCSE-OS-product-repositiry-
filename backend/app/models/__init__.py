@@ -13,6 +13,7 @@ from app.models.dismissal import DismissedPrompt
 from app.models.groups import (
     Group,
     GroupMember,
+    GroupRemoval,
     Invite,
     InviteKind,
     ParentLink,
@@ -152,6 +153,7 @@ __all__ = [
     "GoogleAccount",
     "GroupMember",
     "GroupResource",
+    "GroupRemoval",
     "Invite",
     "Notification",
     "NotificationChannel",

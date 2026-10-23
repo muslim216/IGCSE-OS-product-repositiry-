@@ -1,12 +1,16 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2 } from "lucide-react";
 import {
+  addMember,
   createInvite,
   createParentCode,
   createStudentAccount,
+  listLiveInvites,
+  listRemovals,
   removeMember,
+  revokeInvites,
   resetStudentPassword,
 } from "../../api/groups";
 import { useGroupContext } from "../GroupLayout";
@@ -91,18 +95,65 @@ export default function StudentsTab() {
   const [actionError, setActionError] = useState<string | null>(null);
   const onError = (err: unknown) => setActionError(friendlyError(err));
 
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [switchingOff, setSwitchingOff] = useState(false);
+  // Spoken by a polite live region, and focus moves to the heading after an add back.
+  const [status, setStatus] = useState({ text: "", n: 0 });
+  // A trailing non-breaking space on every other message makes a repeat a change the
+  // live region announces; an identical string would be silent.
+  const announce = (text: string) => setStatus((s) => ({ text, n: s.n + 1 }));
+  const studentsHeading = useRef<HTMLHeadingElement>(null);
   const [parentCodes, setParentCodes] = useState<Record<number, string>>({});
   // Real dialogs instead of window.prompt/confirm.
   const [removing, setRemoving] = useState<{ id: number; name: string } | null>(null);
   const [resetting, setResetting] = useState<{ id: number; name: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
 
+  // The class has at most one live link; making a new one switches the old off.
+  const liveInvites = useQuery({
+    queryKey: ["group-invites", groupId],
+    queryFn: () => listLiveInvites(groupId),
+  });
+  const liveCode = liveInvites.data?.[0]?.code ?? null;
+  const inviteLink = liveCode ? `${window.location.origin}/join/${liveCode}` : null;
+  const refreshInvites = () =>
+    queryClient.invalidateQueries({ queryKey: ["group-invites", groupId] });
+
   const invite = useMutation({
     mutationFn: () => createInvite(groupId),
-    onSuccess: (data) => setInviteLink(`${window.location.origin}/join/${data.code}`),
+    onSuccess: refreshInvites,
     onMutate: () => setActionError(null),
     onError,
+  });
+  const removals = useQuery({
+    queryKey: ["group-removals", groupId],
+    queryFn: () => listRemovals(groupId),
+  });
+  const addBack = useMutation({
+    mutationFn: (studentId: number) => addMember(groupId, studentId),
+    onSuccess: (_, studentId) => {
+      const name = removals.data?.find((r) => r.id === studentId)?.name ?? "Student";
+      announce(`${name} added back`);
+      studentsHeading.current?.focus();
+      queryClient.invalidateQueries({ queryKey: ["group-removals", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["group", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["homework"] });
+    },
+    onMutate: () => setActionError(null),
+    onError,
+  });
+  const switchOff = useMutation({
+    mutationFn: () => revokeInvites(groupId),
+    onSuccess: () => {
+      setSwitchingOff(false);
+      announce("Link switched off");
+      return refreshInvites();
+    },
+    onMutate: () => setActionError(null),
+    onError: (err) => {
+      setSwitchingOff(false);
+      onError(err);
+    },
   });
 
   const [studentForm, setStudentForm] = useState({ name: "", username: "", password: "" });
@@ -122,6 +173,8 @@ export default function StudentsTab() {
   const remove = useMutation({
     mutationFn: (studentId: number) => removeMember(groupId, studentId),
     onSuccess: () => {
+      // The student moves straight into the "Removed from this class" list.
+      queryClient.invalidateQueries({ queryKey: ["group-removals", groupId] });
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       // The cross-class Students and Homework lists count this class's members.
       queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -161,6 +214,34 @@ export default function StudentsTab() {
 
   const count = group.members.length;
 
+  let linkPanel: ReactNode;
+  if (inviteLink) {
+    linkPanel = (
+      <>
+        <CopyBox label="Invite link" value={inviteLink} />
+        <Button
+          size="sm"
+          variant="secondary"
+          className="mt-2"
+          disabled={invite.isPending}
+          onClick={() => setSwitchingOff(true)}
+        >
+          Switch off link
+        </Button>
+      </>
+    );
+  } else if (liveInvites.isPending) {
+    linkPanel = <p className="mt-2 text-sm text-ink-500">Loading the invite link…</p>;
+  } else if (liveInvites.isError) {
+    linkPanel = (
+      <p role="alert" className="mt-2 text-sm text-risk-600">
+        Couldn't load the invite link. Refresh to try again.
+      </p>
+    );
+  } else {
+    linkPanel = <p className="mt-2 text-sm text-ink-500">No active link</p>;
+  }
+
   return (
     <div className="space-y-6">
       {actionError && (
@@ -172,17 +253,28 @@ export default function StudentsTab() {
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg text-ink-900">Students</h2>
+            <h2 ref={studentsHeading} tabIndex={-1} className="text-lg text-ink-900">
+              Students
+            </h2>
             <p className="text-sm text-ink-500">
               {count} {count === 1 ? "student" : "students"} in this class
             </p>
           </div>
-          <Button size="sm" loading={invite.isPending} onClick={() => invite.mutate()}>
+          <Button
+            size="sm"
+            loading={invite.isPending}
+            disabled={switchOff.isPending}
+            onClick={() => invite.mutate()}
+          >
             <Link2 aria-hidden className="h-4 w-4" />
-            Create invite link
+            Make a new link
           </Button>
         </div>
-        {inviteLink && <CopyBox label="Invite link" value={inviteLink} />}
+        {linkPanel}
+        <output className="sr-only">
+          {status.text}
+          {status.n % 2 === 0 ? "\u00A0" : ""}
+        </output>
 
         {count === 0 ? (
           <SectionCard className="mt-4">
@@ -282,10 +374,52 @@ export default function StudentsTab() {
         </form>
       </SectionCard>
 
+      {removals.isError && (
+        <p role="alert" className="text-sm text-risk-600">
+          Couldn't load the students removed from this class. Refresh to try again.
+        </p>
+      )}
+      {removals.isPending && <p className="text-sm text-ink-500">Loading removed students…</p>}
+      {removals.data && removals.data.length > 0 && (
+        <SectionCard>
+          <h2 className="text-lg text-ink-900">Removed from this class</h2>
+          <p className="text-sm text-ink-500">
+            These students can't rejoin with a link. Add one back to let them in again.
+          </p>
+          <ul className="mt-3 divide-y divide-line">
+            {removals.data.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-3 py-2">
+                <span className="text-sm text-ink-900">{r.name}</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-label={`Add ${r.name} back to this class`}
+                  loading={addBack.isPending && addBack.variables === r.id}
+                  onClick={() => addBack.mutate(r.id)}
+                >
+                  Add back
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+      )}
+
+      <ConfirmDialog
+        open={switchingOff}
+        title="Switch off the invite link?"
+        body="Anyone who has the link will no longer be able to join this class. You can make a new link at any time."
+        confirmLabel="Switch off link"
+        danger
+        busy={switchOff.isPending}
+        onConfirm={() => switchOff.mutate()}
+        onCancel={() => setSwitchingOff(false)}
+      />
+
       <ConfirmDialog
         open={removing !== null}
         title={`Remove ${removing?.name ?? ""} from this class?`}
-        body="They keep their account and their marked work, but lose access to this class's homework."
+        body="They keep their account and their marked work, but lose access to this class's homework. They can't rejoin with a link; you can add them back."
         confirmLabel="Remove from class"
         danger
         busy={remove.isPending}
