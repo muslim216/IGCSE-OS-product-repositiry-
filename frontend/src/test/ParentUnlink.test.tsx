@@ -131,7 +131,7 @@ test("stopping the first of two children moves to the other and never asks for t
 
   await stopFollowing();
 
-  expect(await screen.findByRole("status")).toHaveTextContent(/stopped following Sara/);
+  expect((await screen.findByText(/stopped following Sara/)).tagName).toBe("OUTPUT");
   await screen.findByText(/Sam/);
   const after = calls.length;
   await new Promise((r) => setTimeout(r, 50));
@@ -147,7 +147,7 @@ test("stopping the only child says so rather than landing silently on the empty 
 
   await stopFollowing();
 
-  expect(await screen.findByRole("status")).toHaveTextContent(/stopped following Sara/);
+  expect((await screen.findByText(/stopped following Sara/)).tagName).toBe("OUTPUT");
   expect(screen.getByText("No child is linked to this account yet.")).toBeInTheDocument();
   await new Promise((r) => setTimeout(r, 50));
   const later = calls.slice(calls.findIndex((c) => c.method === "DELETE") + 1);
