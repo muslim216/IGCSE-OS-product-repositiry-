@@ -2,16 +2,16 @@
 
 A new table only; no existing row is read or changed.
 
-Revision ID: 0076
-Revises: 0075
+Revision ID: 0077
+Revises: 0076
 """
 
 import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0076"
-down_revision = "0075"
+revision = "0077"
+down_revision = "0076"
 branch_labels = None
 depends_on = None
 
