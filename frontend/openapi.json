@@ -196,6 +196,52 @@
         ]
       }
     },
+    "/api/v1/auth/password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change Password",
+        "description": "Any signed-in user changes their own password. Every other session dies\n(`SEC-1`); this one is re-issued so the person is not signed out of the\npage they are on.",
+        "operationId": "change_password_api_v1_auth_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The current password is wrong."
+          },
+          "422": {
+            "description": "The new password is invalid or the same as the current one."
+          },
+          "429": {
+            "description": "Too many wrong current passwords; wait and retry."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/me": {
       "get": {
         "tags": [
@@ -7516,6 +7562,66 @@
         }
       }
     },
+    "/api/v1/students/{student_id}": {
+      "patch": {
+        "tags": [
+          "students"
+        ],
+        "summary": "Rename Student",
+        "operationId": "rename_student_api_v1_students__student_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudentRename"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentRenamed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such student among those you teach."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/students/{student_id}/profile": {
       "put": {
         "tags": [
@@ -12400,6 +12506,28 @@
         ],
         "title": "CategoryTally",
         "description": "How often one of the tutor's own categories came up in a bucket.\n\nNamed by id *and* name: the id is what a client filters or links on, the\nname is what the tutor reads and may rename tomorrow. Nothing branches on\nthe name (see `models.readiness_v2.MistakeCategory`)."
+      },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Current Password"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest"
       },
       "ChannelStatusOut": {
         "properties": {
@@ -20443,6 +20571,39 @@
           "password"
         ],
         "title": "StudentRegisterRequest"
+      },
+      "StudentRename": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "StudentRename"
+      },
+      "StudentRenamed": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "StudentRenamed"
       },
       "StudentSubjectCreate": {
         "properties": {

@@ -51,6 +51,13 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class ChangePasswordRequest(BaseModel):
+    # Looser than NewPassword for the same reason LoginRequest is: whatever the
+    # account has now is checked by hash, not by the registration rules.
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: NewPassword
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str | None = None
 
