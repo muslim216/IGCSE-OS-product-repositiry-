@@ -105,7 +105,8 @@ class CustomCriterionScoreAudit(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    student_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # NULL once the child's erasure has run (P-3); the tutor's record stays.
+    student_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     criterion_id: Mapped[int] = mapped_column(Integer, nullable=False)
     old_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     new_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
