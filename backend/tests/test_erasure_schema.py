@@ -43,22 +43,15 @@ async def test_one_pending_request_per_student_until_cancelled():
         db.add(first)
         await db.flush()
 
-        db.add(new_request())
+        # A savepoint, so the refusal does not undo the student and first request.
         with pytest.raises(IntegrityError):
-            await db.flush()
-        await db.rollback()
+            async with db.begin_nested():
+                db.add(new_request())
+                await db.flush()
 
-        # Rolled back with the rest of the transaction; redo the first, cancel it.
-        org = Organization(name="o2")
-        db.add(org)
-        await db.flush()
-        kid = await make_user(
-            db, organization_id=org.id, role=UserRole.student, name="Kid", email="kid2@example.com"
-        )
-        first = new_request()
-        db.add(first)
-        await db.flush()
         first.status = ErasureRequestStatus.cancelled
         await db.flush()
-        db.add(new_request())
+        accepted = new_request()
+        db.add(accepted)
         await db.flush()  # allowed: the first is no longer pending
+        assert accepted.id is not None

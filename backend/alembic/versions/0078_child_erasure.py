@@ -87,18 +87,30 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Audit rows are append-only (PROD-7), so never delete them to fit the old
+    # schema: refuse before any DDL if an erasure has nulled a key.
+    bind = op.get_bind()
+    nulled = sum(
+        bind.execute(sa.text(f"SELECT COUNT(*) FROM {t} WHERE {c} IS NULL")).scalar_one()
+        for t, c in (
+            ("mark_override_audit", "question_mark_id"),
+            ("custom_criterion_score_audit", "student_id"),
+        )
+    )
+    if nulled:
+        raise RuntimeError(
+            f"cannot downgrade 0078: {nulled} audit rows have a NULL key from child erasure; "
+            "export or archive them first"
+        )
+
     op.drop_index("ix_data_exports_status_expires_at", table_name="data_exports")
     op.drop_table("data_exports")
     op.drop_index("ix_erasure_requests_status_scheduled_for", table_name="erasure_requests")
     op.drop_index("uq_erasure_requests_pending_student", table_name="erasure_requests")
     op.drop_table("erasure_requests")
 
-    # Rows the erasure nulled have nothing to point at, so they cannot satisfy
-    # NOT NULL; the restored schema cannot hold them.
-    op.execute("DELETE FROM custom_criterion_score_audit WHERE student_id IS NULL")
     with op.batch_alter_table("custom_criterion_score_audit", naming_convention=NAMING) as batch:
         batch.alter_column("student_id", existing_type=sa.Integer(), nullable=False)
-    op.execute("DELETE FROM mark_override_audit WHERE question_mark_id IS NULL")
     with op.batch_alter_table("mark_override_audit", naming_convention=NAMING) as batch:
         batch.alter_column("question_mark_id", existing_type=sa.Integer(), nullable=False)
     with op.batch_alter_table("users", naming_convention=NAMING) as batch:
