@@ -26,6 +26,8 @@ async def usage_summary(db: DbSession, user: TutorUser) -> AiUsageSummary:
                 func.count(AiUsageEvent.id),
                 func.coalesce(func.sum(AiUsageEvent.input_tokens), 0),
                 func.coalesce(func.sum(AiUsageEvent.output_tokens), 0),
+                func.coalesce(func.sum(AiUsageEvent.cache_write_tokens), 0),
+                func.coalesce(func.sum(AiUsageEvent.cache_read_tokens), 0),
             )
             .where(AiUsageEvent.organization_id == user.organization_id)
             .group_by(AiUsageEvent.feature)
@@ -37,13 +39,17 @@ async def usage_summary(db: DbSession, user: TutorUser) -> AiUsageSummary:
             call_count=count,
             input_tokens=input_tok,
             output_tokens=output_tok,
+            cache_write_tokens=cache_write,
+            cache_read_tokens=cache_read,
         )
-        for feature, count, input_tok, output_tok in rows
+        for feature, count, input_tok, output_tok, cache_write, cache_read in rows
     ]
     return AiUsageSummary(
         by_feature=by_feature,
         total_input_tokens=sum(f.input_tokens for f in by_feature),
         total_output_tokens=sum(f.output_tokens for f in by_feature),
+        total_cache_write_tokens=sum(f.cache_write_tokens for f in by_feature),
+        total_cache_read_tokens=sum(f.cache_read_tokens for f in by_feature),
     )
 
 
@@ -82,6 +88,8 @@ async def cost_analytics(
                 func.count(AiUsageEvent.id),
                 func.coalesce(func.sum(AiUsageEvent.input_tokens), 0),
                 func.coalesce(func.sum(AiUsageEvent.output_tokens), 0),
+                func.coalesce(func.sum(AiUsageEvent.cache_write_tokens), 0),
+                func.coalesce(func.sum(AiUsageEvent.cache_read_tokens), 0),
                 func.coalesce(func.sum(AiUsageEvent.cost_usd), 0.0),
                 func.coalesce(func.sum(case((AiUsageEvent.cost_usd.is_(None), 1), else_=0)), 0),
             )
@@ -97,10 +105,12 @@ async def cost_analytics(
             call_count=count,
             input_tokens=input_tok,
             output_tokens=output_tok,
+            cache_write_tokens=cache_write,
+            cache_read_tokens=cache_read,
             cost_usd=round(cost, 6),
             unpriced_call_count=unpriced,
         )
-        for label, count, input_tok, output_tok, cost, unpriced in rows
+        for label, count, input_tok, output_tok, cache_write, cache_read, cost, unpriced in rows
     ]
     return AiCostAnalytics(
         group_by=group_by,

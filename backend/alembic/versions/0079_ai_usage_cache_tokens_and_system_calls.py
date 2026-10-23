@@ -6,7 +6,7 @@ Revises: 0078
 Two metering gaps from the launch audit. C-3: prompt-cache reads and writes
 were not counted, so spend was understated. C-14: a call with no tutor to
 charge (a sweep, an organization with no tutor) was dropped instead of
-recorded; tutor_id NULL now means system usage. Existing rows keep their
+recorded; tutor_id NULL now means system usage (a downgrade refuses while any exist). Existing rows keep their
 tutor_id, and the new cache columns are NULL for them (not counted then).
 """
 
@@ -33,8 +33,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # System rows have no tutor to put back; they would block NOT NULL.
-    op.execute("DELETE FROM ai_usage_events WHERE tutor_id IS NULL")
+    # System rows have no tutor to put back, and spend records are not ours to
+    # delete: refuse, before any DDL, and let the operator export them first.
+    orphaned = (
+        op.get_bind()
+        .execute(sa.text("SELECT COUNT(*) FROM ai_usage_events WHERE tutor_id IS NULL"))
+        .scalar()
+    )
+    if orphaned:
+        raise RuntimeError(
+            f"Cannot downgrade: {orphaned} ai_usage_events rows have no tutor_id "
+            "(system usage). Export them first, then delete them deliberately."
+        )
     with op.batch_alter_table("ai_usage_events", naming_convention=NAMING) as batch:
         batch.alter_column("tutor_id", existing_type=sa.Integer(), nullable=False)
         batch.drop_column("cache_read_tokens")

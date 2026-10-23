@@ -30,10 +30,11 @@ from typing import Any, Generic, TypedDict, TypeVar
 import anthropic
 from anthropic import AsyncAnthropic
 from anthropic.types import TextBlockParam
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings, parse_model_pricing
+from app.config import get_settings, load_model_pricing
+from app.db import async_session
 from app.models import AiFeature, AiUsageEvent
 from app.services.prompts import get_prompt
 from app.services.rate_limit import (
@@ -724,6 +725,39 @@ def _failure(
     )
 
 
+async def _meter_failed(
+    surface: str, organization_id: int, provider: AiProvider, prompt_version: str, final: Any
+) -> None:
+    """Record what a call cost when the provider answered but the answer was
+    unusable (cut off, refused, empty, wrong shape): the tokens were billed
+    either way. Recorded as system usage (no tutor; the helper does not know
+    one) in its own short transaction, since the caller's transaction is about
+    to be abandoned. Best-effort: a metering fault must not mask the real error."""
+    usage = getattr(final, "usage", None)
+    feature = SURFACE_FEATURE.get(surface)
+    if usage is None or feature is None:
+        return
+    response: AiResponse[Any] = AiResponse(
+        provider=provider,
+        model=getattr(final, "model", None) or "unknown",
+        prompt_version=prompt_version,
+        **_anthropic_usage(usage),
+    )
+    try:
+        async with async_session() as session:
+            await record_usage(
+                session,
+                response,
+                organization_id=organization_id,
+                tutor_id=None,
+                student_id=None,
+                feature=feature,
+            )
+            await session.commit()
+    except Exception:
+        log.exception("could not record the usage of a failed %s call", surface)
+
+
 async def _final_message(stream: Any) -> Any:
     """The stream's one complete message. The SDK trips a bare `assert` when the
     body ended before any event arrived (a 200 with nothing in it); that is an
@@ -828,13 +862,17 @@ async def structured_complete(
             ) as stream,
         ):
             final = await _final_message(stream)
-        _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=False)
-        text = _message_text(final)
-        if not text.strip():
-            raise _failure(AICallFailedError, "The AI returned no structured result", final)
-        # A ValidationError here is a real model fault (wrong shape), not a
-        # transport problem, and propagates unchanged as it did under `parse`.
-        parsed = output_format.model_validate_json(text)
+        try:
+            _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=False)
+            text = _message_text(final)
+            if not text.strip():
+                raise _failure(AICallFailedError, "The AI returned no structured result", final)
+            # A ValidationError here is a real model fault (wrong shape), not a
+            # transport problem, and propagates unchanged as it did under `parse`.
+            parsed = output_format.model_validate_json(text)
+        except (AICallFailedError, ValidationError):
+            await _meter_failed(surface, organization_id, provider, prompt.version, final)
+            raise
         usage = final.usage
         return AiResponse(
             provider=provider,
@@ -916,13 +954,17 @@ async def text_complete(
             final = await _final_message(stream)
         text = _message_text(final)
         truncated = final.stop_reason == "max_tokens"
-        # A cut-off answer that has some text is let through (below); with none it
-        # is refused like every other bad ending.
-        _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=bool(text.strip()))
-        if not text.strip():
-            # An empty string must not reach a caller: narrative.py would store
-            # it and hide the previous good paragraph behind a blank one.
-            raise _failure(AICallFailedError, "The AI returned an empty answer", final)
+        try:
+            # A cut-off answer that has some text is let through (below); with
+            # none it is refused like every other bad ending.
+            _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=bool(text.strip()))
+            if not text.strip():
+                # An empty string must not reach a caller: narrative.py would
+                # store it and hide the previous good paragraph behind a blank one.
+                raise _failure(AICallFailedError, "The AI returned an empty answer", final)
+        except AICallFailedError:
+            await _meter_failed(surface, organization_id, provider, template.version, final)
+            raise
         if truncated:
             # Still returned: a plain-text answer cut short is usable (a shorter
             # paragraph), unlike a half-written JSON document. But the caller's
@@ -1004,7 +1046,10 @@ def _gemini_usage(response: object) -> _GeminiUsage:
         # Gemini's prompt count includes the cached tokens; take them out so
         # they are priced once, at the cache-read rate.
         "input_tokens": prompt - cached,
-        "output_tokens": getattr(meta, "candidates_token_count", 0) or 0,
+        # Thinking tokens are billed as output but reported apart from the
+        # candidates count.
+        "output_tokens": (getattr(meta, "candidates_token_count", 0) or 0)
+        + (getattr(meta, "thoughts_token_count", 0) or 0),
         "cache_read_tokens": cached,
     }
 
@@ -1024,10 +1069,10 @@ MODEL_PRICING: dict[str, dict[str, float]] = {}
 @lru_cache
 def model_pricing() -> dict[str, dict[str, float]]:
     """MODEL_PRICING merged with the AI_MODEL_PRICING env override (env wins).
-    A malformed value raises: Settings refuses it at load (CFG-5), and this
-    re-checks so a value patched in afterwards cannot be silently ignored."""
+    A malformed value is logged, flagged on /health/ready and treated as empty
+    (CFG-5); it never raises mid-request."""
     prices = dict(MODEL_PRICING)
-    prices.update(parse_model_pricing(get_settings().ai_model_pricing))
+    prices.update(load_model_pricing(get_settings().ai_model_pricing))
     return prices
 
 
@@ -1043,6 +1088,8 @@ def estimate_cost_usd(
     entry = model_pricing().get(model)
     if not entry:
         return None
+    if "input_per_1m" not in entry or "output_per_1m" not in entry:
+        return None  # a missing side must not price as $0
     cache_write_rate = entry.get("cache_write_per_1m")
     cache_read_rate = entry.get("cache_read_per_1m")
     if (cache_write_tokens and cache_write_rate is None) or (
@@ -1050,8 +1097,8 @@ def estimate_cost_usd(
     ):
         return None
     return round(
-        input_tokens / 1_000_000 * entry.get("input_per_1m", 0)
-        + output_tokens / 1_000_000 * entry.get("output_per_1m", 0)
+        input_tokens / 1_000_000 * entry["input_per_1m"]
+        + output_tokens / 1_000_000 * entry["output_per_1m"]
         + cache_write_tokens / 1_000_000 * (cache_write_rate or 0)
         + cache_read_tokens / 1_000_000 * (cache_read_rate or 0),
         6,
