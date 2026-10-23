@@ -773,10 +773,59 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Live Invites
+         * @description The class's live join links (at most one, since a new link revokes the old).
+         */
+        get: operations["list_live_invites_api_v1_groups__group_id__invites_get"];
         put?: never;
         /** Create Invite */
         post: operations["create_invite_api_v1_groups__group_id__invites_post"];
+        /**
+         * Revoke Invites
+         * @description Switch the class's join link off. Safe to repeat.
+         */
+        delete: operations["revoke_invites_api_v1_groups__group_id__invites_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}/removals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Removals
+         * @description Students removed from this class who cannot rejoin by link.
+         */
+        get: operations["list_removals_api_v1_groups__group_id__removals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Member
+         * @description Add an existing student of this organization to the class. This is the only
+         *     way back in after a removal, and it clears the removal.
+         */
+        post: operations["add_member_api_v1_groups__group_id__members_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5385,6 +5434,11 @@ export interface components {
          * @enum {string}
          */
         MeetingProvider: "zoom" | "google_meet";
+        /** MemberAdd */
+        MemberAdd: {
+            /** Student Id */
+            student_id: number;
+        };
         /** MistakeCategoriesIn */
         MistakeCategoriesIn: {
             /** Categories */
@@ -6525,6 +6579,18 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** RemovedStudentOut */
+        RemovedStudentOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /**
+             * Removed At
+             * Format: date-time
+             */
+            removed_at: string;
         };
         /** ReportDetail */
         ReportDetail: {
@@ -9333,6 +9399,37 @@ export interface operations {
             };
         };
     };
+    list_live_invites_api_v1_groups__group_id__invites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_invite_api_v1_groups__group_id__invites_post: {
         parameters: {
             query?: never;
@@ -9352,6 +9449,99 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["InviteOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_invites_api_v1_groups__group_id__invites_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_removals_api_v1_groups__group_id__removals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemovedStudentOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_member_api_v1_groups__group_id__members_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -1,7 +1,8 @@
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.analytics import group_analytics
@@ -11,6 +12,8 @@ from app.models import (
     AiFeature,
     Group,
     GroupMember,
+    GroupRemoval,
+    Invite,
     InviteKind,
     ScheduleSlot,
     User,
@@ -25,6 +28,8 @@ from app.schemas.groups import (
     GroupOut,
     GroupUpdate,
     InviteOut,
+    MemberAdd,
+    RemovedStudentOut,
     ScheduleSlotCreate,
     ScheduleSlotOut,
     StudentCreate,
@@ -43,7 +48,7 @@ from app.services.ai import (
 )
 from app.services.class_report import FutureSince, build_class_report
 from app.services.groups import summaries as group_summaries
-from app.services.invites import build_invite
+from app.services.invites import build_invite, revoke_live_join_links
 from app.services.narrative import enqueue_narratives_for_group
 from app.services.teaching_plan import PlanInputError
 
@@ -188,17 +193,101 @@ async def delete_group(group_id: int, db: DbSession, user: TutorUser) -> None:
     await db.commit()
 
 
-@router.post("/{group_id}/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
-async def create_invite(group_id: int, db: DbSession, user: CurrentUser) -> InviteOut:
+@router.get("/{group_id}/invites")
+async def list_live_invites(group_id: int, db: DbSession, user: TutorUser) -> list[InviteOut]:
+    """The class's live join links (at most one, since a new link revokes the old)."""
     group = await _owned_group(db, user, group_id)
+    invites = (
+        await db.scalars(
+            select(Invite)
+            .where(
+                Invite.group_id == group.id,
+                Invite.kind == InviteKind.student_join,
+                Invite.expires_at > datetime.now(timezone.utc),
+            )
+            .order_by(Invite.id.desc())
+        )
+    ).all()
+    return [InviteOut(code=i.code, kind=i.kind.value, expires_at=i.expires_at) for i in invites]
+
+
+@router.post("/{group_id}/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
+async def create_invite(group_id: int, db: DbSession, user: TutorUser) -> InviteOut:
+    group = await _owned_group(db, user, group_id)
+    # One live link per class: making a new one switches the old one off.
+    await revoke_live_join_links(db, group.id)
     invite = build_invite(InviteKind.student_join, created_by_id=user.id, group_id=group.id)
     db.add(invite)
     await db.commit()
     return InviteOut(code=invite.code, kind=invite.kind.value, expires_at=invite.expires_at)
 
 
+@router.delete("/{group_id}/invites", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_invites(group_id: int, db: DbSession, user: TutorUser) -> None:
+    """Switch the class's join link off. Safe to repeat."""
+    group = await _owned_group(db, user, group_id)
+    await revoke_live_join_links(db, group.id)
+    await db.commit()
+
+
+async def _clear_removal(db, group_id: int, student_id: int) -> None:
+    """Every path that puts a student into a class clears a stale removal (GH-1)."""
+    await db.execute(
+        delete(GroupRemoval).where(
+            GroupRemoval.group_id == group_id, GroupRemoval.user_id == student_id
+        )
+    )
+
+
+@router.get("/{group_id}/removals")
+async def list_removals(group_id: int, db: DbSession, user: TutorUser) -> list[RemovedStudentOut]:
+    """Students removed from this class who cannot rejoin by link."""
+    group = await _owned_group(db, user, group_id)
+    rows = (
+        await db.execute(
+            select(User.id, User.name, GroupRemoval.removed_at)
+            .join(GroupRemoval, GroupRemoval.user_id == User.id)
+            .where(
+                GroupRemoval.group_id == group.id,
+                GroupRemoval.organization_id == group.organization_id,
+            )
+            .order_by(GroupRemoval.removed_at.desc(), GroupRemoval.id.desc())
+        )
+    ).all()
+    return [RemovedStudentOut(id=r.id, name=r.name, removed_at=r.removed_at) for r in rows]
+
+
+@router.post("/{group_id}/members", status_code=status.HTTP_204_NO_CONTENT)
+async def add_member(group_id: int, body: MemberAdd, db: DbSession, user: TutorUser) -> None:
+    """Add an existing student of this organization to the class. This is the only
+    way back in after a removal, and it clears the removal."""
+    group = await _owned_group(db, user, group_id)
+    student = await db.get(User, body.student_id)
+    if (
+        student is None
+        or student.role != UserRole.student
+        or student.organization_id != user.organization_id
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+    await _clear_removal(db, group.id, student.id)
+    already = await db.scalar(
+        select(GroupMember.id).where(
+            GroupMember.group_id == group.id, GroupMember.student_id == student.id
+        )
+    )
+    if already is None:
+        db.add(GroupMember(group_id=group.id, student_id=student.id))
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A concurrent add won the unique pair: the student is in, which is the goal.
+        await db.rollback()
+        await _clear_removal(db, group.id, student.id)
+        await db.commit()
+
+
 @router.delete("/{group_id}/members/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_member(group_id: int, student_id: int, db: DbSession, user: CurrentUser) -> None:
+async def remove_member(group_id: int, student_id: int, db: DbSession, user: TutorUser) -> None:
     group = await _owned_group(db, user, group_id)
     member = await db.scalar(
         select(GroupMember).where(
@@ -208,12 +297,30 @@ async def remove_member(group_id: int, student_id: int, db: DbSession, user: Cur
     if member is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student is not in this group")
     await db.delete(member)
-    await db.commit()
+    already_removed = await db.scalar(
+        select(GroupRemoval.id).where(
+            GroupRemoval.group_id == group.id, GroupRemoval.user_id == student_id
+        )
+    )
+    if already_removed is None:
+        db.add(
+            GroupRemoval(
+                organization_id=group.organization_id,
+                group_id=group.id,
+                user_id=student_id,
+                removed_at=datetime.now(timezone.utc),
+            )
+        )
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A concurrent removal recorded it first: the removal stands.
+        await db.rollback()
 
 
 @router.post("/{group_id}/students", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def create_student_account(
-    group_id: int, body: StudentCreate, db: DbSession, user: CurrentUser
+    group_id: int, body: StudentCreate, db: DbSession, user: TutorUser
 ) -> UserOut:
     """Create a username-only account for a student without email, and add them to the group."""
     group = await _owned_group(db, user, group_id)
@@ -231,6 +338,7 @@ async def create_student_account(
     )
     db.add(student)
     await db.flush()
+    await _clear_removal(db, group.id, student.id)
     db.add(GroupMember(group_id=group.id, student_id=student.id))
     await db.commit()
     return UserOut.model_validate(student)
