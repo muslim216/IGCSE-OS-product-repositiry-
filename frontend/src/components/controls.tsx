@@ -271,27 +271,35 @@ export function FileInput({
     and no Cancel once every byte is sent: the server is then committing the
     hand-in, and aborting would only leave the student unsure whether it
     counted (they would send it again). */
+const PHASE_LABEL: Record<Exclude<UploadPhase, "idle">, string> = {
+  preparing: "Getting your photos ready…",
+  sending: "Sending…",
+  processing: "Processing…",
+  reconnecting: "Reconnecting…",
+};
+
+// A native <progress> has the progressbar role built in. Only a known value
+// gets the custom bar; with none it keeps the browser's own indeterminate look.
+const KNOWN_BAR =
+  "h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-surface-muted " +
+  "[&::-webkit-progress-bar]:bg-surface-muted [&::-webkit-progress-value]:bg-brand-600 " +
+  "[&::-moz-progress-bar]:bg-brand-600";
+
 export function UploadProgress({
   phase,
   percent,
   onCancel,
-}: {
+}: Readonly<{
   phase: UploadPhase;
   percent: number | null;
   onCancel: () => void;
-}) {
+}>) {
   const labelId = useId();
   if (phase === "idle") return null;
-  const label =
-    phase === "preparing"
-      ? "Getting your photos ready…"
-      : phase === "processing"
-        ? "Processing…"
-        : phase === "reconnecting"
-          ? "Reconnecting…"
-          : "Sending…";
+  const label = PHASE_LABEL[phase];
   const known = phase === "sending" && percent !== null;
-  const full = phase === "processing";
+  const value = known ? percent : phase === "processing" ? 100 : undefined;
+  const spoken = known ? `${percent} percent sent` : label.replace("…", "");
   return (
     <div className="space-y-2" data-testid="upload-progress">
       <div className="flex items-center justify-between text-sm text-ink-700">
@@ -303,20 +311,13 @@ export function UploadProgress({
         )}
       </div>
       {phase !== "preparing" && (
-        <div
-          role="progressbar"
+        <progress
           aria-labelledby={labelId}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={known ? percent : full ? 100 : undefined}
-          aria-valuetext={known ? `${percent} percent sent` : label.replace("…", "")}
-          className="h-2 overflow-hidden rounded-full bg-surface-muted"
-        >
-          <div
-            className={`h-full bg-brand-600 transition-[width] ${known ? "" : "animate-pulse"}`}
-            style={{ width: known ? `${percent}%` : full ? "100%" : "35%" }}
-          />
-        </div>
+          aria-valuetext={spoken}
+          max={100}
+          value={value}
+          className={value === undefined ? "h-2 w-full animate-pulse" : KNOWN_BAR}
+        />
       )}
       {phase !== "processing" && (
         <Button type="button" variant="ghost" size="lg" onClick={onCancel}>
@@ -331,12 +332,10 @@ export function UploadProgress({
     status region that is always mounted (a region added with its text already
     in it is often not announced), the bar, a blocking error, and the cancel
     note. */
-export function UploadStatus({ up, error }: { up: UploadState; error: string | null }) {
+export function UploadStatus({ up, error }: Readonly<{ up: UploadState; error: string | null }>) {
   return (
     <>
-      <p role="status" className="sr-only">
-        {up.announcement}
-      </p>
+      <output className="sr-only">{up.announcement}</output>
       {error && (
         <p role="alert" className="text-sm text-risk-600">
           {error}

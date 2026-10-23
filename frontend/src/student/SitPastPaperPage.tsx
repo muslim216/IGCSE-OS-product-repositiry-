@@ -165,16 +165,13 @@ export default function SitPastPaperPage() {
           </p>
         </SectionCard>
       ) : a?.status === "being_marked" ? (
-        <div
-          role="status"
-          className="flex gap-3 rounded-xl border border-line bg-warn-100 p-4 text-sm text-warn-700"
-        >
+        <output className="flex gap-3 rounded-xl border border-line bg-warn-100 p-4 text-sm text-warn-700">
           <Clock aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             Your answers are being marked. Your result will appear here when it&apos;s ready. You
             can leave this page and come back later.
           </p>
-        </div>
+        </output>
       ) : (
         <SectionCard>
           <form onSubmit={onSubmit} className="space-y-5">

@@ -160,13 +160,10 @@ export default function SubmitHomeworkPage() {
       ) : (
         <>
           {v.status === "submitted" && (
-            <div
-              role="status"
-              className="flex gap-3 rounded-xl border border-line bg-ok-100 p-4 text-sm text-ok-700"
-            >
+            <output className="flex gap-3 rounded-xl border border-line bg-ok-100 p-4 text-sm text-ok-700">
               <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
               <p>Submitted. You can upload again before it&apos;s marked if you need to.</p>
-            </div>
+            </output>
           )}
           <SectionCard>
             <form onSubmit={onSubmit} className="space-y-5">

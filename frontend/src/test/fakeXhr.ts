@@ -18,7 +18,9 @@ export function stubXhr(respond: (url: string) => { status: number; body: unknow
     open(_method: string, url: string) {
       this.url = url;
     }
-    setRequestHeader() {}
+    setRequestHeader() {
+      // The fake records no headers.
+    }
     send(form: FormData) {
       sent.push({ url: this.url, form });
       const r = respond(this.url);
