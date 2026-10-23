@@ -320,7 +320,7 @@ async def remove_member(group_id: int, student_id: int, db: DbSession, user: Tut
 
 @router.post("/{group_id}/students", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def create_student_account(
-    group_id: int, body: StudentCreate, db: DbSession, user: CurrentUser
+    group_id: int, body: StudentCreate, db: DbSession, user: TutorUser
 ) -> UserOut:
     """Create a username-only account for a student without email, and add them to the group."""
     group = await _owned_group(db, user, group_id)

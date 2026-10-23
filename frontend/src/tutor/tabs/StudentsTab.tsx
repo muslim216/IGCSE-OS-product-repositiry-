@@ -97,7 +97,10 @@ export default function StudentsTab() {
 
   const [switchingOff, setSwitchingOff] = useState(false);
   // Spoken by a polite live region, and focus moves to the heading after an add back.
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState({ text: "", n: 0 });
+  // A trailing non-breaking space on every other message makes a repeat a change the
+  // live region announces; an identical string would be silent.
+  const announce = (text: string) => setStatus((s) => ({ text, n: s.n + 1 }));
   const studentsHeading = useRef<HTMLHeadingElement>(null);
   const [parentCodes, setParentCodes] = useState<Record<number, string>>({});
   // Real dialogs instead of window.prompt/confirm.
@@ -129,7 +132,7 @@ export default function StudentsTab() {
     mutationFn: (studentId: number) => addMember(groupId, studentId),
     onSuccess: (_, studentId) => {
       const name = removals.data?.find((r) => r.id === studentId)?.name ?? "Student";
-      setStatus(`${name} added back`);
+      announce(`${name} added back`);
       studentsHeading.current?.focus();
       queryClient.invalidateQueries({ queryKey: ["group-removals", groupId] });
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
@@ -143,7 +146,7 @@ export default function StudentsTab() {
     mutationFn: () => revokeInvites(groupId),
     onSuccess: () => {
       setSwitchingOff(false);
-      setStatus("Link switched off");
+      announce("Link switched off");
       return refreshInvites();
     },
     onMutate: () => setActionError(null),
@@ -262,7 +265,8 @@ export default function StudentsTab() {
           <p className="mt-2 text-sm text-ink-500">No active link</p>
         )}
         <p role="status" className="sr-only">
-          {status}
+          {status.text}
+          {status.n % 2 === 0 ? "\u00A0" : ""}
         </p>
 
         {count === 0 ? (

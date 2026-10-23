@@ -143,3 +143,36 @@ test("a failed load of the link or the removed list says so instead of showing n
   expect(alerts.map((a) => a.textContent).join(" ")).toMatch(/Couldn't load the invite link/);
   expect(alerts.map((a) => a.textContent).join(" ")).toMatch(/Couldn't load the students removed/);
 });
+
+test("switching off a second time changes the live region again so it is announced", async () => {
+  let live: object[] = LIVE;
+  renderTab((url, init) => {
+    if (!url.endsWith("/groups/7/invites")) return json([]);
+    if (init?.method === "DELETE") {
+      live = [];
+      return empty();
+    }
+    if (init?.method === "POST") {
+      live = LIVE;
+      return json(LIVE[0], 201);
+    }
+    return json(live);
+  });
+
+  const switchOffOnce = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Switch off link" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Switch off link" }));
+    await screen.findByText("No active link");
+    return screen.getByRole("status").textContent;
+  };
+
+  const first = await switchOffOnce();
+  fireEvent.click(screen.getByRole("button", { name: /Make a new link/ }));
+  await screen.findByRole("button", { name: "Switch off link" });
+  const second = await switchOffOnce();
+
+  expect(first).toContain("Link switched off");
+  expect(second).toContain("Link switched off");
+  expect(second).not.toBe(first);
+});
