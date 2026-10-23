@@ -112,9 +112,9 @@ export default function ParentDashboard() {
     if (stopped !== null) document.querySelector<HTMLElement>("main h1, h1")?.focus();
   }, [stopped]);
   const notice = stopped !== null && (
-    <p role="status" className="rounded-md bg-surface-muted px-4 py-3 text-sm text-ink-900">
+    <output className="block rounded-md bg-surface-muted px-4 py-3 text-sm text-ink-900">
       You&apos;ve stopped following {stopped}.
-    </p>
+    </output>
   );
 
   const readiness = useQuery({

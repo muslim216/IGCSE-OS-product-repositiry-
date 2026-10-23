@@ -121,7 +121,8 @@ async def test_parent_removes_own_link_only(client, tutor, student):
 
     async with async_session() as s:
         row = (await s.scalars(select(ParentLinkRemoval))).one()
-        assert row.link_id == l2 and row.removed_by_id == p2["user"]["id"]
+        assert row.link_id == l2
+        assert row.removed_by_id == p2["user"]["id"]
         assert row.removed_by_role == "parent"
     assert await _link_exists(l1)
 
@@ -175,7 +176,8 @@ async def test_the_code_that_made_a_removed_link_is_already_spent(client, tutor,
     await client.delete(f"{API}/students/{sid}/parents/{link_id}", headers=tutor["headers"])
     async with async_session() as s:
         used = (await s.scalars(select(Invite).where(Invite.student_id == sid))).all()
-    assert used and all(i.used_at is not None for i in used)
+    assert used
+    assert all(i.used_at is not None for i in used)
 
 
 async def test_a_parent_in_another_organization_is_not_listed(client, tutor, student):

@@ -149,7 +149,7 @@ async def create_parent_code(student_id: int, db: DbSession, user: CurrentUser) 
     return InviteOut(code=invite.code, kind=invite.kind.value, expires_at=invite.expires_at)
 
 
-@router.get("/{student_id}/parents", response_model=list[LinkedParentOut])
+@router.get("/{student_id}/parents")
 async def student_parents(student_id: int, db: DbSession, user: TutorUser) -> list[LinkedParentOut]:
     """Who can read this child's record. A tutor who teaches the child sees it."""
     await _tutor_student(db, user, student_id)

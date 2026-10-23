@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   myParentLinks,
@@ -40,50 +40,59 @@ export default function LinkedParents({ studentId }: Readonly<{ studentId?: numb
     },
   });
 
+  let content: ReactNode;
+  if (parents.isLoading) {
+    content = (
+      <div className="mt-4">
+        <SectionSkeleton rows={2} label="Loading linked parents" />
+      </div>
+    );
+  } else if (parents.isError) {
+    content = (
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <p role="alert" className="text-sm text-risk-600">
+          The linked parents didn&apos;t load.
+        </p>
+        <Button variant="secondary" size="sm" onClick={() => parents.refetch()}>
+          Try again
+        </Button>
+      </div>
+    );
+  } else if ((parents.data ?? []).length === 0) {
+    content = <p className="mt-3 text-sm text-ink-500">No parent is linked.</p>;
+  } else {
+    content = (
+      <ul className="mt-3 divide-y divide-line">
+        {(parents.data ?? []).map((p) => (
+          <li key={p.id} className="flex flex-wrap items-center gap-3 py-2">
+            <span className="min-w-0 flex-1 truncate text-sm text-ink-900">
+              {p.name}
+              <span className="ml-2 text-ink-500">{p.email}</span>
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-label={`Remove ${p.name}`}
+              onClick={() => {
+                remove.reset();
+                setTarget(p);
+              }}
+            >
+              Remove
+            </Button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   return (
     <SectionCard>
       <SectionHeader
         title="Linked parents"
         description={`These people can see ${own ? "your" : "this child's"} marks, reports and attendance.`}
       />
-      {parents.isLoading ? (
-        <div className="mt-4">
-          <SectionSkeleton rows={2} label="Loading linked parents" />
-        </div>
-      ) : parents.isError ? (
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <p role="alert" className="text-sm text-risk-600">
-            The linked parents didn&apos;t load.
-          </p>
-          <Button variant="secondary" size="sm" onClick={() => parents.refetch()}>
-            Try again
-          </Button>
-        </div>
-      ) : (parents.data ?? []).length === 0 ? (
-        <p className="mt-3 text-sm text-ink-500">No parent is linked.</p>
-      ) : (
-        <ul className="mt-3 divide-y divide-line">
-          {(parents.data ?? []).map((p) => (
-            <li key={p.id} className="flex flex-wrap items-center gap-3 py-2">
-              <span className="min-w-0 flex-1 truncate text-sm text-ink-900">
-                {p.name}
-                <span className="ml-2 text-ink-500">{p.email}</span>
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                aria-label={`Remove ${p.name}`}
-                onClick={() => {
-                  remove.reset();
-                  setTarget(p);
-                }}
-              >
-                Remove
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {content}
 
       <ConfirmDialog
         open={target !== null}

@@ -104,7 +104,7 @@ TutorUser = Annotated[User, Depends(require_tutor)]
 StudentUser = Annotated[User, Depends(require_student)]
 
 
-async def require_parent(user: CurrentUser) -> User:
+def require_parent(user: CurrentUser) -> User:
     if user.role != UserRole.parent:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Parent account required")
     return user

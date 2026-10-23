@@ -255,7 +255,7 @@ async def my_mistakes(db: DbSession, user: StudentUser) -> list[MyMistakePattern
     return out
 
 
-@router.get("/parent-links", response_model=list[LinkedParentOut])
+@router.get("/parent-links")
 async def my_parent_links(db: DbSession, user: StudentUser) -> list[LinkedParentOut]:
     """Who is linked to the caller. The student is the token's (`SEC-7`)."""
     return await parent_links.linked_parents(db, user.id, user.organization_id)

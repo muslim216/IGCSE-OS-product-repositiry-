@@ -16,6 +16,9 @@ branch_labels = None
 depends_on = None
 
 
+_SET_NULL = "SET NULL"
+
+
 def _fk(col: str, table: str, ondelete: str | None = None) -> sa.ForeignKey:
     return sa.ForeignKey(
         f"{table}.id", name=f"fk_parent_link_removals_{col}_{table}", ondelete=ondelete
@@ -31,12 +34,10 @@ def upgrade() -> None:
         ),
         # Plain integer: the link it names has been deleted.
         sa.Column("link_id", sa.Integer(), nullable=False),
-        sa.Column("parent_id", sa.Integer(), _fk("parent_id", "users", "SET NULL"), nullable=True),
+        sa.Column("parent_id", sa.Integer(), _fk("parent_id", "users", _SET_NULL), nullable=True),
+        sa.Column("student_id", sa.Integer(), _fk("student_id", "users", _SET_NULL), nullable=True),
         sa.Column(
-            "student_id", sa.Integer(), _fk("student_id", "users", "SET NULL"), nullable=True
-        ),
-        sa.Column(
-            "removed_by_id", sa.Integer(), _fk("removed_by_id", "users", "SET NULL"), nullable=True
+            "removed_by_id", sa.Integer(), _fk("removed_by_id", "users", _SET_NULL), nullable=True
         ),
         sa.Column("removed_by_role", sa.String(16), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),

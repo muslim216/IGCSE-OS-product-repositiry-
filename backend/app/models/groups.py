@@ -17,6 +17,9 @@ from app.models.base import Base, TimestampMixin, utcnow
 from app.models.syllabus import Subject
 from app.models.users import User
 
+_ORGANIZATIONS_ID = "organizations.id"
+_SET_NULL = "SET NULL"
+
 
 class Group(TimestampMixin, Base):
     """A class. Deleting one is soft: `deleted_at` hides it, nothing is removed.
@@ -33,7 +36,7 @@ class Group(TimestampMixin, Base):
     __tablename__ = "groups"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[int] = mapped_column(ForeignKey(_ORGANIZATIONS_ID), nullable=False)
     tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -75,9 +78,7 @@ class TaughtBeforeTopic(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(
-        ForeignKey(
-            "organizations.id", name="fk_taught_before_topics_organization_id_organizations"
-        ),
+        ForeignKey(_ORGANIZATIONS_ID, name="fk_taught_before_topics_organization_id_organizations"),
         nullable=False,
     )
     # Deleting a class removes these through ON DELETE CASCADE, as for its plans
@@ -163,16 +164,16 @@ class ParentLinkRemoval(Base):
     __table_args__ = (Index("ix_parent_link_removals_student_id", "student_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    organization_id: Mapped[int] = mapped_column(ForeignKey(_ORGANIZATIONS_ID), nullable=False)
     link_id: Mapped[int] = mapped_column(Integer, nullable=False)
     parent_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("users.id", ondelete=_SET_NULL), nullable=True
     )
     student_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("users.id", ondelete=_SET_NULL), nullable=True
     )
     removed_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("users.id", ondelete=_SET_NULL), nullable=True
     )
     # The remover's role at the time: tutor, admin, parent or student.
     removed_by_role: Mapped[str] = mapped_column(String(16), nullable=False)
