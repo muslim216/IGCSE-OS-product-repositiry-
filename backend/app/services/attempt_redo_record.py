@@ -86,6 +86,8 @@ async def _audit_by_mark(session: AsyncSession, mark_ids: list[int]) -> dict[int
     )
     grouped: dict[int, list[dict]] = {}
     for audit in rows:
+        if audit.question_mark_id is None:  # nulled by a child's erasure; never matches IN
+            continue
         grouped.setdefault(audit.question_mark_id, []).append(row(audit))
     return grouped
 

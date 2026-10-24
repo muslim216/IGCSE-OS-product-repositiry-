@@ -416,7 +416,13 @@ class MarkOverrideAudit(Base):
     __table_args__ = (Index("ix_mark_override_audit_question_mark_id", "question_mark_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    question_mark_id: Mapped[int] = mapped_column(ForeignKey("question_marks.id"), nullable=False)
+    # NULL once the child's erasure has removed the mark this row pointed at; the
+    # tutor's decision (old/new marks, who, when) stays without the child. No
+    # ondelete here: the erasure sweep must null this key BEFORE deleting
+    # question_marks, or Postgres refuses the delete.
+    question_mark_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_marks.id"), nullable=True
+    )
     old_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     new_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     changed_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)

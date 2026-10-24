@@ -1,6 +1,7 @@
 import enum
+from datetime import datetime
 
-from sqlalchemy import Enum, ForeignKey, Index, Integer, String, text
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -44,6 +45,13 @@ class User(TimestampMixin, Base):
     # Bumped on logout/password change to invalidate any refresh tokens issued
     # before that point — JWTs are otherwise stateless and can't be revoked.
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Child-data erasure (P-3). `erasure_requested_at` hides the child and blocks
+    # sign-in during the 14-day undo window; `deleted_at` is set once the sweep
+    # has wiped them (the blank users row stays). Nothing reads either yet.
+    erasure_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # The user's own IANA zone (AV-67): a student or parent may sit in a
     # different country from the tutor whose organization they belong to.
     # Nullable; None means "use the organization's zone" — not UTC — so the

@@ -10,6 +10,13 @@ from app.models.custom_criteria import (
     CustomCriterionScoreAudit,
 )
 from app.models.dismissal import DismissedPrompt
+from app.models.erasure import (
+    DataExport,
+    DataExportStatus,
+    ErasureRequest,
+    ErasureRequesterRole,
+    ErasureRequestStatus,
+)
 from app.models.groups import (
     Group,
     GroupMember,
@@ -153,6 +160,11 @@ __all__ = [
     "GoogleAccount",
     "GroupMember",
     "GroupResource",
+    "DataExport",
+    "DataExportStatus",
+    "ErasureRequest",
+    "ErasureRequestStatus",
+    "ErasureRequesterRole",
     "GroupRemoval",
     "Invite",
     "Notification",
