@@ -16,6 +16,7 @@ import asyncio
 import enum
 import json
 import logging
+import re
 import shutil
 import tempfile
 import zipfile
@@ -24,7 +25,8 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import select, update
+from fastapi import HTTPException, status
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import object_mapper
 
@@ -48,6 +50,7 @@ from app.models import (
     MeetingParticipant,
     Mistake,
     MistakeRevisionAudit,
+    MistakeTopic,
     MockOpening,
     Narrative,
     Notification,
@@ -60,6 +63,8 @@ from app.models import (
     ReadinessSnapshot,
     RemarkRequest,
     Report,
+    ReportAudience,
+    ReportStatus,
     StudentProfile,
     StudentSubject,
     Submission,
@@ -78,6 +83,47 @@ log = logging.getLogger(__name__)
 EXPORT_JOB = "export_student_data"
 EXPORT_TTL = timedelta(days=7)
 FORMAT_VERSION = 1
+
+#: A requester may start this many builds per child in a day, failed ones
+#: included, so a build that keeps failing cannot be re-asked without end.
+MAX_BUILDS_PER_DAY = 3
+
+#: Ids per `IN (...)`: Postgres refuses a statement with more than 32767 bind
+#: parameters, and years of marks on one child can pass that.
+ID_CHUNK = 5000
+
+#: What a parent's copy leaves out: the tutor's private working material. The
+#: tutor's and an admin's copy hold everything.
+PARENT_EXCLUDED: frozenset[str] = frozenset(
+    {
+        "tutor_notes",
+        "parent_communications",
+        "tutor_observations",
+        "lesson_observations",
+        "mark_override_audit",
+        "mistake_revision_audit",
+        "ai_usage_events",
+    }
+)
+
+#: Columns left out of every copy. A storage key is an internal address; the
+#: page itself is in files/. `suggested_student_id` names a *different*
+#: student, a guess the tutor was shown.
+DROP_COLUMNS: dict[str, tuple[str, ...]] = {
+    "submission_files": ("path",),
+    "meeting_participants": ("suggested_student_id",),
+}
+
+#: Tables kept to these columns only: other adults' ids and emails are not this
+#: child's data, so only when and by which role remain.
+ONLY_COLUMNS: dict[str, tuple[str, ...]] = {
+    "parent_links": ("created_at",),
+    "parent_link_removals": ("created_at", "removed_by_role"),
+}
+
+#: A storage key wherever one is nested in a stored record (a redo record keeps
+#: the replaced pages' keys in JSON).
+_KEY = re.compile(r"(?:org/\d+/)?(?:exports/)?[0-9a-f]{32}\.[a-z0-9]+")
 
 #: Shown to whoever asks again, and stored on the row. Short and free of
 #: internals; the traceback is in the log.
@@ -134,6 +180,7 @@ _CHILD_TABLES = (
     "remark_requests",
     "mark_override_audit",
     "mistake_revision_audit",
+    "mistake_topics",
 )
 
 EXPORTED: frozenset[str] = frozenset(
@@ -168,75 +215,117 @@ def _plain(value: object) -> object:
     return value
 
 
+def _scrub(value: object) -> object:
+    if isinstance(value, str):
+        return "[stored file]" if _KEY.fullmatch(value) else value
+    if isinstance(value, dict):
+        return {k: _scrub(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub(v) for v in value]
+    return value
+
+
 def _row(obj: object) -> dict:
     mapper = object_mapper(obj)
+    table = str(mapper.persist_selectable.description)
     row = {attr.key: _plain(getattr(obj, attr.key)) for attr in mapper.column_attrs}
-    declared = SELF_DECLARED.get(str(mapper.persist_selectable.description))
+    if table in ONLY_COLUMNS:
+        row = {k: row[k] for k in ONLY_COLUMNS[table]}
+    for name in DROP_COLUMNS.get(table, ()):
+        row.pop(name, None)
+    declared = SELF_DECLARED.get(table)
     if declared:
         row["self_declared"] = {name: row.pop(name) for name in declared}
-    return row
+    return _scrub(row)  # type: ignore[return-value]
 
 
-async def _rows(session: AsyncSession, model: type, column: str, value: object) -> list[object]:
+def _convert(objects: dict[str, list[object]]) -> dict[str, list[dict]]:
+    """Plain dicts from loaded rows. Pure CPU, so it runs on a thread; every
+    attribute read is already loaded, nothing here touches the database."""
+    return {name: [_row(o) for o in found] for name, found in objects.items()}
+
+
+async def _rows(
+    session: AsyncSession, model: type, column: str, value: object, *extra: object
+) -> list[object]:
     col = getattr(model, column)
     key = model.id if hasattr(model, "id") else col  # type: ignore[attr-defined]
-    return list((await session.scalars(select(model).where(col == value).order_by(key))).all())
+    query = select(model).where(col == value, *extra).order_by(key)  # type: ignore[arg-type,var-annotated]
+    return list((await session.scalars(query)).all())
 
 
 async def _rows_in(session: AsyncSession, model: type, column: str, ids: list[int]) -> list[object]:
-    if not ids:
-        return []
+    found: list[object] = []
     col = getattr(model, column)
-    return list(
-        (await session.scalars(select(model).where(col.in_(ids)).order_by(model.id))).all()  # type: ignore[attr-defined]
-    )
+    for start in range(0, len(ids), ID_CHUNK):
+        chunk = ids[start : start + ID_CHUNK]
+        found.extend((await session.scalars(select(model).where(col.in_(chunk)))).all())
+    found.sort(key=lambda o: o.id)  # type: ignore[attr-defined]
+    return found
 
 
-async def collect(session: AsyncSession, student: User) -> tuple[dict, list[PageFile]]:
-    """Every row about `student`, as plain JSON-able dicts, and the page files.
+def audience_for(requester: User | None) -> str:
+    """`parent` for a parent (or an account since removed, the safe default),
+    `full` for a tutor or admin."""
+    return "full" if requester is not None and requester.role != UserRole.parent else "parent"
+
+
+async def collect(
+    session: AsyncSession, student: User, audience: str = "full"
+) -> tuple[dict, list[PageFile]]:
+    """Every row about `student` that `audience` may have, as plain JSON-able
+    dicts, and the page files.
 
     The student comes from the caller, who has already established that the
     requester may have them (`SEC-7`); nothing here takes an id from a request.
     """
-    tables: dict[str, list[dict]] = {}
+    parent = audience == "parent"
     objects: dict[str, list[object]] = {}
     for model, column in _BY_STUDENT:
-        found = await _rows(session, model, column, student.id)
-        objects[model.__tablename__] = found  # type: ignore[attr-defined]
-        tables[model.__tablename__] = [_row(o) for o in found]  # type: ignore[attr-defined]
+        name = model.__tablename__  # type: ignore[attr-defined]
+        if parent and name in PARENT_EXCLUDED:
+            continue
+        # A parent sees only the reports written for parents and finished.
+        extra = (
+            (Report.audience == ReportAudience.parent, Report.status == ReportStatus.ready)
+            if parent and model is Report
+            else ()
+        )
+        objects[name] = await _rows(session, model, column, student.id, *extra)
 
     submission_ids = [s.id for s in objects["submissions"]]  # type: ignore[attr-defined]
     files = await _rows_in(session, SubmissionFile, "submission_id", submission_ids)
     marks = await _rows_in(session, QuestionMark, "submission_id", submission_ids)
     mark_ids = [m.id for m in marks]  # type: ignore[attr-defined]
     mistake_ids = [m.id for m in objects["mistakes"]]  # type: ignore[attr-defined]
-    for model, found in (
-        (SubmissionFile, files),
-        (QuestionMark, marks),
-        (RemarkRequest, await _rows_in(session, RemarkRequest, "question_mark_id", mark_ids)),
-        (
-            MarkOverrideAudit,
-            await _rows_in(session, MarkOverrideAudit, "question_mark_id", mark_ids),
-        ),
-        (
-            MistakeRevisionAudit,
-            await _rows_in(session, MistakeRevisionAudit, "mistake_id", mistake_ids),
-        ),
-    ):
-        tables[model.__tablename__] = [_row(o) for o in found]  # type: ignore[attr-defined]
+    objects["submission_files"] = files
+    objects["question_marks"] = marks
+    objects["remark_requests"] = await _rows_in(
+        session, RemarkRequest, "question_mark_id", mark_ids
+    )
+    objects["mistake_topics"] = await _rows_in(session, MistakeTopic, "mistake_id", mistake_ids)
+    if not parent:
+        objects["mark_override_audit"] = await _rows_in(
+            session, MarkOverrideAudit, "question_mark_id", mark_ids
+        )
+        objects["mistake_revision_audit"] = await _rows_in(
+            session, MistakeRevisionAudit, "mistake_id", mistake_ids
+        )
 
-    profile = {
-        key: _plain(getattr(student, key))
-        for key in ("id", "name", "email", "username", "role", "time_zone", "created_at")
-    }
     pages = [
         PageFile(f.submission_id, f.position, f.name, f.path)  # type: ignore[attr-defined]
         for f in files
     ]
+    tables = await asyncio.to_thread(_convert, objects)
+    profile = {
+        key: _plain(getattr(student, key))
+        for key in ("id", "name", "email", "username", "role", "time_zone", "created_at")
+    }
     data = {
         "export": {
             "format_version": FORMAT_VERSION,
             "student_id": student.id,
+            "audience": audience,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "notes": [
                 "Rows are as Avora stores them. Fields under `self_declared` were typed in "
@@ -262,11 +351,13 @@ def _open_zip(path: Path) -> zipfile.ZipFile:
     return zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED)
 
 
-async def build_zip(session: AsyncSession, student: User, workdir: Path) -> Path:
+async def build_zip(
+    session: AsyncSession, student: User, workdir: Path, audience: str = "full"
+) -> Path:
     """Write the export to `workdir` and return its path. Blocking zip work runs
     on a thread (`BE-13`); each page is read through storage and written before
     the next is fetched, so no more than one page is ever in memory."""
-    data, pages = await collect(session, student)
+    data, pages = await collect(session, student, audience)
     # Nothing was written; hand the connection back before the slow part.
     await session.commit()
     path = workdir / "export.zip"
@@ -286,27 +377,43 @@ async def build_zip(session: AsyncSession, student: User, workdir: Path) -> Path
             listed.append({"submission_id": page.submission_id, "name": page.name, "file": entry})
         data["files"] = listed
         data["files_missing"] = missing
-        body = json.dumps(data, indent=2, ensure_ascii=False)
+        body = await asyncio.to_thread(json.dumps, data, indent=2, ensure_ascii=False)
         await asyncio.to_thread(archive.writestr, "data.json", body)
     finally:
         await asyncio.to_thread(archive.close)
     return path
 
 
-async def _fail(session: AsyncSession, export_id: int, key: str | None) -> None:
-    if key:
-        try:
-            await storage.delete_file(key)
-        except Exception:  # noqa: BLE001 — the row still has to say failed
-            log.warning("could not remove a failed export's file %s", key, exc_info=True)
-    await session.execute(
-        update(DataExport)
-        .where(
-            DataExport.id == export_id,
-            DataExport.status.in_((DataExportStatus.pending, DataExportStatus.running)),
-        )
-        .values(status=DataExportStatus.failed, error=FAILED_MESSAGE)
-    )
+async def _discard_file(key: str | None) -> bool:
+    """Delete an export's stored file. True when it is gone (or never was)."""
+    if not key:
+        return True
+    try:
+        await storage.delete_file(key)
+    except Exception:  # noqa: BLE001 — the caller decides what a leftover means
+        log.warning("could not remove export file %s", key, exc_info=True)
+        return False
+    return True
+
+
+async def _mark_failed(session: AsyncSession, export_id: int) -> None:
+    """End an unfinished export as failed and take its file with it, so a failed
+    build leaves nothing behind. Only a pending or running row is touched."""
+    export = await session.get(DataExport, export_id)
+    if export is None or export.status not in (
+        DataExportStatus.pending,
+        DataExportStatus.running,
+    ):
+        return
+    # A file that would not delete keeps its key: the expiry sweep retries it.
+    if await _discard_file(export.storage_key):
+        export.storage_key = None
+    export.status = DataExportStatus.failed
+    export.error = FAILED_MESSAGE
+
+
+async def _fail(session: AsyncSession, export_id: int) -> None:
+    await _mark_failed(session, export_id)
     await session.commit()
 
 
@@ -330,6 +437,7 @@ async def export_student_data(session: AsyncSession, payload: dict) -> None:
         export.storage_key = storage.new_export_key(export.organization_id)
     key = export.storage_key
     student_id = export.student_id
+    requester_id = export.requested_by_id
     await session.commit()
 
     workdir = Path(await asyncio.to_thread(tempfile.mkdtemp, prefix="avora-export-"))
@@ -337,7 +445,8 @@ async def export_student_data(session: AsyncSession, payload: dict) -> None:
         student = await session.get(User, student_id)
         if student is None or student.role != UserRole.student:
             raise LookupError("export names no student")
-        zip_path = await build_zip(session, student, workdir)
+        requester = await session.get(User, requester_id) if requester_id is not None else None
+        zip_path = await build_zip(session, student, workdir, audience_for(requester))
         await storage.get_storage().upload_path(key, zip_path, "application/zip")
         await session.execute(
             update(DataExport)
@@ -351,29 +460,24 @@ async def export_student_data(session: AsyncSession, payload: dict) -> None:
     except Exception:
         log.exception("data export %s failed", export_id)
         await session.rollback()
-        await _fail(session, export_id, key)
+        await _fail(session, export_id)
     finally:
         await asyncio.to_thread(shutil.rmtree, workdir, True)
 
 
 async def export_given_up(session: AsyncSession, payload: dict, error: str) -> None:
     """The `on_give_up` hook (see `register_handler`): a build the worker
-    stopped at its time limit, or lost, leaves the row `running` for ever. Only
-    an unfinished row is touched."""
-    await session.execute(
-        update(DataExport)
-        .where(
-            DataExport.id == payload["export_id"],
-            DataExport.status.in_((DataExportStatus.pending, DataExportStatus.running)),
-        )
-        .values(status=DataExportStatus.failed, error=FAILED_MESSAGE)
-    )
+    stopped at its time limit, or lost, leaves the row `running` for ever and
+    may have left a half-built file. Only an unfinished row is touched."""
+    await _mark_failed(session, payload["export_id"])
 
 
 async def expire_data_exports(session: AsyncSession, now: datetime) -> int:
     """Delete the file of every export past its `expires_at` and mark it
-    expired. Safe to re-run: an expired row is not picked again, and a file
-    already gone is not an error. Returns how many were expired."""
+    expired; also clear a file still held by a failed export. Safe to re-run: an
+    expired row is not picked again, and a file already gone is not an error. A
+    file that will not delete leaves its row as it was, for the next pass.
+    Returns how many were expired."""
     due = (
         await session.scalars(
             select(DataExport).where(
@@ -383,23 +487,32 @@ async def expire_data_exports(session: AsyncSession, now: datetime) -> int:
     ).all()
     expired = 0
     for export in due:
-        if export.storage_key:
-            try:
-                await storage.delete_file(export.storage_key)
-            except Exception:  # noqa: BLE001 — try again tomorrow; the file must really go
-                log.warning("could not delete export file %s", export.storage_key, exc_info=True)
-                continue
+        if not await _discard_file(export.storage_key):
+            continue
         export.status = DataExportStatus.expired
         export.storage_key = None
         await session.commit()
         expired += 1
+    leftovers = (
+        await session.scalars(
+            select(DataExport).where(
+                DataExport.status == DataExportStatus.failed, DataExport.storage_key.is_not(None)
+            )
+        )
+    ).all()
+    for export in leftovers:
+        if await _discard_file(export.storage_key):
+            export.storage_key = None
+            await session.commit()
     return expired
 
 
 async def request_export(session: AsyncSession, student: User, requester: User) -> DataExport:
     """The requester's export of `student` that is already being built, or a new
     one queued. One in flight per (child, requester): asking twice while the
-    first is working returns the first instead of queuing a second ZIP.
+    first is working returns the first instead of queuing a second ZIP, and a
+    finished one that has not expired is handed back rather than rebuilt. At
+    most `MAX_BUILDS_PER_DAY` builds per requester per child per day (429).
 
     The caller has already established that `requester` may have this child.
     The child's row is locked for the check (a no-op on SQLite) so two clicks at
@@ -417,6 +530,27 @@ async def request_export(session: AsyncSession, student: User, requester: User) 
     )
     if live is not None:
         return live
+    now = datetime.now(timezone.utc)
+    mine = [DataExport.student_id == student.id, DataExport.requested_by_id == requester.id]
+    for ready in (
+        await session.scalars(
+            select(DataExport)
+            .where(*mine, DataExport.status == DataExportStatus.ready)
+            .order_by(DataExport.id.desc())
+        )
+    ).all():
+        if not is_expired(ready, now):
+            return ready
+    today = await session.scalar(
+        select(func.count(DataExport.id)).where(
+            *mine, DataExport.created_at > now - timedelta(days=1)
+        )
+    )
+    if (today or 0) >= MAX_BUILDS_PER_DAY:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "You have asked for this data several times today. Try again tomorrow.",
+        )
     export = DataExport(
         organization_id=student.organization_id,
         student_id=student.id,

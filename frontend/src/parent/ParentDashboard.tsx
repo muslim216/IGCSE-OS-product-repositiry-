@@ -223,7 +223,7 @@ export default function ParentDashboard() {
           />
           {/* Still reachable when the readiness read fails: not being able to
               see a child is no reason to be unable to stop following them. */}
-          <DownloadChildData asker="parent" studentId={selected!} />
+          <DownloadChildData key={selected} asker="parent" studentId={selected!} name={name} />
           <StopFollowing studentId={selected!} name={name} onDone={setStopped} />
         </>
       ) : (
@@ -281,7 +281,7 @@ export default function ParentDashboard() {
             <p className="max-w-prose text-sm text-ink-700">{whatYouCanDo(subjects)}</p>
           </Section>
 
-          <DownloadChildData asker="parent" studentId={selected!} />
+          <DownloadChildData key={selected} asker="parent" studentId={selected!} name={name} />
           <StopFollowing studentId={selected!} name={name} onDone={setStopped} />
         </>
       )}

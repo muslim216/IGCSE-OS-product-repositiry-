@@ -420,8 +420,6 @@ CONTROL_EXCEPTIONS: dict[tuple[str, str, str, str], tuple[int, str]] = {
     ("student", "GET", "/students/{student_id}/narrative", ""): (404, _NO_CLAIM_STUDENT),
     ("student", "GET", "/weekly-sends/{send_id}", ""): (404, _NO_CLAIM_STUDENT),
     ("admin", "GET", "/students/{student_id}/observations", ""): (404, _NO_CLAIM_ADMIN),
-    ("admin", "GET", "/students/{student_id}/export/{export_id}", ""): (404, _NO_CLAIM_ADMIN),
-    ("admin", "GET", "/students/{student_id}/export/{export_id}/file", ""): (404, _NO_CLAIM_ADMIN),
     ("admin", "PATCH", "/mocks/{mock_id}", ""): (404, _NO_CLAIM_ADMIN),
     ("admin", "PATCH", "/mocks/{mock_id}", "group_id"): (404, _NO_CLAIM_ADMIN),
     ("admin", "POST", "/assessments", "scores.[].student_id"): (404, _NO_CLAIM_ADMIN),
@@ -800,7 +798,7 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             channel=NotificationChannel.email,
             address=f"tutor-{marker}@example.com",
         )
-        await make_user(
+        admin_user = await make_user(
             s,
             organization_id=organization_id,
             role=UserRole.admin,
@@ -843,7 +841,7 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
         # A pending export of the student by the tutor, and one by the linked
         # parent: each route family reads only the asker's own.
         exports = []
-        for asker_id in (uid, parent.id):
+        for asker_id in (uid, parent.id, admin_user.id):
             export_key = storage.new_export_key(organization_id)
             await storage.get_storage().upload(export_key, b"PK fake zip", "application/zip")
             exports.append(
@@ -856,11 +854,12 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
                     expires_at=utcnow() + timedelta(days=7),
                 )
             )
-        tutor_export, parent_export = exports
-        s.add_all([tutor_export, parent_export])
+        tutor_export, parent_export, admin_export = exports
+        s.add_all(exports)
         await s.flush()
         ids["export_id"] = tutor_export.id
         ids["_parent_export_id"] = parent_export.id
+        ids["_admin_export_id"] = admin_export.id
         usage_tokens = 7_000_000 + ord(tag)  # a number only this workspace has
         s.add_all(
             [
@@ -1188,6 +1187,9 @@ def _ids_for(ws, who, route_path, method=""):
     ids = ws["ids"]
     for name, key in ID_OVERRIDES.get((method, route_path), {}).items():
         ids = {**ids, name: ids[key]}
+    # An export is readable only by whoever asked: the admin has their own.
+    if who == "admin" and "/export/" in route_path:
+        return {**ids, "export_id": ids["_admin_export_id"]}
     if route_path.startswith("/me/") and f"_contact_{who}" in ids:
         return {**ids, "contact_id": ids[f"_contact_{who}"]}
     return ids

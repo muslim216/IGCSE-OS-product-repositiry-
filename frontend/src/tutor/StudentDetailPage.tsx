@@ -278,7 +278,7 @@ export default function StudentDetailPage() {
             description="Everything Avora holds about them, with their uploaded pages, as a ZIP. Kept for seven days."
           />
           <div className="mt-4">
-            <DownloadChildData asker="tutor" studentId={sid} />
+            <DownloadChildData key={sid} asker="tutor" studentId={sid} name={r.student_name} />
           </div>
         </SectionCard>
 
