@@ -484,15 +484,14 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
         output_format=PastPaperExtractionResult,
         max_tokens=16000,
     )
-    if paper.tutor_id is not None:
-        await record_usage(
-            session,
-            response,
-            organization_id=paper.organization_id,
-            tutor_id=paper.tutor_id,
-            student_id=None,
-            feature=AiFeature.extraction,
-        )
+    await record_usage(
+        session,
+        response,
+        organization_id=paper.organization_id,
+        tutor_id=paper.tutor_id,
+        student_id=None,
+        feature=AiFeature.extraction,
+    )
     result = require_parsed(response)
     if not result.questions:
         raise ValueError("No questions were found in the past paper")
@@ -712,15 +711,14 @@ async def _read_papers(
         output_format=BookletExtractionResult,
         max_tokens=16000,
     )
-    if booklet.tutor_id is not None:
-        await record_usage(
-            session,
-            response,
-            organization_id=booklet.organization_id,
-            tutor_id=booklet.tutor_id,
-            student_id=None,
-            feature=AiFeature.extraction,
-        )
+    await record_usage(
+        session,
+        response,
+        organization_id=booklet.organization_id,
+        tutor_id=booklet.tutor_id,
+        student_id=None,
+        feature=AiFeature.extraction,
+    )
     return require_parsed(response).papers
 
 

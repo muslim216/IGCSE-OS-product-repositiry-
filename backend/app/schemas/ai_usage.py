@@ -6,12 +6,17 @@ class AiUsageByFeature(BaseModel):
     call_count: int
     input_tokens: int
     output_tokens: int
+    # Prompt-cache tokens, apart from input_tokens (never inside it).
+    cache_write_tokens: int
+    cache_read_tokens: int
 
 
 class AiUsageSummary(BaseModel):
     by_feature: list[AiUsageByFeature]
     total_input_tokens: int
     total_output_tokens: int
+    total_cache_write_tokens: int
+    total_cache_read_tokens: int
 
 
 class AiCostBucket(BaseModel):
@@ -22,6 +27,8 @@ class AiCostBucket(BaseModel):
     call_count: int
     input_tokens: int
     output_tokens: int
+    cache_write_tokens: int
+    cache_read_tokens: int
     # Summed estimated spend over the calls that have a configured price.
     cost_usd: float
     # Calls in this bucket whose model has no price configured, so their spend

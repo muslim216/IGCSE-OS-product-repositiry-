@@ -1,3 +1,6 @@
+import json
+import logging
+import math
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit
@@ -10,6 +13,82 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PLACEHOLDER_JWT_SECRET = "change-me-in-production"
 #: HS256 signs with the secret itself; under 32 bytes it can be brute-forced.
 MIN_JWT_SECRET_BYTES = 32
+
+
+log = logging.getLogger(__name__)
+
+PRICE_KEYS = frozenset({"input_per_1m", "output_per_1m", "cache_write_per_1m", "cache_read_per_1m"})
+
+
+def parse_model_pricing(raw: str) -> dict[str, dict[str, float]]:
+    """Strict parse of AI_MODEL_PRICING into {model: {rate: dollars per 1M
+    tokens}}. Empty is valid (every model unpriced, AI-17); anything malformed
+    raises ValueError with a short message that never echoes the whole value.
+    Runtime code uses load_model_pricing(), which never raises."""
+    if not raw or not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise ValueError("AI_MODEL_PRICING is not valid JSON") from exc
+    if not isinstance(data, dict):
+        raise ValueError("AI_MODEL_PRICING must be a JSON object keyed by model id")
+    return {model: _parse_price_entry(model, entry) for model, entry in data.items()}
+
+
+def _parse_price_entry(model: str, entry: object) -> dict[str, float]:
+    if not isinstance(entry, dict):
+        raise ValueError(f"AI_MODEL_PRICING entry for {model!r} must be an object")
+    for required in ("input_per_1m", "output_per_1m"):
+        # A missing side would otherwise price that side at $0.
+        if required not in entry:
+            raise ValueError(f"AI_MODEL_PRICING entry for {model!r} is missing {required}")
+    rates: dict[str, float] = {}
+    for key, price in entry.items():
+        if key not in PRICE_KEYS:
+            raise ValueError(
+                f"AI_MODEL_PRICING entry for {model!r} has unknown key {key!r}; "
+                f"allowed: {', '.join(sorted(PRICE_KEYS))}"
+            )
+        if isinstance(price, bool) or not isinstance(price, int | float):
+            raise ValueError(f"AI_MODEL_PRICING {model!r}.{key} must be a number")
+        if not math.isfinite(price) or price < 0:
+            raise ValueError(f"AI_MODEL_PRICING {model!r}.{key} must not be negative")
+        rates[key] = float(price)
+    return rates
+
+
+#: `.problem`: why the configured price table was refused, or None when it is fine.
+#: /health/ready reports it. A wrong price must not stop the API booting
+#: (AI-20, INF-9) — every model is simply unpriced (cost_usd NULL, AI-17) — but
+#: it must not stay quiet either (CFG-5).
+class _PricingStatus:
+    problem: str | None = None
+
+
+pricing_status = _PricingStatus()
+
+
+def load_model_pricing(raw: str) -> dict[str, dict[str, float]]:
+    """parse_model_pricing that never raises: a malformed table is logged at
+    ERROR with the reason (not the value), flagged for /health/ready, and
+    treated as empty."""
+    try:
+        prices = parse_model_pricing(raw)
+    except ValueError as exc:
+        pricing_status.problem = str(exc)
+        log.error("%s; every model will be recorded as unpriced", exc)
+        return {}
+    return prices
+
+
+def _checked_pricing_setting(raw: str) -> str:
+    """The setting's value, or "{}" when it is malformed. Resets the flag, so
+    it describes the Settings most recently built (a later load_model_pricing
+    of the normalised value must not clear it)."""
+    pricing_status.problem = None
+    load_model_pricing(raw)
+    return raw if pricing_status.problem is None else "{}"
 
 
 class Settings(BaseSettings):
@@ -217,10 +296,19 @@ class Settings(BaseSettings):
     # instead.
     ai_text_call_timeout_seconds: float = 120.0
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
-    # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
+    # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}, plus optional
+    # "cache_write_per_1m" / "cache_read_per_1m"; without them cache tokens are unpriced. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather
     # than a guessed figure (see services/ai.py model_pricing()).
     ai_model_pricing: str = "{}"
+
+    @field_validator("ai_model_pricing")
+    @classmethod
+    def _pricing_table_is_well_formed(cls, v: str) -> str:
+        # A wrong value does not stop startup (AI-20, INF-9): it is normalised
+        # to empty, logged at ERROR and flagged on /health/ready (CFG-5).
+        return _checked_pricing_setting(v)
+
     # Readiness Engine v2 is now what the readiness UI/API serve. This is the
     # kill switch, not a shadow flag: turning it off stops v2 runs being
     # enqueued, and since 5.3b deleted v1 there is nothing behind it — every

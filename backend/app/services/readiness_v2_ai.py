@@ -363,15 +363,14 @@ async def _synthesize_subject(
         )
         return exc
 
-    if tutor_id is not None:
-        await record_usage(
-            session,
-            response,
-            organization_id=student.organization_id,
-            tutor_id=tutor_id,
-            student_id=student.id,
-            feature=AiFeature.readiness,
-        )
+    await record_usage(
+        session,
+        response,
+        organization_id=student.organization_id,
+        tutor_id=tutor_id,
+        student_id=student.id,
+        feature=AiFeature.readiness,
+    )
     result = require_parsed(response)
     score = _enforce_factor_score_constraint(result.score, reference_score)
     boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)
