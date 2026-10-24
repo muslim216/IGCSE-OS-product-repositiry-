@@ -33,46 +33,50 @@ def parse_model_pricing(raw: str) -> dict[str, dict[str, float]]:
         raise ValueError("AI_MODEL_PRICING is not valid JSON") from exc
     if not isinstance(data, dict):
         raise ValueError("AI_MODEL_PRICING must be a JSON object keyed by model id")
-    out: dict[str, dict[str, float]] = {}
-    for model, entry in data.items():
-        if not isinstance(entry, dict):
-            raise ValueError(f"AI_MODEL_PRICING entry for {model!r} must be an object")
-        rates: dict[str, float] = {}
-        for required in ("input_per_1m", "output_per_1m"):
-            # A missing side would otherwise price that side at $0.
-            if required not in entry:
-                raise ValueError(f"AI_MODEL_PRICING entry for {model!r} is missing {required}")
-        for key, price in entry.items():
-            if key not in PRICE_KEYS:
-                raise ValueError(
-                    f"AI_MODEL_PRICING entry for {model!r} has unknown key {key!r}; "
-                    f"allowed: {', '.join(sorted(PRICE_KEYS))}"
-                )
-            if isinstance(price, bool) or not isinstance(price, int | float):
-                raise ValueError(f"AI_MODEL_PRICING {model!r}.{key} must be a number")
-            if not math.isfinite(price) or price < 0:
-                raise ValueError(f"AI_MODEL_PRICING {model!r}.{key} must not be negative")
-            rates[key] = float(price)
-        out[model] = rates
-    return out
+    return {model: _parse_price_entry(model, entry) for model, entry in data.items()}
 
 
-#: Why the configured price table was refused, or None when it is fine.
+def _parse_price_entry(model: str, entry: object) -> dict[str, float]:
+    if not isinstance(entry, dict):
+        raise ValueError(f"AI_MODEL_PRICING entry for {model!r} must be an object")
+    for required in ("input_per_1m", "output_per_1m"):
+        # A missing side would otherwise price that side at $0.
+        if required not in entry:
+            raise ValueError(f"AI_MODEL_PRICING entry for {model!r} is missing {required}")
+    rates: dict[str, float] = {}
+    for key, price in entry.items():
+        if key not in PRICE_KEYS:
+            raise ValueError(
+                f"AI_MODEL_PRICING entry for {model!r} has unknown key {key!r}; "
+                f"allowed: {', '.join(sorted(PRICE_KEYS))}"
+            )
+        if isinstance(price, bool) or not isinstance(price, int | float):
+            raise ValueError(f"AI_MODEL_PRICING {model!r}.{key} must be a number")
+        if not math.isfinite(price) or price < 0:
+            raise ValueError(f"AI_MODEL_PRICING {model!r}.{key} must not be negative")
+        rates[key] = float(price)
+    return rates
+
+
+#: `.problem`: why the configured price table was refused, or None when it is fine.
 #: /health/ready reports it. A wrong price must not stop the API booting
 #: (AI-20, INF-9) — every model is simply unpriced (cost_usd NULL, AI-17) — but
 #: it must not stay quiet either (CFG-5).
-pricing_problem: str | None = None
+class _PricingStatus:
+    problem: str | None = None
+
+
+pricing_status = _PricingStatus()
 
 
 def load_model_pricing(raw: str) -> dict[str, dict[str, float]]:
     """parse_model_pricing that never raises: a malformed table is logged at
     ERROR with the reason (not the value), flagged for /health/ready, and
     treated as empty."""
-    global pricing_problem
     try:
         prices = parse_model_pricing(raw)
     except ValueError as exc:
-        pricing_problem = str(exc)
+        pricing_status.problem = str(exc)
         log.error("%s; every model will be recorded as unpriced", exc)
         return {}
     return prices
@@ -82,10 +86,9 @@ def _checked_pricing_setting(raw: str) -> str:
     """The setting's value, or "{}" when it is malformed. Resets the flag, so
     it describes the Settings most recently built (a later load_model_pricing
     of the normalised value must not clear it)."""
-    global pricing_problem
-    pricing_problem = None
+    pricing_status.problem = None
     load_model_pricing(raw)
-    return raw if pricing_problem is None else "{}"
+    return raw if pricing_status.problem is None else "{}"
 
 
 class Settings(BaseSettings):

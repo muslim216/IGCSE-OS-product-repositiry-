@@ -493,8 +493,8 @@ def create_app() -> FastAPI:
         # A malformed AI_MODEL_PRICING boots as "every model unpriced"; this is
         # where that is said out loud (CFG-5). The reason, never the value.
         ai_pricing = {
-            "ok": app_config.pricing_problem is None,
-            "problem": app_config.pricing_problem,
+            "ok": app_config.pricing_status.problem is None,
+            "problem": app_config.pricing_status.problem,
         }
         # A yes or no, never the value. With the placeholder anyone can sign a
         # token for any account (`SA-04`); reported here first so the live

@@ -201,13 +201,13 @@ async def _clear_limiters():
 
 @pytest.fixture(autouse=True)
 def _clean_pricing_flag():
-    """config.pricing_problem is a process global; a test that sets it must not
+    """config.pricing_status.problem is a process global; a test that sets it must not
     leave /health/ready returning 503 for the tests after it."""
     from app import config
 
-    config.pricing_problem = None
+    config.pricing_status.problem = None
     yield
-    config.pricing_problem = None
+    config.pricing_status.problem = None
 
 
 @pytest.fixture(autouse=True)

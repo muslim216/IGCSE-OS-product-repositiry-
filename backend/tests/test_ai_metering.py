@@ -182,13 +182,13 @@ async def test_a_malformed_price_table_boots_logs_error_degrades_health_and_pric
     assert estimate_cost_usd("m", 1000, 1000) is None
     ai_service.model_pricing.cache_clear()
     Settings(_env_file=None, ai_model_pricing="{}")  # type: ignore[call-arg]
-    assert app_config.pricing_problem is None
+    assert app_config.pricing_status.problem is None
 
 
 @pytest.mark.parametrize("raw", ["", "  ", "{}", PRICES])
 def test_an_empty_or_valid_price_table_loads_clean(raw):
     Settings(_env_file=None, ai_model_pricing=raw)  # type: ignore[call-arg]
-    assert app_config.pricing_problem is None
+    assert app_config.pricing_status.problem is None
 
 
 def test_a_partial_entry_in_code_is_unpriced_not_free(monkeypatch):
