@@ -44,10 +44,11 @@ async def test_one_pending_request_per_student_until_cancelled():
         await db.flush()
 
         # A savepoint, so the refusal does not undo the student and first request.
-        with pytest.raises(IntegrityError):
-            async with db.begin_nested():
-                db.add(new_request())
+        async with db.begin_nested() as savepoint:
+            db.add(new_request())
+            with pytest.raises(IntegrityError):
                 await db.flush()
+            await savepoint.rollback()
 
         first.status = ErasureRequestStatus.cancelled
         await db.flush()
