@@ -27,6 +27,8 @@ from app.schemas.crm import (
     StudentCrmOut,
     StudentProfileOut,
     StudentProfileUpdate,
+    StudentRename,
+    StudentRenamed,
     StudentSubjectCreate,
     StudentSubjectOut,
     StudentSubjectUpdate,
@@ -36,7 +38,9 @@ from app.schemas.crm import (
 from app.schemas.custom_criteria import CustomCriterionScoreIn, StudentCriterionScoreOut
 from app.schemas.groups import InviteOut
 from app.schemas.mistake_rollup import StudentMistakeRollup
+from app.schemas.parent_links import LinkedParentOut
 from app.schemas.tutor_lists import TutorStudentList
+from app.services import parent_links
 from app.services.attempt_redo import redos_for_student
 from app.services.attendance import student_attendance
 from app.services.custom_criteria import (
@@ -147,6 +151,22 @@ async def create_parent_code(student_id: int, db: DbSession, user: CurrentUser) 
     return InviteOut(code=invite.code, kind=invite.kind.value, expires_at=invite.expires_at)
 
 
+@router.get("/{student_id}/parents")
+async def student_parents(student_id: int, db: DbSession, user: TutorUser) -> list[LinkedParentOut]:
+    """Who can read this child's record. A tutor who teaches the child sees it."""
+    await _tutor_student(db, user, student_id)
+    return await parent_links.linked_parents(db, student_id, user.organization_id)
+
+
+@router.delete("/{student_id}/parents/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_student_parent(
+    student_id: int, link_id: int, db: DbSession, user: TutorUser
+) -> None:
+    """Cut a parent off, e.g. a code that went to the wrong adult. Immediate."""
+    await _tutor_student(db, user, student_id)
+    await parent_links.remove_link(db, student_id=student_id, link_id=link_id, actor=user)
+
+
 @router.get("/{student_id}/crm", response_model=StudentCrmOut)
 async def student_crm(student_id: int, db: DbSession, user: CurrentUser) -> StudentCrmOut:
     """The student's full academic record: profile, enrollments, readiness,
@@ -218,9 +238,22 @@ async def student_crm(student_id: int, db: DbSession, user: CurrentUser) -> Stud
     )
 
 
+@router.patch(
+    "/{student_id}",
+    responses={404: {"description": "No such student among those you teach."}},
+)
+async def rename_student(
+    student_id: int, body: StudentRename, db: DbSession, user: TutorUser
+) -> StudentRenamed:
+    student = await _tutor_student(db, user, student_id)
+    student.name = body.name
+    await db.commit()
+    return StudentRenamed(id=student.id, name=student.name)
+
+
 @router.put("/{student_id}/profile", response_model=StudentProfileOut)
 async def update_student_profile(
-    student_id: int, body: StudentProfileUpdate, db: DbSession, user: CurrentUser
+    student_id: int, body: StudentProfileUpdate, db: DbSession, user: TutorUser
 ) -> StudentProfileOut:
     student = await _tutor_student(db, user, student_id)
     profile = await db.scalar(select(StudentProfile).where(StudentProfile.student_id == student.id))

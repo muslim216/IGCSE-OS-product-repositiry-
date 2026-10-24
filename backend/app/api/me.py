@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser
+from app.api.deps import CurrentUser, DbSession, ParentUser, StudentUser, TutorUser
 from app.models import (
     Group,
     GroupMember,
@@ -19,7 +19,8 @@ from app.schemas.groups import GroupOut, SubjectOut, UpcomingScheduleSlot
 from app.schemas.mistake_rollup import MyCategoryCount, MyMistakePattern
 from app.schemas.notifications import OrganizationSettingsUpdate
 from app.schemas.orgs import OrganizationOut, OrganizationTimezoneUpdate
-from app.services import activity
+from app.schemas.parent_links import LinkedParentOut
+from app.services import activity, parent_links
 from app.services.attendance import student_attendance
 from app.services.mistake_rollup import roll_up_mistakes
 from app.services.subjects import visible_subject_ids
@@ -252,3 +253,20 @@ async def my_mistakes(db: DbSession, user: StudentUser) -> list[MyMistakePattern
             )
         )
     return out
+
+
+@router.get("/parent-links")
+async def my_parent_links(db: DbSession, user: StudentUser) -> list[LinkedParentOut]:
+    """Who is linked to the caller. The student is the token's (`SEC-7`)."""
+    return await parent_links.linked_parents(db, user.id, user.organization_id)
+
+
+@router.delete("/parent-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_my_parent_link(link_id: int, db: DbSession, user: StudentUser) -> None:
+    await parent_links.remove_link(db, student_id=user.id, link_id=link_id, actor=user)
+
+
+@router.delete("/children/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def stop_following_child(student_id: int, db: DbSession, user: ParentUser) -> None:
+    """A parent ends their own access to a child. Only their own link can match."""
+    await parent_links.remove_link(db, parent_id=user.id, student_id=student_id, actor=user)
