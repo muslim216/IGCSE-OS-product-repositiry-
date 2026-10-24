@@ -72,12 +72,17 @@ test("a tutor asks, waits while it is built, then saves it with a press", async 
 });
 
 test("polling stops once it is ready", async () => {
-  const calls = stub((path, method) =>
-    method === "POST" ? json(exp("pending"), 202) : json(exp(path ? "ready" : "ready")),
-  );
+  let polls = 0;
+  const calls = stub((_path, method) => {
+    if (method === "POST") return json(exp("pending"), 202);
+    polls += 1;
+    return json(exp(polls < 3 ? "running" : "ready"));
+  });
   renderIt("tutor");
   fireEvent.click(prepare());
   await save();
+  // It really did poll before it was ready.
+  expect(polls).toBeGreaterThanOrEqual(3);
   const seen = calls.length;
   await new Promise((r) => setTimeout(r, 80));
   expect(calls.length).toBe(seen);
@@ -149,4 +154,46 @@ test("the button keeps focus while the file is prepared", async () => {
   fireEvent.click(prepare());
   await screen.findByText(/Preparing the file/);
   expect(document.activeElement).toBe(prepare());
+});
+
+test("a download that fails with a server error can be retried without a new export", async () => {
+  let files = 0;
+  const calls = stub((path, method) => {
+    if (path.endsWith("/file")) {
+      files += 1;
+      return files === 1 ? json({ detail: "boom" }, 500) : new Response(new Blob(["zip"]));
+    }
+    return method === "POST" ? json(exp("ready"), 202) : json(exp("ready"));
+  });
+  renderIt("tutor");
+  fireEvent.click(prepare());
+  fireEvent.click(await save());
+  await screen.findByRole("alert");
+  // Still there, so the person can try again.
+  fireEvent.click(await save());
+  await screen.findByText(/Downloaded/);
+  expect(calls.filter((c) => c.startsWith("POST")).length).toBe(1);
+});
+
+test("a press before the first status arrives cannot ask twice", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push(method);
+      if (method === "POST") return json(exp("pending"), 202);
+      await gate;
+      return json(exp("running"));
+    }),
+  );
+  renderIt("tutor");
+  fireEvent.click(prepare());
+  await waitFor(() => expect(calls).toContain("GET"));
+  fireEvent.click(prepare());
+  release();
+  await screen.findByText(/Preparing the file/);
+  expect(calls.filter((c) => c === "POST").length).toBe(1);
 });

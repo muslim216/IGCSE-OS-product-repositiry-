@@ -15,6 +15,9 @@ import { friendlyError } from "../lib/errors";
  *  the save before it is released. */
 const REVOKE_MS = 1000;
 
+/** `Button` styles only `disabled`; these buttons use `aria-disabled` to keep focus. */
+const AWAITING = "aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
+
 /** Asks for a child's data as a ZIP, waits while it is built, then offers the
  *  file. The save is a button the person presses, not something that starts by
  *  itself: Safari blocks a download that does not follow a click. The file is
@@ -61,7 +64,9 @@ export default function DownloadChildData({
   });
 
   const state = status.data?.status;
-  const building = exportId !== null && isBuilding(status.data);
+  // Also true in the gap after a request is accepted and before its first status
+  // arrives, so a press there cannot ask a second time.
+  const building = exportId !== null && (status.isPending || isBuilding(status.data));
   // Not `disabled`: a disabled button drops keyboard focus, and the person would
   // lose their place while the file is prepared.
   const busy = request.isPending || building || download.isPending;
@@ -100,16 +105,20 @@ export default function DownloadChildData({
   }
 
   const expired = state === "expired" || (download.error as FileFetchError | null)?.status === 410;
-  const offerSave = ready && !expired && !failed;
+  // Offered again after a download that dropped or failed with a server error, so
+  // it can be retried without a new export. Only an expired file or a failed
+  // build takes it away.
+  const offerSave = ready && !expired;
 
   return (
     <div>
       <div className="flex flex-wrap gap-3">
-        <Button variant="secondary" aria-disabled={busy} onClick={ask}>
+        <Button variant="secondary" className={AWAITING} aria-disabled={busy} onClick={ask}>
           Request {name}&apos;s data
         </Button>
         {offerSave && (
           <Button
+            className={AWAITING}
             aria-disabled={download.isPending}
             onClick={() => {
               if (!download.isPending && exportId !== null) download.mutate(exportId);

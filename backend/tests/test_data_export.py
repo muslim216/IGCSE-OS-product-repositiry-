@@ -177,9 +177,9 @@ async def test_asking_twice_while_one_is_building_returns_the_same_export(
     second = await _export(client, tutor["headers"], sid)
     assert first["id"] == second["id"]
     await _drain()
-    # Finished and not expired: handed back, not rebuilt.
+    # Finished: a repeat request builds a new one, so it carries newer data.
     third = await _export(client, tutor["headers"], sid)
-    assert third["id"] == first["id"]
+    assert third["id"] != first["id"]
 
 
 async def test_a_parent_can_download_their_own_child(client, tutor, student, world):

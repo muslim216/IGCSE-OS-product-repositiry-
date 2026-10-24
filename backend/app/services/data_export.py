@@ -25,7 +25,6 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import object_mapper
@@ -87,6 +86,13 @@ FORMAT_VERSION = 1
 #: A requester may start this many builds per child in a day, failed ones
 #: included, so a build that keeps failing cannot be re-asked without end.
 MAX_BUILDS_PER_DAY = 3
+
+LIMIT_MESSAGE = "You have asked for this data several times today. Try again tomorrow."
+
+
+class ExportLimitReached(Exception):
+    """The requester has used today's builds for this child; the router answers 429."""
+
 
 #: Ids per `IN (...)`: Postgres refuses a statement with more than 32767 bind
 #: parameters, and years of marks on one child can pass that.
@@ -510,9 +516,9 @@ async def expire_data_exports(session: AsyncSession, now: datetime) -> int:
 async def request_export(session: AsyncSession, student: User, requester: User) -> DataExport:
     """The requester's export of `student` that is already being built, or a new
     one queued. One in flight per (child, requester): asking twice while the
-    first is working returns the first instead of queuing a second ZIP, and a
-    finished one that has not expired is handed back rather than rebuilt. At
-    most `MAX_BUILDS_PER_DAY` builds per requester per child per day (429).
+    first is working returns the first instead of queuing a second ZIP. A
+    finished one is never reused: a repeat request should carry newer data. At
+    most `MAX_BUILDS_PER_DAY` builds per requester per child per day (`ExportLimitReached`).
 
     The caller has already established that `requester` may have this child.
     The child's row is locked for the check (a no-op on SQLite) so two clicks at
@@ -532,25 +538,13 @@ async def request_export(session: AsyncSession, student: User, requester: User) 
         return live
     now = datetime.now(timezone.utc)
     mine = [DataExport.student_id == student.id, DataExport.requested_by_id == requester.id]
-    for ready in (
-        await session.scalars(
-            select(DataExport)
-            .where(*mine, DataExport.status == DataExportStatus.ready)
-            .order_by(DataExport.id.desc())
-        )
-    ).all():
-        if not is_expired(ready, now):
-            return ready
     today = await session.scalar(
         select(func.count(DataExport.id)).where(
             *mine, DataExport.created_at > now - timedelta(days=1)
         )
     )
     if (today or 0) >= MAX_BUILDS_PER_DAY:
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "You have asked for this data several times today. Try again tomorrow.",
-        )
+        raise ExportLimitReached(LIMIT_MESSAGE)
     export = DataExport(
         organization_id=student.organization_id,
         student_id=student.id,

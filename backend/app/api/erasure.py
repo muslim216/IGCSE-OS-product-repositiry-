@@ -97,6 +97,13 @@ async def _zip_response(export: DataExport) -> Response:
     )
 
 
+async def _queue(db: DbSession, student: User, user: User) -> DataExportOut:
+    try:
+        return _out(await data_export.request_export(db, student, user))
+    except data_export.ExportLimitReached:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, data_export.LIMIT_MESSAGE) from None
+
+
 @router.post(
     "/students/{student_id}/export",
     response_model=DataExportOut,
@@ -106,7 +113,7 @@ async def request_student_export(student_id: int, db: DbSession, user: TutorUser
     """Ask for a student's data as a ZIP. Returns the export already being built,
     if the caller has one."""
     student = await _tutor_student(db, user, student_id)
-    return _out(await data_export.request_export(db, student, user))
+    return await _queue(db, student, user)
 
 
 @router.get("/students/{student_id}/export/{export_id}", response_model=DataExportOut)
@@ -136,7 +143,7 @@ async def student_export_file(
 )
 async def request_child_export(student_id: int, db: DbSession, user: ParentUser) -> DataExportOut:
     student = await _linked_child(db, user, student_id)
-    return _out(await data_export.request_export(db, student, user))
+    return await _queue(db, student, user)
 
 
 @router.get("/me/children/{student_id}/export/{export_id}", response_model=DataExportOut)

@@ -178,26 +178,29 @@ async def test_a_meeting_row_that_guessed_the_classmate_does_not_name_him(
     assert "suggested_student_id" not in row and row["matched_student_id"] == sid
 
 
-async def test_asking_again_gets_the_finished_export_and_the_day_has_a_limit(
+async def test_asking_again_after_a_finished_export_builds_a_new_one_and_the_day_has_a_limit(
     client, tutor, student, world
 ):
     sid = student["user"]["id"]
     first = await _export(client, tutor["headers"], sid)
     await _drain()
-    assert (await _export(client, tutor["headers"], sid))["id"] == first["id"]
+    # A finished export is never handed back: a repeat request carries newer data.
+    second = await _export(client, tutor["headers"], sid)
+    assert second["id"] != first["id"]
+    await _drain()
 
     async with async_session() as session:
+        for row in (await session.scalars(select(DataExport))).all():
+            row.status = DataExportStatus.failed
         row = await session.get(DataExport, first["id"])
-        row.status = DataExportStatus.failed
-        for _ in range(2):
-            session.add(
-                DataExport(
-                    organization_id=row.organization_id,
-                    student_id=sid,
-                    requested_by_id=row.requested_by_id,
-                    status=DataExportStatus.failed,
-                )
+        session.add(
+            DataExport(
+                organization_id=row.organization_id,
+                student_id=sid,
+                requested_by_id=row.requested_by_id,
+                status=DataExportStatus.failed,
             )
+        )
         await session.commit()
     # Three today already, failed ones counted.
     resp = await client.post(_url(sid), headers=tutor["headers"])
