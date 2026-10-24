@@ -168,6 +168,8 @@ TUTOR_ONLY = [
     "/api/v1/readiness/weights",
     "/api/v1/resources",
     "/api/v1/students",
+    "/api/v1/students/1/export/1",
+    "/api/v1/students/1/export/1/file",
     "/api/v1/submissions/review-queue",
     "/api/v1/today/reminders",
     "/api/v1/syllabus-uploads",
@@ -184,8 +186,13 @@ STUDENT_ONLY = [
 ]
 
 
-#: Parent-only routes carry their method, since the only one is a DELETE.
-PARENT_ONLY = [("DELETE", "/api/v1/me/children/1")]
+#: Parent-only routes carry their method, since they are not all GETs.
+PARENT_ONLY = [
+    ("DELETE", "/api/v1/me/children/1"),
+    ("POST", "/api/v1/me/children/1/export"),
+    ("GET", "/api/v1/me/children/1/export/1"),
+    ("GET", "/api/v1/me/children/1/export/1/file"),
+]
 
 
 @pytest.mark.parametrize(("method", "path"), PARENT_ONLY)

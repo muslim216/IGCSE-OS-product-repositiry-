@@ -48,6 +48,7 @@ from app.models import (
     ReadinessSnapshot,
 )
 from app.services import storage
+from app.services.data_export import expire_data_exports
 from app.workers.jobs import enqueue
 
 log = logging.getLogger(__name__)
@@ -260,7 +261,7 @@ async def sweep_retention(session: AsyncSession, _payload: dict) -> None:
     what is past its period and a second pass finds nothing more (`BE-6`).
 
     Each step runs whatever the others did: one failing every day must not
-    leave the disk to fill. A failure still fails the job, after all three, so
+    leave the disk to fill. A failure still fails the job, after all of them, so
     it is counted where failed jobs are."""
     await _commit_successor_sweep()
     now = datetime.now(timezone.utc)
@@ -270,6 +271,9 @@ async def sweep_retention(session: AsyncSession, _payload: dict) -> None:
         ("finished jobs", prune_finished_jobs),
         ("readiness working rows", prune_readiness_working_rows),
         ("orphaned files", prune_orphaned_files),
+        # A child's data export is kept 7 days (P-3); its own expiry, not the
+        # orphan rule, owns its file.
+        ("expired data exports", expire_data_exports),
     ):
         try:
             counts[name] = await step(session, now)
