@@ -58,10 +58,13 @@ async def _linked_child(db: DbSession, parent: User, student_id: int) -> User:
     return student
 
 
+_EXPORT_NOT_FOUND = "Export not found"
+
+
 async def _own_export(db: DbSession, student: User, user: User, export_id: int) -> DataExport:
     export = await data_export.requested_export(db, student, user, export_id)
     if export is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Export not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _EXPORT_NOT_FOUND)
     return export
 
 
@@ -69,7 +72,7 @@ async def _zip_response(export: DataExport) -> Response:
     if data_export.is_expired(export, datetime.now(timezone.utc)):
         raise HTTPException(status.HTTP_410_GONE, "This export has expired. Request a new one.")
     if export.status != DataExportStatus.ready or not export.storage_key:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Export not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _EXPORT_NOT_FOUND)
     # Copied to a temp file and streamed from there: the ZIP can be large, and
     # the API must not hold it in memory (`BE-13`).
     workdir = Path(await asyncio.to_thread(tempfile.mkdtemp, prefix="avora-download-"))
@@ -77,7 +80,7 @@ async def _zip_response(export: DataExport) -> Response:
         await storage.get_storage().download_to_path(export.storage_key, workdir / "export.zip")
     except storage.ObjectNotFoundError:
         await asyncio.to_thread(shutil.rmtree, workdir, True)
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Export not found") from None
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _EXPORT_NOT_FOUND) from None
     except Exception:
         await asyncio.to_thread(shutil.rmtree, workdir, True)
         log.exception("could not read export %s", export.id)
@@ -106,7 +109,6 @@ async def _queue(db: DbSession, student: User, user: User) -> DataExportOut:
 
 @router.post(
     "/students/{student_id}/export",
-    response_model=DataExportOut,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def request_student_export(student_id: int, db: DbSession, user: TutorUser) -> DataExportOut:
@@ -116,7 +118,7 @@ async def request_student_export(student_id: int, db: DbSession, user: TutorUser
     return await _queue(db, student, user)
 
 
-@router.get("/students/{student_id}/export/{export_id}", response_model=DataExportOut)
+@router.get("/students/{student_id}/export/{export_id}")
 async def student_export_status(
     student_id: int, export_id: int, db: DbSession, user: TutorUser
 ) -> DataExportOut:
@@ -138,7 +140,6 @@ async def student_export_file(
 
 @router.post(
     "/me/children/{student_id}/export",
-    response_model=DataExportOut,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def request_child_export(student_id: int, db: DbSession, user: ParentUser) -> DataExportOut:
@@ -146,7 +147,7 @@ async def request_child_export(student_id: int, db: DbSession, user: ParentUser)
     return await _queue(db, student, user)
 
 
-@router.get("/me/children/{student_id}/export/{export_id}", response_model=DataExportOut)
+@router.get("/me/children/{student_id}/export/{export_id}")
 async def child_export_status(
     student_id: int, export_id: int, db: DbSession, user: ParentUser
 ) -> DataExportOut:

@@ -475,6 +475,7 @@ async def export_given_up(session: AsyncSession, payload: dict, error: str) -> N
     """The `on_give_up` hook (see `register_handler`): a build the worker
     stopped at its time limit, or lost, leaves the row `running` for ever and
     may have left a half-built file. Only an unfinished row is touched."""
+    log.warning("data export %s given up: %s", payload["export_id"], error)
     await _mark_failed(session, payload["export_id"])
 
 

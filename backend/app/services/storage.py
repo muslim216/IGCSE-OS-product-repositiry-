@@ -310,6 +310,8 @@ class LocalBackend:
         return await asyncio.to_thread(_read)
 
     async def upload_path(self, key: str, path: Path, mime: str) -> None:
+        del mime  # a file on disk keeps no content type; the S3 backend sends it
+
         def _copy() -> None:
             target = self._path(key)
             target.parent.mkdir(parents=True, exist_ok=True)

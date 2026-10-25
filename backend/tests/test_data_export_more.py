@@ -2,7 +2,7 @@
 limit, what a failure leaves behind, expiry edge cases, and the guard tables."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -15,6 +15,7 @@ from app.models import (
     DataExportStatus,
     Group,
     GroupMember,
+    Lesson,
     MarkOverrideAudit,
     MeetingParticipant,
     ParentLink,
@@ -121,7 +122,8 @@ async def test_a_parent_copy_leaves_out_the_tutors_private_material_and_a_tutor_
     ):
         assert table in full
         assert table not in kept["tables"], table
-    assert len(full["tutor_notes"]) == 1 and len(full["mark_override_audit"]) == 1
+    assert len(full["tutor_notes"]) == 1
+    assert len(full["mark_override_audit"]) == 1
     assert len(full["ai_usage_events"]) == 1
     assert {r["title"] for r in full["reports"]} == {
         "for-parent-final",
@@ -131,7 +133,8 @@ async def test_a_parent_copy_leaves_out_the_tutors_private_material_and_a_tutor_
     assert [r["title"] for r in kept["tables"]["reports"]] == ["for-parent-final"]
     assert kept["export"]["audience"] == "parent"
     # What the child did is still theirs.
-    assert len(kept["tables"]["submissions"]) == 1 and kept["tables"]["question_marks"]
+    assert len(kept["tables"]["submissions"]) == 1
+    assert kept["tables"]["question_marks"]
 
 
 async def test_neither_copy_holds_storage_keys_or_other_adults(client, tutor, student, world):
@@ -147,22 +150,29 @@ async def test_neither_copy_holds_storage_keys_or_other_adults(client, tutor, st
     for content in copies:
         text = _zip(content).read("data.json").decode()
         data = json.loads(text)
-        assert "org/" not in text and world["sara_key"] not in text
+        assert "org/" not in text
+        assert world["sara_key"] not in text
         assert all("path" not in r for r in data["tables"]["submission_files"])
         links = data["tables"]["parent_links"]
-        assert links and all(set(r) == {"created_at"} for r in links)
+        assert links
+        assert all(set(r) == {"created_at"} for r in links)
         assert "parent@example.com" not in text
 
 
 async def test_a_meeting_row_that_guessed_the_classmate_does_not_name_him(
-    client, tutor, student, world
+    client, tutor, group, student, world
 ):
     sid, oid = student["user"]["id"], world["omar"]["user"]["id"]
     async with async_session() as session:
+        org = await org_id(session)
+        # A real lesson: Postgres enforces the foreign key that SQLite does not.
+        lesson = Lesson(organization_id=org, group_id=group["id"], date=date(2026, 9, 2))
+        session.add(lesson)
+        await session.flush()
         session.add(
             MeetingParticipant(
-                organization_id=await org_id(session),
-                lesson_id=1,
+                organization_id=org,
+                lesson_id=lesson.id,
                 provider=MeetingProvider.zoom,
                 display_name="guest",
                 email="guest@example.net",
@@ -175,7 +185,8 @@ async def test_a_meeting_row_that_guessed_the_classmate_does_not_name_him(
     await _drain()
     data = _data(await _download(client, tutor["headers"], sid, export["id"]))
     (row,) = data["tables"]["meeting_participants"]
-    assert "suggested_student_id" not in row and row["matched_student_id"] == sid
+    assert "suggested_student_id" not in row
+    assert row["matched_student_id"] == sid
 
 
 async def test_asking_again_after_a_finished_export_builds_a_new_one_and_the_day_has_a_limit(
@@ -279,7 +290,8 @@ async def test_a_job_redelivered_after_a_crash_finishes_through_the_worker(
     assert await process_one_job()
     async with async_session() as session:
         row = await session.get(DataExport, export_id)
-        assert row.status == DataExportStatus.ready and row.storage_key == key
+        assert row.status == DataExportStatus.ready
+        assert row.storage_key == key
     assert await storage.get_storage().exists(key)
 
 
@@ -301,7 +313,8 @@ async def test_giving_up_marks_the_export_failed_and_deletes_its_file(
         await data_export.export_given_up(session, {"export_id": row.id}, "stopped")
         await session.commit()
         await session.refresh(row)
-        assert row.status == DataExportStatus.failed and row.storage_key is None
+        assert row.status == DataExportStatus.failed
+        assert row.storage_key is None
         assert row.error == data_export.FAILED_MESSAGE
     assert not await storage.get_storage().exists(key)
 
@@ -321,7 +334,8 @@ async def test_a_failed_build_leaves_no_file_and_the_sweep_clears_a_stuck_one(
     await _drain()
     async with async_session() as session:
         row = await session.get(DataExport, export["id"])
-        assert row.status == DataExportStatus.failed and row.storage_key is None
+        assert row.status == DataExportStatus.failed
+        assert row.storage_key is None
 
     # A failed row whose delete failed keeps its key, and the sweep retries it.
     key = storage.new_export_key(1)
@@ -332,7 +346,8 @@ async def test_a_failed_build_leaves_no_file_and_the_sweep_clears_a_stuck_one(
         await session.commit()
         await data_export.expire_data_exports(session, datetime.now(timezone.utc))
         await session.refresh(row)
-        assert row.status == DataExportStatus.failed and row.storage_key is None
+        assert row.status == DataExportStatus.failed
+        assert row.storage_key is None
     assert not await storage.get_storage().exists(key)
 
 
@@ -355,13 +370,15 @@ async def test_expiry_keeps_the_row_ready_when_the_delete_fails_and_expires_it_w
             m.setattr(storage, "delete_file", refuse)
             assert await data_export.expire_data_exports(session, utcnow()) == 0
         await session.refresh(row)
-        assert row.status == DataExportStatus.ready and row.storage_key == key
+        assert row.status == DataExportStatus.ready
+        assert row.storage_key == key
 
         # The file is already gone: still expired.
         await storage.get_storage().delete(key)
         assert await data_export.expire_data_exports(session, utcnow()) == 1
         await session.refresh(row)
-        assert row.status == DataExportStatus.expired and row.storage_key is None
+        assert row.status == DataExportStatus.expired
+        assert row.storage_key is None
 
 
 async def test_a_missing_page_leaves_the_others_and_leaks_no_key(client, tutor, student, world):
@@ -386,7 +403,8 @@ async def test_a_missing_page_leaves_the_others_and_leaks_no_key(client, tutor, 
     content = await _download(client, tutor["headers"], sid, export["id"])
     archive = _zip(content)
     pages = [n for n in archive.namelist() if n.startswith("files/")]
-    assert len(pages) == 1 and archive.read(pages[0]).endswith(b"SARA2-PAGE")
+    assert len(pages) == 1
+    assert archive.read(pages[0]).endswith(b"SARA2-PAGE")
     text = archive.read("data.json").decode()
     data = json.loads(text)
     assert data["files_missing"] == [{"submission_id": sub.id, "name": "sara-page.pdf"}]
@@ -411,7 +429,8 @@ async def test_a_large_child_does_not_overflow_the_id_lists(
     export = await _export(client, tutor["headers"], sid)
     await _drain()
     data = _data(await _download(client, tutor["headers"], sid, export["id"]))["tables"]
-    assert len(data["submissions"]) == 2 and len(data["question_marks"]) == 5
+    assert len(data["submissions"]) == 2
+    assert len(data["question_marks"]) == 5
     ids = [r["id"] for r in data["question_marks"]]
     assert ids == sorted(ids)
 

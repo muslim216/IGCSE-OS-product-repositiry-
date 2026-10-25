@@ -145,7 +145,8 @@ async def test_the_zip_holds_the_students_rows_and_files_and_nothing_of_a_classm
     names = archive.namelist()
     assert "data.json" in names
     pages = [n for n in names if n.startswith("files/")]
-    assert len(pages) == 1 and archive.read(pages[0]) == PAGE["sara"]
+    assert len(pages) == 1
+    assert archive.read(pages[0]) == PAGE["sara"]
 
     text = archive.read("data.json").decode()
     data = json.loads(text)
@@ -154,7 +155,9 @@ async def test_the_zip_holds_the_students_rows_and_files_and_nothing_of_a_classm
     assert len(data["tables"]["submissions"]) == 1
     assert len(data["tables"]["question_marks"]) == 1
     # Nothing of the classmate, in the rows or the files.
-    assert NOTE["omar"] not in text and "Omar" not in text and "omar" not in text
+    assert NOTE["omar"] not in text
+    assert "Omar" not in text
+    assert "omar" not in text
     assert all(PAGE["omar"] not in archive.read(n) for n in names)
 
 
@@ -166,7 +169,8 @@ async def test_self_declared_fields_are_labelled_as_such(client, tutor, student,
     row = json.loads(_zip(resp.content).read("data.json"))["tables"]["submissions"][0]
     assert row["self_declared"]["timed"] is True
     assert row["self_declared"]["time_taken_minutes"] == 45
-    assert "timed" not in row and "time_taken_minutes" not in row
+    assert "timed" not in row
+    assert "time_taken_minutes" not in row
 
 
 async def test_asking_twice_while_one_is_building_returns_the_same_export(
@@ -345,7 +349,8 @@ async def test_running_the_job_again_changes_nothing(client, tutor, student, wor
         await session.commit()
         await data_export.export_student_data(session, {"export_id": export["id"]})
         await session.refresh(row)
-        assert row.status == DataExportStatus.ready and row.storage_key == key
+        assert row.status == DataExportStatus.ready
+        assert row.storage_key == key
         assert [u[0] for u in uploads] == [key]
     assert await storage.get_storage().exists(key)
 
@@ -378,7 +383,8 @@ async def test_a_page_missing_from_storage_does_not_fail_the_export(client, tuto
     await _drain()
     resp = await client.get(_url(sid, export["id"], file=True), headers=tutor["headers"])
     data = json.loads(_zip(resp.content).read("data.json"))
-    assert data["files"] == [] and len(data["files_missing"]) == 1
+    assert data["files"] == []
+    assert len(data["files_missing"]) == 1
 
 
 async def test_expiry_deletes_the_file_and_the_link_says_gone(client, tutor, student, world):
@@ -400,7 +406,8 @@ async def test_expiry_deletes_the_file_and_the_link_says_gone(client, tutor, stu
         assert await data_export.expire_data_exports(session, datetime.now(timezone.utc)) == 1
         assert await data_export.expire_data_exports(session, datetime.now(timezone.utc)) == 0
         row = await session.get(DataExport, export["id"])
-        assert row.status == DataExportStatus.expired and row.storage_key is None
+        assert row.status == DataExportStatus.expired
+        assert row.storage_key is None
     assert not await storage.get_storage().exists(key)
     resp = await client.get(_url(sid, export["id"], file=True), headers=tutor["headers"])
     assert resp.status_code == 410

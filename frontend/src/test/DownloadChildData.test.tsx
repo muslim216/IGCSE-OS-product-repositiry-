@@ -63,7 +63,7 @@ test("a tutor asks, waits while it is built, then saves it with a press", async 
   fireEvent.click(await save());
   await screen.findByText(/Downloaded/);
   expect(calls[0]).toBe("POST /api/v1/students/7/export");
-  expect(calls.filter((c) => c === "GET /api/v1/students/7/export/3").length).toBe(3);
+  expect(calls.filter((c) => c === "GET /api/v1/students/7/export/3")).toHaveLength(3);
   expect(calls.at(-1)).toBe("GET /api/v1/students/7/export/3/file");
   expect(click).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:zip"), {
@@ -85,7 +85,7 @@ test("polling stops once it is ready", async () => {
   expect(polls).toBeGreaterThanOrEqual(3);
   const seen = calls.length;
   await new Promise((r) => setTimeout(r, 80));
-  expect(calls.length).toBe(seen);
+  expect(calls).toHaveLength(seen);
 });
 
 test("pressing twice asks once", async () => {
@@ -96,7 +96,7 @@ test("pressing twice asks once", async () => {
   fireEvent.click(prepare());
   fireEvent.click(prepare());
   await screen.findByText(/Preparing the file/);
-  expect(calls.filter((c) => c.startsWith("POST")).length).toBe(1);
+  expect(calls.filter((c) => c.startsWith("POST"))).toHaveLength(1);
 });
 
 test("a parent uses their own child's routes and a failed build is said plainly", async () => {
@@ -172,7 +172,7 @@ test("a download that fails with a server error can be retried without a new exp
   // Still there, so the person can try again.
   fireEvent.click(await save());
   await screen.findByText(/Downloaded/);
-  expect(calls.filter((c) => c.startsWith("POST")).length).toBe(1);
+  expect(calls.filter((c) => c.startsWith("POST"))).toHaveLength(1);
 });
 
 test("a press before the first status arrives cannot ask twice", async () => {
@@ -195,5 +195,5 @@ test("a press before the first status arrives cannot ask twice", async () => {
   fireEvent.click(prepare());
   release();
   await screen.findByText(/Preparing the file/);
-  expect(calls.filter((c) => c === "POST").length).toBe(1);
+  expect(calls.filter((c) => c === "POST")).toHaveLength(1);
 });
