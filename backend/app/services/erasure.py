@@ -76,7 +76,7 @@ MAX_PER_PASS = 50
 PLACEHOLDER_NAME = "Deleted student"
 #: Not a bcrypt hash, so `verify_password` (which answers False on ValueError)
 #: can never accept anything against it.
-UNUSABLE_PASSWORD = "!erased"
+NEVER_MATCHING_HASH = "!erased"
 
 NAME_MISMATCH = "The name you typed doesn't match this student's name."
 
@@ -383,9 +383,14 @@ async def _readers_of_the_child(scope: Scope) -> None:
     back to the child's name in its params. Weekly sends hold one block per
     child, so the child's block and paragraph go and a send left with no child
     is deleted with the notification that points at it."""
-    s, name = scope.session, scope.name
     if not scope.parent_ids:
         return
+    await _scrub_notifications(scope)
+    await _scrub_weekly_sends(scope)
+
+
+async def _scrub_notifications(scope: Scope) -> None:
+    s, name = scope.session, scope.name
     notes = (
         await s.scalars(
             select(Notification).where(Notification.recipient_user_id.in_(scope.parent_ids))
@@ -401,6 +406,9 @@ async def _readers_of_the_child(scope: Scope) -> None:
         if verdict:
             await s.delete(note)
 
+
+async def _scrub_weekly_sends(scope: Scope) -> None:
+    s = scope.session
     sends = (
         await s.scalars(
             select(WeeklySend).where(WeeklySend.recipient_user_id.in_(scope.parent_ids))
@@ -444,7 +452,7 @@ async def _anonymise_user(scope: Scope) -> None:
     student.name = PLACEHOLDER_NAME
     student.email = None
     student.username = None
-    student.password_hash = UNUSABLE_PASSWORD
+    student.password_hash = NEVER_MATCHING_HASH
     student.time_zone = None
     student.token_version += 1
     student.deleted_at = scope.now
@@ -492,23 +500,25 @@ KEPT: dict[str, str] = {
     "mistake_revision_audit": "plain-integer mistake_id, no personal data; the tutor's decision (PROD-7)",
     "jobs": "ids only; pending ones naming the child are removed, finished ones hold nothing personal",
 }
+_AUTHOR = "tutor_id: the author"
+_UPLOADER = "tutor_id: the uploader"
 STAFF_ONLY: dict[str, str] = {
     "assessments": "tutor_id: the author, always a tutor",
-    "booklets": "tutor_id: the author",
-    "classifieds": "tutor_id: the uploader",
+    "booklets": _AUTHOR,
+    "classifieds": _UPLOADER,
     "custom_criteria": "created_by_id: a tutor",
     "google_accounts": "tutor_id: a tutor's own integration",
     "groups": "tutor_id, deleted_by_id: staff",
-    "group_resources": "tutor_id: the uploader",
-    "knowledge_entries": "tutor_id: the author",
+    "group_resources": _UPLOADER,
+    "knowledge_entries": _AUTHOR,
     "lesson_meeting_imports": "requested_by_id: a tutor",
     "meeting_connections": "tutor_id: a tutor's own integration",
-    "mocks": "tutor_id: the author",
-    "past_papers": "tutor_id: the uploader",
+    "mocks": _AUTHOR,
+    "past_papers": _UPLOADER,
     "plan_slots": "cancelled_by_id: a tutor",
     "readiness_weights": "tutor_id: a tutor's own settings",
     "setup_acknowledgements": "acknowledged_by_id: a tutor",
-    "syllabus_uploads": "tutor_id: the uploader",
+    "syllabus_uploads": _UPLOADER,
     "taught_before_topics": "created_by_id: a tutor",
     "teaching_plans": "accepted_by_id: a tutor",
 }
@@ -605,7 +615,8 @@ async def _delete_pending_files(session: AsyncSession) -> tuple[int, list[int]]:
             try:
                 await storage.delete_file(key)
                 removed += 1
-            except Exception:  # noqa: BLE001 - kept for the next pass
+            # Kept for the next pass.
+            except Exception:  # noqa: BLE001
                 log.warning("erasure %s: could not delete %s", request.id, key, exc_info=True)
                 left.append(key)
         request.pending_paths = left or null()  # type: ignore[assignment]
@@ -640,7 +651,8 @@ async def erase_due(session: AsyncSession, now: datetime) -> int:
             wiped = await erase_student(session, request, now)
             await session.commit()
             erased += 1 if wiped else 0
-        except Exception:  # noqa: BLE001 - re-raised below, after the others
+        # Re-raised below, after the others.
+        except Exception:  # noqa: BLE001
             await session.rollback()
             log.exception("erasure %s failed", request_id)
             failed.append(request_id)
@@ -648,7 +660,8 @@ async def erase_due(session: AsyncSession, now: datetime) -> int:
     files_broke = False
     try:
         _, owed = await _delete_pending_files(session)
-    except Exception:  # noqa: BLE001 - must not hide the failures above
+    # Must not hide the failures above.
+    except Exception:  # noqa: BLE001
         await session.rollback()
         log.exception("erasure: deleting owed files failed")
         files_broke = True

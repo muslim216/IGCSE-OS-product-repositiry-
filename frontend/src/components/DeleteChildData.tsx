@@ -40,7 +40,7 @@ export default function DeleteChildData({
   const want = useRef<FocusTarget | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
   const form = useRef<HTMLFormElement>(null);
-  const notice = useRef<HTMLParagraphElement>(null);
+  const notice = useRef<HTMLOutputElement>(null);
   // Set the moment a press is accepted, before React has re-rendered, so a
   // second press in the same tick cannot send a second request.
   const sending = useRef(false);
@@ -108,9 +108,9 @@ export default function DeleteChildData({
     const date = formatDayMonth(new Date(pending.data.scheduled_for));
     return (
       <div>
-        <p ref={notice} tabIndex={-1} role="status" className="text-sm text-ink-700">
+        <output ref={notice} tabIndex={-1} className="text-sm text-ink-700">
           {name}&apos;s data will be deleted on {date}. They can&apos;t sign in until then.
-        </p>
+        </output>
         <Button
           variant="secondary"
           className={`mt-2 ${AWAITING}`}

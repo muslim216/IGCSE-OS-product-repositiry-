@@ -369,8 +369,8 @@ async def test_the_daily_retention_sweep_runs_the_erasure_step(client, tutor, st
 
 
 def test_the_blank_password_can_never_verify():
-    assert verify_password("", erasure.UNUSABLE_PASSWORD) is False
-    assert verify_password("!erased", erasure.UNUSABLE_PASSWORD) is False
+    assert verify_password("", erasure.NEVER_MATCHING_HASH) is False
+    assert verify_password("!erased", erasure.NEVER_MATCHING_HASH) is False
     assert is_erasing(User(erasure_requested_at=NOW))
     assert is_erasing(User(deleted_at=NOW))
     assert not is_erasing(User())
@@ -639,6 +639,18 @@ async def _seed_child(
     return keys
 
 
+async def _break_a_key() -> None:
+    """An insert that names a user who does not exist: refused only when the
+    database enforces foreign keys."""
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO dismissed_prompts (organization_id, user_id, key) "
+                "VALUES (1, 987654321, 'canary')"
+            )
+        )
+
+
 async def _everything() -> dict[str, list[dict]]:
     out = {}
     async with engine.connect() as conn:
@@ -782,13 +794,7 @@ async def test_after_the_sweep_nothing_about_the_child_is_left_and_a_classmate_i
         async with engine.connect() as conn:
             assert (await conn.execute(text("PRAGMA foreign_keys"))).scalar() == 1
         with pytest.raises(IntegrityError):
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text(
-                        "INSERT INTO dismissed_prompts (organization_id, user_id, key) "
-                        "VALUES (1, 987654321, 'canary')"
-                    )
-                )
+            await _break_a_key()
         async with async_session() as session:
             await retention.sweep_retention(session, {})
     finally:
@@ -879,7 +885,8 @@ async def test_after_the_sweep_nothing_about_the_child_is_left_and_a_classmate_i
     # (f) the users row is the blank placeholder and cannot sign in
     (row,) = [u for u in after["users"] if u["id"] == sid]
     assert row["name"] == "Deleted student"
-    assert row["email"] is None and row["username"] is None
+    assert row["email"] is None
+    assert row["username"] is None
     assert row["role"] == UserRole.student
     assert row["deleted_at"] is not None
     assert not verify_password("password123", row["password_hash"])
@@ -1203,7 +1210,8 @@ async def test_a_job_running_for_the_child_stops_the_wipe_and_it_is_retried(
             ErasureRequestStatus.pending
         )
         assert (await session.scalars(select(TutorNote).where(TutorNote.student_id == sid))).all()
-        (await session.get(Job, running)).status = JobStatus.done
+        job = await session.get(Job, running)
+        job.status = JobStatus.done
         await session.commit()
     assert await _sweep() == 1
 
@@ -1307,7 +1315,8 @@ def test_a_name_typed_with_a_combining_accent_matches():
 async def test_a_name_in_either_form_works_through_the_route(client, tutor, student, world):
     sid = student["user"]["id"]
     async with async_session() as session:
-        (await session.get(User, sid)).name = "Zoë"
+        child = await session.get(User, sid)
+        child.name = "Zoë"
         await session.commit()
     assert (await _ask(client, tutor["headers"], sid, "Zoë")).status_code == 202
 
@@ -1371,7 +1380,8 @@ async def test_owed_files_fail_the_job_loudly_and_never_mask_other_failures(
         assert (await session.get(ErasureRequest, asked["id"])).pending_paths is None
     # A key already gone is not an error.
     async with async_session() as session:
-        (await session.get(ErasureRequest, asked["id"])).pending_paths = [page]
+        request = await session.get(ErasureRequest, asked["id"])
+        request.pending_paths = [page]
         await session.commit()
     assert await _sweep() == 0
     async with async_session() as session:
@@ -1432,7 +1442,8 @@ async def test_a_wiped_child_is_not_on_a_roster_even_if_a_membership_survived(
 ):
     sid = student["user"]["id"]
     async with async_session() as session:
-        (await session.get(User, sid)).deleted_at = NOW
+        child = await session.get(User, sid)
+        child.deleted_at = NOW
         await session.commit()
     assert await _roster(client, tutor, group) == ["Omar"]
 
