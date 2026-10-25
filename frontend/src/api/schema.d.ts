@@ -4042,6 +4042,10 @@ export interface components {
             input_tokens: number;
             /** Output Tokens */
             output_tokens: number;
+            /** Cache Write Tokens */
+            cache_write_tokens: number;
+            /** Cache Read Tokens */
+            cache_read_tokens: number;
             /** Cost Usd */
             cost_usd: number;
             /** Unpriced Call Count */
@@ -4057,6 +4061,10 @@ export interface components {
             input_tokens: number;
             /** Output Tokens */
             output_tokens: number;
+            /** Cache Write Tokens */
+            cache_write_tokens: number;
+            /** Cache Read Tokens */
+            cache_read_tokens: number;
         };
         /** AiUsageSummary */
         AiUsageSummary: {
@@ -4066,6 +4074,10 @@ export interface components {
             total_input_tokens: number;
             /** Total Output Tokens */
             total_output_tokens: number;
+            /** Total Cache Write Tokens */
+            total_cache_write_tokens: number;
+            /** Total Cache Read Tokens */
+            total_cache_read_tokens: number;
         };
         /** AssessmentCreate */
         AssessmentCreate: {

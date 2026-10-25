@@ -21,7 +21,6 @@ import asyncio
 import base64
 import contextlib
 import enum
-import json
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -31,10 +30,11 @@ from typing import Any, Generic, TypedDict, TypeVar
 import anthropic
 from anthropic import AsyncAnthropic
 from anthropic.types import TextBlockParam
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+from app.config import get_settings, load_model_pricing
+from app.db import async_session
 from app.models import AiFeature, AiUsageEvent
 from app.services.prompts import get_prompt
 from app.services.rate_limit import (
@@ -271,6 +271,12 @@ class AiResponse(Generic[ParsedT]):
     prompt_version: str
     input_tokens: int = 0
     output_tokens: int = 0
+    #: Prompt-cache tokens, counted apart from input_tokens (never inside it) so
+    #: nothing is billed twice. Anthropic reports them separately already;
+    #: Gemini folds cached tokens into its prompt count, so _gemini_usage
+    #: subtracts them back out. Gemini has no cache-write figure.
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
     parsed: ParsedT | None = None
     text: str = ""
     #: The model stopped at `max_tokens` rather than finishing. Only the Anthropic
@@ -719,6 +725,46 @@ def _failure(
     )
 
 
+def _failed_anthropic_usage(
+    provider: AiProvider, prompt_version: str, final: Any
+) -> "AiResponse[Any] | None":
+    usage = getattr(final, "usage", None)
+    if usage is None:
+        return None
+    return AiResponse(
+        provider=provider,
+        model=getattr(final, "model", None) or "unknown",
+        prompt_version=prompt_version,
+        **_anthropic_usage(usage),
+    )
+
+
+async def _meter_failed(
+    surface: str, organization_id: int, response: "AiResponse[Any] | None"
+) -> None:
+    """Record what a call cost when the provider answered but the answer was
+    unusable (cut off, refused, empty, wrong shape): the tokens were billed
+    either way. Recorded as system usage (no tutor; the helper does not know
+    one) in its own short transaction, since the caller's transaction is about
+    to be abandoned. Best-effort: a metering fault must not mask the real error."""
+    feature = SURFACE_FEATURE.get(surface)
+    if response is None or feature is None:
+        return
+    try:
+        async with async_session() as session:
+            await record_usage(
+                session,
+                response,
+                organization_id=organization_id,
+                tutor_id=None,
+                student_id=None,
+                feature=feature,
+            )
+            await session.commit()
+    except Exception:
+        log.exception("could not record the usage of a failed %s call", surface)
+
+
 async def _final_message(stream: Any) -> Any:
     """The stream's one complete message. The SDK trips a bare `assert` when the
     body ended before any event arrived (a 200 with nothing in it); that is an
@@ -823,20 +869,27 @@ async def structured_complete(
             ) as stream,
         ):
             final = await _final_message(stream)
-        _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=False)
-        text = _message_text(final)
-        if not text.strip():
-            raise _failure(AICallFailedError, "The AI returned no structured result", final)
-        # A ValidationError here is a real model fault (wrong shape), not a
-        # transport problem, and propagates unchanged as it did under `parse`.
-        parsed = output_format.model_validate_json(text)
+        try:
+            _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=False)
+            text = _message_text(final)
+            if not text.strip():
+                raise _failure(AICallFailedError, "The AI returned no structured result", final)
+            # A ValidationError here is a real model fault (wrong shape), not a
+            # transport problem, and propagates unchanged as it did under `parse`.
+            parsed = output_format.model_validate_json(text)
+        except (AICallFailedError, ValidationError):
+            await _meter_failed(
+                surface,
+                organization_id,
+                _failed_anthropic_usage(provider, prompt.version, final),
+            )
+            raise
         usage = final.usage
         return AiResponse(
             provider=provider,
             model=getattr(final, "model", model),
             prompt_version=prompt.version,
-            input_tokens=getattr(usage, "input_tokens", 0) or 0,
-            output_tokens=getattr(usage, "output_tokens", 0) or 0,
+            **_anthropic_usage(usage),
             parsed=parsed,
         )
 
@@ -854,11 +907,24 @@ async def structured_complete(
                 response_schema=output_format,
             ),
         )
-    parsed = response.parsed
-    if parsed is None:
-        raise ValueError("The AI returned no structured result")
-    if isinstance(parsed, dict):  # some SDK versions hand back the raw object
-        parsed = output_format.model_validate(parsed)
+    try:
+        parsed = response.parsed
+        if parsed is None:
+            raise ValueError("The AI returned no structured result")
+        if isinstance(parsed, dict):  # some SDK versions hand back the raw object
+            parsed = output_format.model_validate(parsed)
+    except ValueError:  # includes pydantic's ValidationError
+        await _meter_failed(
+            surface,
+            organization_id,
+            AiResponse(
+                provider=provider,
+                model=model,
+                prompt_version=prompt.version,
+                **_gemini_usage(response),
+            ),
+        )
+        raise
     return AiResponse(
         provider=provider,
         model=model,
@@ -912,13 +978,21 @@ async def text_complete(
             final = await _final_message(stream)
         text = _message_text(final)
         truncated = final.stop_reason == "max_tokens"
-        # A cut-off answer that has some text is let through (below); with none it
-        # is refused like every other bad ending.
-        _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=bool(text.strip()))
-        if not text.strip():
-            # An empty string must not reach a caller: narrative.py would store
-            # it and hide the previous good paragraph behind a blank one.
-            raise _failure(AICallFailedError, "The AI returned an empty answer", final)
+        try:
+            # A cut-off answer that has some text is let through (below); with
+            # none it is refused like every other bad ending.
+            _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=bool(text.strip()))
+            if not text.strip():
+                # An empty string must not reach a caller: narrative.py would
+                # store it and hide the previous good paragraph behind a blank one.
+                raise _failure(AICallFailedError, "The AI returned an empty answer", final)
+        except AICallFailedError:
+            await _meter_failed(
+                surface,
+                organization_id,
+                _failed_anthropic_usage(provider, template.version, final),
+            )
+            raise
         if truncated:
             # Still returned: a plain-text answer cut short is usable (a shorter
             # paragraph), unlike a half-written JSON document. But the caller's
@@ -933,8 +1007,7 @@ async def text_complete(
             provider=provider,
             model=getattr(final, "model", model),
             prompt_version=template.version,
-            input_tokens=getattr(usage, "input_tokens", 0) or 0,
-            output_tokens=getattr(usage, "output_tokens", 0) or 0,
+            **_anthropic_usage(usage),
             text=text,
             truncated=truncated,
         )
@@ -951,13 +1024,45 @@ async def text_complete(
                 max_output_tokens=max_tokens,
             ),
         )
+    text = response.text or ""
+    if not text.strip():
+        # Same refusal as the Anthropic branch: a blank must not reach narrative.py.
+        await _meter_failed(
+            surface,
+            organization_id,
+            AiResponse(
+                provider=provider,
+                model=model,
+                prompt_version=template.version,
+                **_gemini_usage(response),
+            ),
+        )
+        raise AICallFailedError("The AI returned an empty answer", model=model)
     return AiResponse(
         provider=provider,
         model=model,
         prompt_version=template.version,
-        text=response.text or "",
+        text=text,
         **_gemini_usage(response),
     )
+
+
+class _AnthropicUsage(TypedDict):
+    input_tokens: int
+    output_tokens: int
+    cache_write_tokens: int
+    cache_read_tokens: int
+
+
+def _anthropic_usage(usage: object) -> _AnthropicUsage:
+    """Anthropic's input_tokens already excludes cache reads and writes, which
+    arrive as their own counters — so the three are added, never subtracted."""
+    return {
+        "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+        "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+        "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", 0) or 0,
+        "cache_read_tokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
+    }
 
 
 class _GeminiUsage(TypedDict):
@@ -970,15 +1075,24 @@ class _GeminiUsage(TypedDict):
 
     input_tokens: int
     output_tokens: int
+    cache_read_tokens: int
 
 
 def _gemini_usage(response: object) -> _GeminiUsage:
     meta = getattr(response, "usage_metadata", None)
     if meta is None:
-        return {"input_tokens": 0, "output_tokens": 0}
+        return {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0}
+    prompt = getattr(meta, "prompt_token_count", 0) or 0
+    cached = min(getattr(meta, "cached_content_token_count", 0) or 0, prompt)
     return {
-        "input_tokens": getattr(meta, "prompt_token_count", 0) or 0,
-        "output_tokens": getattr(meta, "candidates_token_count", 0) or 0,
+        # Gemini's prompt count includes the cached tokens; take them out so
+        # they are priced once, at the cache-read rate.
+        "input_tokens": prompt - cached,
+        # Thinking tokens are billed as output but reported apart from the
+        # candidates count.
+        "output_tokens": (getattr(meta, "candidates_token_count", 0) or 0)
+        + (getattr(meta, "thoughts_token_count", 0) or 0),
+        "cache_read_tokens": cached,
     }
 
 
@@ -997,33 +1111,40 @@ MODEL_PRICING: dict[str, dict[str, float]] = {}
 @lru_cache
 def model_pricing() -> dict[str, dict[str, float]]:
     """MODEL_PRICING merged with the AI_MODEL_PRICING env override (env wins).
-    Malformed JSON is ignored rather than breaking every AI call."""
+    A malformed value is logged, flagged on /health/ready and treated as empty
+    (CFG-5); it never raises mid-request."""
     prices = dict(MODEL_PRICING)
-    raw = get_settings().ai_model_pricing
-    try:
-        configured = json.loads(raw) if raw else {}
-    except (TypeError, ValueError):
-        return prices
-    if isinstance(configured, dict):
-        for model, entry in configured.items():
-            if isinstance(entry, dict):
-                prices[model] = entry
+    prices.update(load_model_pricing(get_settings().ai_model_pricing))
     return prices
 
 
-def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float | None:
-    """None when the model has no configured price — never a guess."""
+def estimate_cost_usd(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_write_tokens: int = 0,
+    cache_read_tokens: int = 0,
+) -> float | None:
+    """None when the model has no configured price, or when cache tokens were
+    used and it has no cache rate for them — never a guess (AI-17)."""
     entry = model_pricing().get(model)
     if not entry:
         return None
-    try:
-        return round(
-            input_tokens / 1_000_000 * float(entry.get("input_per_1m", 0))
-            + output_tokens / 1_000_000 * float(entry.get("output_per_1m", 0)),
-            6,
-        )
-    except (TypeError, ValueError):
+    if "input_per_1m" not in entry or "output_per_1m" not in entry:
+        return None  # a missing side must not price as $0
+    cache_write_rate = entry.get("cache_write_per_1m")
+    cache_read_rate = entry.get("cache_read_per_1m")
+    if (cache_write_tokens and cache_write_rate is None) or (
+        cache_read_tokens and cache_read_rate is None
+    ):
         return None
+    return round(
+        input_tokens / 1_000_000 * entry["input_per_1m"]
+        + output_tokens / 1_000_000 * entry["output_per_1m"]
+        + cache_write_tokens / 1_000_000 * (cache_write_rate or 0)
+        + cache_read_tokens / 1_000_000 * (cache_read_rate or 0),
+        6,
+    )
 
 
 async def record_usage(
@@ -1031,12 +1152,14 @@ async def record_usage(
     response: AiResponse,
     *,
     organization_id: int,
-    tutor_id: int,
+    tutor_id: int | None,
     student_id: int | None,
     feature: AiFeature,
 ) -> None:
     """Record one AI call's usage, including its provider, prompt version and
-    estimated cost. Best-effort: anything that isn't a normalized AiResponse
+    estimated cost. tutor_id is None for system work with no tutor to charge
+    (sweeps, an organization with no tutor): still recorded, never dropped.
+    Best-effort: anything that isn't a normalized AiResponse
     (e.g. a test double) is skipped rather than breaking the calling feature."""
     if not isinstance(response, AiResponse):
         return
@@ -1051,8 +1174,14 @@ async def record_usage(
             prompt_version=response.prompt_version,
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
+            cache_write_tokens=response.cache_write_tokens,
+            cache_read_tokens=response.cache_read_tokens,
             cost_usd=estimate_cost_usd(
-                response.model, response.input_tokens, response.output_tokens
+                response.model,
+                response.input_tokens,
+                response.output_tokens,
+                response.cache_write_tokens,
+                response.cache_read_tokens,
             ),
         )
     )

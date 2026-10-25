@@ -57,7 +57,9 @@ class AiUsageEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
-    tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # NULL = system work with no tutor to charge (an organization with no
+    # tutor). Still the organization's spend, so it is recorded, not dropped.
+    tutor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     student_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     feature: Mapped[AiFeature] = mapped_column(
         Enum(AiFeature, native_enum=False, length=16), nullable=False
@@ -71,6 +73,10 @@ class AiUsageEvent(Base):
     prompt_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Prompt-cache tokens, apart from input_tokens (never inside it). NULL for
+    # rows written before these were counted.
+    cache_write_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_read_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Estimated spend from the configured per-token pricing. NULL means "no
     # price configured for this model" — never a guessed figure.
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)

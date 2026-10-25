@@ -338,15 +338,14 @@ async def _store(
         generated_at=datetime.now(timezone.utc),
     )
     session.add(narrative)
-    if tutor_id is not None:
-        await record_usage(
-            session,
-            response,
-            organization_id=organization_id,
-            tutor_id=tutor_id,
-            student_id=student_id,
-            feature=AiFeature.report,
-        )
+    await record_usage(
+        session,
+        response,
+        organization_id=organization_id,
+        tutor_id=tutor_id,
+        student_id=student_id,
+        feature=AiFeature.report,
+    )
     await session.flush()
     return narrative
 

@@ -182,6 +182,8 @@ export default function DeleteChildData({
           variant="ghost"
           onClick={() => {
             want.current = "opener";
+            // A failed attempt's message would otherwise stay under the opener.
+            request.reset();
             setConfirming(false);
             setTyped("");
           }}
