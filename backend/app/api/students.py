@@ -142,7 +142,10 @@ async def list_my_students(db: DbSession, user: TutorUser) -> TutorStudentList:
 )
 async def create_parent_code(student_id: int, db: DbSession, user: CurrentUser) -> InviteOut:
     """Generate a code a parent uses to create an account linked to this student."""
-    await _tutor_student(db, user, student_id)
+    student = await _tutor_student(db, user, student_id)
+    # Not for a child waiting to be erased, or already wiped (P-3).
+    if student.erasure_requested_at is not None or student.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     # Single-use: this code hands over one child's whole academic record, and
     # it is meant for one parent. See services/invites.py.
     invite = build_invite(InviteKind.parent_link, created_by_id=user.id, student_id=student_id)

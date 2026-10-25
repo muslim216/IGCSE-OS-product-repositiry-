@@ -204,8 +204,8 @@ async def _waiting(db: DbSession, student: User) -> ErasureRequestOut | None:
     return _erasure_out(request) if request is not None else None
 
 
-async def _undo(db: DbSession, student: User) -> None:
-    if not await erasure.cancel_erasure(db, student):
+async def _undo(db: DbSession, student: User, user: User) -> None:
+    if not await erasure.cancel_erasure(db, student, user):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No deletion is scheduled for this student")
 
 
@@ -227,7 +227,7 @@ async def student_erasure_status(
 
 @router.delete("/students/{student_id}/erasure", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_student_erasure(student_id: int, db: DbSession, user: TutorUser) -> None:
-    await _undo(db, _live(await _tutor_student(db, user, student_id)))
+    await _undo(db, _live(await _tutor_student(db, user, student_id)), user)
 
 
 @router.post("/me/children/{student_id}/erasure", status_code=status.HTTP_202_ACCEPTED)
@@ -246,4 +246,4 @@ async def child_erasure_status(
 
 @router.delete("/me/children/{student_id}/erasure", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_child_erasure(student_id: int, db: DbSession, user: ParentUser) -> None:
-    await _undo(db, _live(await _linked_child(db, user, student_id)))
+    await _undo(db, _live(await _linked_child(db, user, student_id)), user)

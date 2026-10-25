@@ -297,6 +297,16 @@ async def me(user: CurrentUser) -> UserOut:
     return UserOut.model_validate(user)
 
 
+async def _target_is_erasing(db: AsyncSession, invite: Invite) -> bool:
+    """A parent link to a child whose data is waiting to be erased (or already
+    was) must not be made: it would hand a new adult the record being deleted,
+    and the sweep would find a link it did not scrub (P-3)."""
+    if invite.kind != InviteKind.parent_link or invite.student_id is None:
+        return False
+    student = await db.get(User, invite.student_id)
+    return student is None or is_erasing(student)
+
+
 async def _valid_invite(db: AsyncSession, code: str, kind: InviteKind) -> Invite:
     invite = await db.scalar(
         select(Invite).where(Invite.code == code).options(selectinload(Invite.group))
@@ -307,6 +317,8 @@ async def _valid_invite(db: AsyncSession, code: str, kind: InviteKind) -> Invite
     if invite.group is not None and invite.group.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
     check_usable(invite)
+    if await _target_is_erasing(db, invite):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
     return invite
 
 
@@ -319,6 +331,8 @@ async def preview_invite(code: str, db: DbSession) -> InvitePreview:
     # Unauthenticated endpoint: a spent or expired code must stop disclosing the
     # tutor's name, the group, and the student's name along with it.
     check_usable(invite)
+    if await _target_is_erasing(db, invite):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
     if invite.kind == InviteKind.student_join and invite.group_id is not None:
         group = await db.scalar(
             select(Group)
@@ -426,6 +440,8 @@ async def join_with_invite(body: JoinRequest, db: DbSession, user: CurrentUser) 
     if invite is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
     check_usable(invite)
+    if await _target_is_erasing(db, invite):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
 
     if invite.kind == InviteKind.student_join:
         if user.role != UserRole.student:

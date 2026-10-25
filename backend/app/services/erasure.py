@@ -12,15 +12,21 @@ every table that holds a key to a user, with the reason it is where it is.
 one gets noticed. Postgres enforces every foreign key and the test database does
 not, so the order is part of the contract; the CI migrations job is the only
 place a wrong one is proved, and a test here checks it against the schema.
+
+Who may undo: any party who may ask may cancel, not only the one who asked. That
+is deliberate: the undo exists for a mistaken or malicious click, and the person
+best placed to stop one (the child's tutor, a parent) is often not the person who
+made it. Every cancel is logged with who cancelled and who had requested.
 """
 
 import logging
+import unicodedata
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, null, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +68,9 @@ UNDO_WINDOW = timedelta(days=14)
 
 #: Requests wiped per daily pass. A backlog carries on tomorrow rather than
 #: holding one job past its time limit (`workers/jobs.py`).
+# ponytail: a request that keeps failing stays pending and is picked first (oldest
+# first), so MAX_PER_PASS of them starve everything behind; the job fails loudly
+# every day meanwhile. Add a retry count or back-off if that ever happens.
 MAX_PER_PASS = 50
 
 PLACEHOLDER_NAME = "Deleted student"
@@ -76,8 +85,13 @@ class NameMismatch(Exception):
     """The typed name is not the child's; the router answers 422."""
 
 
+def _fold(name: str) -> str:
+    # NFC first, so "é" typed as one character or as e + accent is the same name.
+    return " ".join(unicodedata.normalize("NFC", name).casefold().split())
+
+
 def names_match(typed: str, actual: str) -> bool:
-    return " ".join(typed.casefold().split()) == " ".join(actual.casefold().split())
+    return _fold(typed) == _fold(actual)
 
 
 # --------------------------------------------------------------- the request
@@ -130,7 +144,7 @@ async def request_erasure(
     return request
 
 
-async def cancel_erasure(session: AsyncSession, student: User) -> bool:
+async def cancel_erasure(session: AsyncSession, student: User, cancelled_by: User) -> bool:
     """Undo a waiting deletion. False when none is waiting.
 
     The row is locked first, so a cancel and the sweep cannot both win: the sweep
@@ -143,9 +157,19 @@ async def cancel_erasure(session: AsyncSession, student: User) -> bool:
             ErasureRequest.status == ErasureRequestStatus.pending,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if request is None:
         return False
+    log.info(
+        "erasure %s of student %s cancelled by user %s (%s); it was requested by user %s (%s)",
+        request.id,
+        student.id,
+        cancelled_by.id,
+        cancelled_by.role.value,
+        request.requested_by_id,
+        request.requested_role.value,
+    )
     request.status = ErasureRequestStatus.cancelled
     request.cancelled_at = datetime.now(timezone.utc)
     student.erasure_requested_at = None
@@ -165,6 +189,7 @@ class Scope:
     name: str
     email: str | None
     now: datetime
+    organization_id: int
     parent_ids: list[int] = field(default_factory=list)
     submission_ids: list[int] = field(default_factory=list)
     #: Submissions the child's replaced attempts used to be (kept only inside a
@@ -254,10 +279,17 @@ async def _meeting_rows(scope: Scope) -> None:
         .where(MeetingParticipant.suggested_student_id == sid)
         .values(suggested_student_id=None)
     )
-    # The display name and email on these rows are the child's own.
+    # The display name and email on these rows are the child's own. A row the
+    # provider listed under the child's address but the tutor never matched still
+    # holds them, so the address is matched too, but only inside the child's own
+    # organization: the same address in another tenant is somebody else's row.
     match = MeetingParticipant.matched_student_id == sid
     if scope.email:
-        match = or_(match, func.lower(MeetingParticipant.email) == scope.email.lower())
+        match = or_(
+            match,
+            (func.lower(MeetingParticipant.email) == scope.email.lower())
+            & (MeetingParticipant.organization_id == scope.organization_id),
+        )
     await s.execute(delete(MeetingParticipant).where(match))
 
 
@@ -312,11 +344,20 @@ async def _queued_work(scope: Scope) -> None:
     fresh row about the blank placeholder. Payloads are ids only (`BE-9`)."""
     s = scope.session
     mine, theirs = scope.student_id, set(scope.submission_ids) | set(scope.old_submission_ids)
-    waiting = (await s.scalars(select(Job).where(Job.status == JobStatus.pending))).all()
-    for job in waiting:
+    live = (
+        await s.scalars(select(Job).where(Job.status.in_((JobStatus.pending, JobStatus.running))))
+    ).all()
+    for job in live:
         payload = job.payload if isinstance(job.payload, dict) else {}
-        if payload.get("student_id") == mine or payload.get("submission_id") in theirs:
-            await s.delete(job)
+        if payload.get("student_id") != mine and payload.get("submission_id") not in theirs:
+            continue
+        if job.status == JobStatus.running:
+            # It may be writing a row about the child right now; wiping under it
+            # would leave that row behind. Rolls the whole wipe back; the next
+            # pass tries again once the job has ended.
+            log.warning("erasure of student %s: child has running work (job %s)", mine, job.id)
+            raise RuntimeError(f"child has running work (job {job.id})")
+        await s.delete(job)
 
 
 def _is_this_child_key(note: Notification, scope: Scope) -> bool | None:
@@ -478,7 +519,7 @@ async def _scope(session: AsyncSession, request: ErasureRequest, now: datetime) 
     if student is None or student.role != UserRole.student:
         return None
     sid = student.id
-    scope = Scope(session, sid, student.name, student.email, now)
+    scope = Scope(session, sid, student.name, student.email, now, student.organization_id)
     removed = await _ids(
         session, select(ParentLinkRemoval.parent_id).where(ParentLinkRemoval.student_id == sid)
     )
@@ -502,18 +543,25 @@ async def _scope(session: AsyncSession, request: ErasureRequest, now: datetime) 
     return scope
 
 
-async def erase_student(session: AsyncSession, request: ErasureRequest, now: datetime) -> None:
+async def erase_student(session: AsyncSession, request: ErasureRequest, now: datetime) -> bool:
     """Wipe one child in the caller's transaction. Does not commit: either all of
     it happens or none, and the files are deleted only after the commit, from the
-    list stored on the request (`erase_due`)."""
+    list stored on the request (`erase_due`). False when the request names no
+    student (the account is gone, or was never one): there is nothing to wipe and
+    retrying cannot change that, so it is cancelled rather than failed daily."""
     scope = await _scope(session, request, now)
     if scope is None:
-        raise LookupError(f"erasure {request.id} names no student")
-    request.pending_paths = await storage_keys(scope)
+        log.error("erasure %s names no student; cancelling it", request.id)
+        request.status = ErasureRequestStatus.cancelled
+        request.cancelled_at = now
+        return False
+    # SQL NULL, not JSON null, when there is nothing to delete: see `_delete_pending_files`.
+    request.pending_paths = await storage_keys(scope) or null()  # type: ignore[assignment]
     for step in ERASE_ORDER:
         await step(scope)
     request.status = ErasureRequestStatus.done
     request.completed_at = now
+    return True
 
 
 async def _due_ids(session: AsyncSession, now: datetime) -> list[int]:
@@ -529,18 +577,26 @@ async def _due_ids(session: AsyncSession, now: datetime) -> list[int]:
     )
 
 
-async def _delete_pending_files(session: AsyncSession) -> int:
+async def _delete_pending_files(session: AsyncSession) -> tuple[int, list[int]]:
     """Finish the file half of every erasure that is done. A crash between the
     row commit and the deletes leaves the keys on the request, so this is what
     makes the sweep safe to re-run (`BE-6`). A file already gone is not an
-    error; one that will not delete stays listed for tomorrow."""
-    # ponytail: scans every finished request, few and tiny; index `pending_paths` if erasures become routine.
+    error; one that will not delete stays listed for tomorrow. Returns how many
+    files went and the ids of the requests still owed files.
+
+    Only rows with a real SQL NULL are skipped: the column is JSON, and an ORM
+    `None` is stored as the JSON value `null` (SQLite and Postgres alike), which
+    `IS NOT NULL` would match. So "nothing owed" is written as `null()`."""
     done = (
         await session.scalars(
-            select(ErasureRequest).where(ErasureRequest.status == ErasureRequestStatus.done)
+            select(ErasureRequest).where(
+                ErasureRequest.status == ErasureRequestStatus.done,
+                ErasureRequest.pending_paths.is_not(None),
+            )
         )
     ).all()
     removed = 0
+    owed: list[int] = []
     for request in done:
         if not request.pending_paths:
             continue
@@ -552,9 +608,11 @@ async def _delete_pending_files(session: AsyncSession) -> int:
             except Exception:  # noqa: BLE001 - kept for the next pass
                 log.warning("erasure %s: could not delete %s", request.id, key, exc_info=True)
                 left.append(key)
-        request.pending_paths = left or None
+        request.pending_paths = left or null()  # type: ignore[assignment]
+        if left:
+            owed.append(request.id)
         await session.commit()
-    return removed
+    return removed, owed
 
 
 async def erase_due(session: AsyncSession, now: datetime) -> int:
@@ -563,25 +621,42 @@ async def erase_due(session: AsyncSession, now: datetime) -> int:
 
     Each request is its own transaction and takes the row lock before re-reading
     its status, so a cancel that committed first wins. One failing does not stop
-    the rest; it is re-raised at the end so the job counts as failed."""
+    the rest; it is re-raised at the end so the job counts as failed, and so is a
+    file that would not delete: a child's pages still on disk after the row is
+    gone is the one thing this must not do quietly."""
     erased = 0
     failed: list[int] = []
     for request_id in await _due_ids(session, now):
         try:
             request = await session.scalar(
-                select(ErasureRequest).where(ErasureRequest.id == request_id).with_for_update()
+                select(ErasureRequest)
+                .where(ErasureRequest.id == request_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
             if request is None or request.status != ErasureRequestStatus.pending:
                 await session.rollback()
                 continue
-            await erase_student(session, request, now)
+            wiped = await erase_student(session, request, now)
             await session.commit()
-            erased += 1
+            erased += 1 if wiped else 0
         except Exception:  # noqa: BLE001 - re-raised below, after the others
             await session.rollback()
             log.exception("erasure %s failed", request_id)
             failed.append(request_id)
-    await _delete_pending_files(session)
-    if failed:
-        raise RuntimeError(f"erasure {failed} failed; see the log")
+    owed: list[int] = []
+    files_broke = False
+    try:
+        _, owed = await _delete_pending_files(session)
+    except Exception:  # noqa: BLE001 - must not hide the failures above
+        await session.rollback()
+        log.exception("erasure: deleting owed files failed")
+        files_broke = True
+    if owed:
+        log.error("erasure: %d finished request(s) still owe files: %s", len(owed), owed)
+    if failed or owed or files_broke:
+        raise RuntimeError(
+            f"erasure failed for {failed}; files still owed for requests {owed}"
+            f"{'; deleting owed files broke' if files_broke else ''}; see the log"
+        )
     return erased

@@ -157,7 +157,11 @@ async def group_detail(group_id: int, db: DbSession, user: CurrentUser) -> Group
             select(User)
             .join(GroupMember, GroupMember.student_id == User.id)
             # A child waiting to be erased drops out of the class at once (P-3).
-            .where(GroupMember.group_id == group.id, User.erasure_requested_at.is_(None))
+            .where(
+                GroupMember.group_id == group.id,
+                User.erasure_requested_at.is_(None),
+                User.deleted_at.is_(None),
+            )
             .order_by(User.name)
         )
     ).all()
@@ -268,6 +272,9 @@ async def add_member(group_id: int, body: MemberAdd, db: DbSession, user: TutorU
         student is None
         or student.role != UserRole.student
         or student.organization_id != user.organization_id
+        # Not back into a class while waiting to be erased, or once wiped (P-3).
+        or student.erasure_requested_at is not None
+        or student.deleted_at is not None
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     await _clear_removal(db, group.id, student.id)
