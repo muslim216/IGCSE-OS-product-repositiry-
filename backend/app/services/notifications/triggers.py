@@ -111,6 +111,9 @@ async def _readers(
                 User.id.in_(student_ids),
                 User.organization_id == organization_id,
                 User.role == UserRole.student,
+                # A child waiting to be erased is told nothing, and neither are
+                # their parents (P-3).
+                User.erasure_requested_at.is_(None),
             )
         )
     ).all()

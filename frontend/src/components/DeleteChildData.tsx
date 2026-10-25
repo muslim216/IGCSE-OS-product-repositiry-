@@ -5,6 +5,7 @@ import type { ExportAsker } from "../api/dataExport";
 import { ApiError } from "../api/client";
 import { Button, Field, Input } from "./controls";
 import { friendlyError } from "../lib/errors";
+import { formatDayMonth } from "../lib/timezones";
 
 /** Same rule as the server: case-folded, runs of whitespace collapsed. */
 const normal = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
@@ -60,11 +61,7 @@ export default function DeleteChildData({
   }
 
   if (pending.data) {
-    const date = new Date(pending.data.scheduled_for).toLocaleDateString(undefined, {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
+    const date = formatDayMonth(new Date(pending.data.scheduled_for));
     return (
       <div>
         <p role="status" className="text-sm text-ink-700">

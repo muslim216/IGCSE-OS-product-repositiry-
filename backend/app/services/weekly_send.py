@@ -191,10 +191,17 @@ async def _recipients(session: AsyncSession, organization_id: int) -> list[User]
             select(User).where(User.organization_id == organization_id, User.role == UserRole.tutor)
         )
     ).all()
+    # A child waiting to be erased is sent nothing, and nor are their parents
+    # (P-3): out of `enrolled` they drop out of both lists below.
     enrolled = (
         select(distinct(GroupMember.student_id))
         .join(Group, Group.id == GroupMember.group_id)
-        .where(Group.organization_id == organization_id, Group.deleted_at.is_(None))
+        .join(User, User.id == GroupMember.student_id)
+        .where(
+            Group.organization_id == organization_id,
+            Group.deleted_at.is_(None),
+            User.erasure_requested_at.is_(None),
+        )
     )
     students = (
         await session.scalars(
@@ -266,6 +273,7 @@ async def _build_one(
                 .where(
                     ParentLink.parent_id == person.id,
                     User.organization_id == person.organization_id,
+                    User.erasure_requested_at.is_(None),
                 )
                 .order_by(User.id)
             )
@@ -457,7 +465,12 @@ async def _refresh_narratives(session: AsyncSession, organization_id: int) -> No
         await session.scalars(
             select(distinct(GroupMember.student_id))
             .join(Group, Group.id == GroupMember.group_id)
-            .where(Group.organization_id == organization_id, Group.deleted_at.is_(None))
+            .join(User, User.id == GroupMember.student_id)
+            .where(
+                Group.organization_id == organization_id,
+                Group.deleted_at.is_(None),
+                User.erasure_requested_at.is_(None),
+            )
         )
     ).all()
     # One flush for the batch, not one per row (`PERF-1`).

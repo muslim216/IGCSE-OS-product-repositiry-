@@ -19,6 +19,8 @@ function respondWith(handler: (url: string, method: string) => Response | undefi
       const url = String(input);
       const method = init?.method ?? "GET";
       calls.push({ url, method });
+      // No deletion is scheduled; an array here would read as a pending request.
+      if (url.endsWith("/erasure")) return new Response("null", { status: 200 });
       return handler(url, method) ?? new Response("[]", { status: 200 });
     }),
   );

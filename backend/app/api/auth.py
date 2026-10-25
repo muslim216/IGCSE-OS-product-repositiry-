@@ -7,7 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, is_erasing
 from app.config import get_settings
 from app.models import (
     Group,
@@ -157,9 +157,14 @@ def _dummy_hash() -> str:
 
 
 async def _find_account(db: AsyncSession, identifier: str) -> User | None:
+    # A child whose data is waiting to be erased (or already is) cannot sign in:
+    # they get the same generic refusal as an unknown account, so the answer
+    # does not say a deletion is under way (P-3, `SEC-14`).
     return await db.scalar(
         select(User).where(
-            or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier)
+            or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier),
+            User.erasure_requested_at.is_(None),
+            User.deleted_at.is_(None),
         )
     )
 
@@ -229,7 +234,9 @@ async def refresh(
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
-    if token_version != user.token_version:
+    # The second lock behind the `token_version` bump a deletion request makes
+    # (P-3): it holds even if an undo ever forgot to leave the version alone.
+    if token_version != user.token_version or is_erasing(user):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
     session = await refresh_sessions.rotate(db, user, session_id, generation)
     if session is None:

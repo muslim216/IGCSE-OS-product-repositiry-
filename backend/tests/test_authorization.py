@@ -170,6 +170,7 @@ TUTOR_ONLY = [
     "/api/v1/students",
     "/api/v1/students/1/export/1",
     "/api/v1/students/1/export/1/file",
+    "/api/v1/students/1/erasure",
     "/api/v1/submissions/review-queue",
     "/api/v1/today/reminders",
     "/api/v1/syllabus-uploads",
@@ -192,6 +193,9 @@ PARENT_ONLY = [
     ("POST", "/api/v1/me/children/1/export"),
     ("GET", "/api/v1/me/children/1/export/1"),
     ("GET", "/api/v1/me/children/1/export/1/file"),
+    ("POST", "/api/v1/me/children/1/erasure"),
+    ("GET", "/api/v1/me/children/1/erasure"),
+    ("DELETE", "/api/v1/me/children/1/erasure"),
 ]
 
 

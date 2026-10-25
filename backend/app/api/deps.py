@@ -16,6 +16,12 @@ bearer_scheme = HTTPBearer(auto_error=False)
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
+def is_erasing(user: User) -> bool:
+    """True for a child whose data is waiting to be erased, or already was (P-3):
+    they cannot sign in or hold a session."""
+    return user.erasure_requested_at is not None or user.deleted_at is not None
+
+
 async def get_current_user(
     db: DbSession,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
@@ -34,7 +40,8 @@ async def get_current_user(
     # users.token_version (logout, password reset, disable) invalidates all
     # outstanding tokens at once because this check rejects any token whose
     # version no longer matches. A new login mints tokens at the new version.
-    if token_version != user.token_version:
+    # The second lock behind the bump an erasure request makes (P-3).
+    if token_version != user.token_version or is_erasing(user):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
     return user
 

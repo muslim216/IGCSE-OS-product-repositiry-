@@ -156,7 +156,8 @@ async def group_detail(group_id: int, db: DbSession, user: CurrentUser) -> Group
         await db.scalars(
             select(User)
             .join(GroupMember, GroupMember.student_id == User.id)
-            .where(GroupMember.group_id == group.id)
+            # A child waiting to be erased drops out of the class at once (P-3).
+            .where(GroupMember.group_id == group.id, User.erasure_requested_at.is_(None))
             .order_by(User.name)
         )
     ).all()

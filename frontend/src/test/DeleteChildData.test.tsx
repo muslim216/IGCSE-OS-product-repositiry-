@@ -83,7 +83,9 @@ test("a pending request shows its date and Undo cancels then refetches", async (
   });
   renderIt("tutor");
   const note = await screen.findByRole("status");
-  expect(note.textContent).toMatch(/Sara Ali's data will be deleted on .*2026.*can't sign in/);
+  expect(note.textContent).toMatch(
+    /Sara Ali's data will be deleted on (10 Nov|Nov 10)\. They can't sign in until then\./,
+  );
   await open("Undo");
   await screen.findByRole("button", { name: "Delete this student's data" });
   expect(calls.map((c) => c.method)).toEqual(["GET", "DELETE", "GET"]);
