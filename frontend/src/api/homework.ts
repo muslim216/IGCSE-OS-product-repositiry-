@@ -317,6 +317,16 @@ export const requestRemark = (submissionId: number, questionId: number, reason: 
     { method: "POST", body: JSON.stringify({ reason: reason || null }) },
   );
 
+/** A protected file could not be loaded. Carries the HTTP status so a caller can
+ *  tell "expired" (410) from "not yours" (404) without parsing the message. */
+export class FileFetchError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`Could not load file (${status})`);
+    this.status = status;
+  }
+}
+
 /** Fetch a protected file with auth and return an object URL for display.
  *
  * Since task 1.2 (AV-82), the endpoint behind `path` takes one of two shapes
@@ -341,7 +351,7 @@ export async function fetchFileUrl(path: string): Promise<string> {
     redirect: "follow",
     headers: tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {},
   });
-  if (!resp.ok) throw new Error(`Could not load file (${resp.status})`);
+  if (!resp.ok) throw new FileFetchError(resp.status);
   return URL.createObjectURL(await resp.blob());
 }
 

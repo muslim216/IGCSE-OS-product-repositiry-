@@ -22,7 +22,8 @@ import RenameStudent from "./RenameStudent";
 import { EarlierAttempts } from "./EarlierAttempts";
 import { ABSENT, sourceLabel } from "../lib/labels";
 import { ApiError } from "../api/client";
-import { EmptyState, SectionCard } from "../components/ui";
+import DownloadChildData from "../components/DownloadChildData";
+import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
 import { Button, Field, Input, Select, Textarea } from "../components/controls";
 import {
   ErrorState,
@@ -270,6 +271,16 @@ export default function StudentDetailPage() {
         <ReportsPanel studentId={sid} audiences={["student", "tutor", "parent"]} />
 
         <RenameStudent studentId={sid} name={r.student_name} />
+
+        <SectionCard>
+          <SectionHeader
+            title="Download this student's data"
+            description="Everything Avora holds about them, with their uploaded pages, as a ZIP. Kept for seven days."
+          />
+          <div className="mt-4">
+            <DownloadChildData key={sid} asker="tutor" studentId={sid} name={r.student_name} />
+          </div>
+        </SectionCard>
 
         {/* Where this learner and their parents are reached; each address is
             confirmed here before anything is sent to it (threat review F5). */}

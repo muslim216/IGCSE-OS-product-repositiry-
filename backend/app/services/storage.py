@@ -23,6 +23,7 @@ import contextlib
 import io
 import logging
 import secrets
+import shutil
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -249,6 +250,15 @@ class StorageBackend(Protocol):
 
     async def download(self, key: str) -> bytes: ...
 
+    async def upload_path(self, key: str, path: Path, mime: str) -> None:
+        """Store a file from disk without reading it into memory. For files the
+        server builds itself and that can be large (a child's data export)."""
+        ...
+
+    async def download_to_path(self, key: str, path: Path) -> None:
+        """Copy an object to `path` without holding it in memory."""
+        ...
+
     async def delete(self, key: str) -> None: ...
 
     async def exists(self, key: str) -> bool: ...
@@ -298,6 +308,26 @@ class LocalBackend:
                 raise ObjectNotFoundError(key) from None
 
         return await asyncio.to_thread(_read)
+
+    async def upload_path(self, key: str, path: Path, mime: str) -> None:
+        del mime  # a file on disk keeps no content type; the S3 backend sends it
+
+        def _copy() -> None:
+            target = self._path(key)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, target)
+
+        await asyncio.to_thread(_copy)
+
+    async def download_to_path(self, key: str, path: Path) -> None:
+        def _copy() -> None:
+            try:
+                shutil.copyfile(self._path(key), path)
+            except FileNotFoundError:
+                log.warning("stored object is missing (local): %s", key)
+                raise ObjectNotFoundError(key) from None
+
+        await asyncio.to_thread(_copy)
 
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(lambda: self._path(key).unlink(missing_ok=True))
@@ -395,6 +425,29 @@ class S3Backend:
 
         return await asyncio.to_thread(_get)
 
+    async def upload_path(self, key: str, path: Path, mime: str) -> None:
+        await asyncio.to_thread(
+            self._client.upload_file,
+            str(path),
+            self._bucket,
+            key,
+            ExtraArgs={"ContentType": mime},
+        )
+
+    async def download_to_path(self, key: str, path: Path) -> None:
+        def _get() -> None:
+            from botocore.exceptions import ClientError
+
+            try:
+                self._client.download_file(self._bucket, key, str(path))
+            except ClientError as exc:
+                if exc.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+                    log.warning("stored object is missing (s3): %s", key)
+                    raise ObjectNotFoundError(key) from None
+                raise
+
+        await asyncio.to_thread(_get)
+
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(self._client.delete_object, Bucket=self._bucket, Key=key)
 
@@ -468,6 +521,14 @@ def new_key(organization_id: int, mime: str) -> str:
     references the key.
     """
     return f"org/{organization_id}/{secrets.token_hex(16)}{ALLOWED_MIMES[mime]}"
+
+
+def new_export_key(organization_id: int) -> str:
+    """The key of a child's data export: tenant-scoped, server-generated
+    (`SEC-16`), and deliberately NOT of the shape the retention sweep treats as
+    an upload, so that sweep never touches it — the export's own expiry owns its
+    life (`services/data_export.py`)."""
+    return f"org/{organization_id}/exports/{secrets.token_hex(16)}.zip"
 
 
 # --------------------------------------------------------------------------- #

@@ -92,6 +92,8 @@ from app.models import (
     Classified,
     ContactPoint,
     CustomCriterion,
+    DataExport,
+    DataExportStatus,
     GroupRemoval,
     GroupResource,
     Lesson,
@@ -363,6 +365,12 @@ ID_OVERRIDES: dict[tuple[str, str], dict[str, str]] = {
     # remove the link another route's control (or attack) is aimed at.
     ("DELETE", "/me/parent-links/{link_id}"): {"link_id": "_student_link_id"},
     ("DELETE", "/me/children/{student_id}"): {"student_id": "_second_child_id"},
+    # The parent's own export, not the tutor's (an export is readable only by the
+    # person who asked for it).
+    ("GET", "/me/children/{student_id}/export/{export_id}"): {"export_id": "_parent_export_id"},
+    ("GET", "/me/children/{student_id}/export/{export_id}/file"): {
+        "export_id": "_parent_export_id"
+    },
 }
 
 #: Tables a SILENT_200 request may add rows to: reason and a test of each new row.
@@ -790,7 +798,7 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             channel=NotificationChannel.email,
             address=f"tutor-{marker}@example.com",
         )
-        await make_user(
+        admin_user = await make_user(
             s,
             organization_id=organization_id,
             role=UserRole.admin,
@@ -830,6 +838,28 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             select(ParentLink.id).where(ParentLink.parent_id == other_parent.id)
         )
         ids["_second_child_id"] = second_child.id
+        # A pending export of the student by the tutor, and one by the linked
+        # parent: each route family reads only the asker's own.
+        exports = []
+        for asker_id in (uid, parent.id, admin_user.id):
+            export_key = storage.new_export_key(organization_id)
+            await storage.get_storage().upload(export_key, b"PK fake zip", "application/zip")
+            exports.append(
+                DataExport(
+                    organization_id=organization_id,
+                    student_id=student_id,
+                    requested_by_id=asker_id,
+                    status=DataExportStatus.ready,
+                    storage_key=export_key,
+                    expires_at=utcnow() + timedelta(days=7),
+                )
+            )
+        tutor_export, parent_export, admin_export = exports
+        s.add_all(exports)
+        await s.flush()
+        ids["export_id"] = tutor_export.id
+        ids["_parent_export_id"] = parent_export.id
+        ids["_admin_export_id"] = admin_export.id
         usage_tokens = 7_000_000 + ord(tag)  # a number only this workspace has
         s.add_all(
             [
@@ -1157,6 +1187,9 @@ def _ids_for(ws, who, route_path, method=""):
     ids = ws["ids"]
     for name, key in ID_OVERRIDES.get((method, route_path), {}).items():
         ids = {**ids, name: ids[key]}
+    # An export is readable only by whoever asked: the admin has their own.
+    if who == "admin" and "/export/" in route_path:
+        return {**ids, "export_id": ids["_admin_export_id"]}
     if route_path.startswith("/me/") and f"_contact_{who}" in ids:
         return {**ids, "contact_id": ids[f"_contact_{who}"]}
     return ids

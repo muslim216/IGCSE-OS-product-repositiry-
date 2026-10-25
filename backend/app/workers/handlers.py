@@ -14,6 +14,7 @@ which is the direction `BE-1` allows.
 
 from app.config import get_settings
 from app.services.booklets import split_booklet, split_given_up
+from app.services.data_export import EXPORT_JOB, export_given_up, export_student_data
 from app.services.extraction import (
     assignment_read_given_up,
     booklet_read_given_up,
@@ -160,3 +161,6 @@ def register_all() -> None:
     # What stops being kept, once a day (the owner's periods, 19 October
     # 2026). Safe to re-run (`BE-6`): each pass deletes only what is past due.
     register_handler(RETENTION_SWEEP_JOB, sweep_retention, background=True)
+    # A child's data as a ZIP (P-3). Safe to re-run (`BE-6`): it rewrites the
+    # same key, and leaves a finished export alone.
+    register_handler(EXPORT_JOB, export_student_data, on_give_up=export_given_up)

@@ -40,6 +40,7 @@ from app.models import (
 )
 from app.services.ai import AIKeyMissingError
 from app.services.booklets import split_given_up
+from app.services.data_export import export_given_up
 from app.services.extraction import (
     assignment_read_given_up,
     booklet_read_given_up,
@@ -390,6 +391,7 @@ HOOKED = {
     "generate_report": report_given_up,
     "extract_syllabus": syllabus_read_given_up,
     "send_notification": notification_given_up,
+    "export_student_data": export_given_up,
 }
 
 
