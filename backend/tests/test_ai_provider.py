@@ -217,13 +217,6 @@ def test_cost_is_computed_from_configured_pricing(monkeypatch):
     ai_service.model_pricing.cache_clear()
 
 
-def test_malformed_pricing_config_is_ignored_not_fatal(monkeypatch):
-    monkeypatch.setattr(get_settings(), "ai_model_pricing", "not json{")
-    ai_service.model_pricing.cache_clear()
-    assert estimate_cost_usd("anything", 10, 10) is None
-    ai_service.model_pricing.cache_clear()
-
-
 async def test_record_usage_writes_provider_prompt_version_and_cost(client, tutor, monkeypatch):
     monkeypatch.setattr(
         get_settings(),

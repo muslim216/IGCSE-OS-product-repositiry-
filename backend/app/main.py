@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
+from app import config as app_config
 from app import log_context
 from app.api import (
     ai_usage,
@@ -489,6 +490,12 @@ def create_app() -> FastAPI:
         # round trip, and is not degraded.
         rate_limit = await rate_limit_health()
         ai = _ai_keys()
+        # A malformed AI_MODEL_PRICING boots as "every model unpriced"; this is
+        # where that is said out loud (CFG-5). The reason, never the value.
+        ai_pricing = {
+            "ok": app_config.pricing_status.problem is None,
+            "problem": app_config.pricing_status.problem,
+        }
         # A yes or no, never the value. With the placeholder anyone can sign a
         # token for any account (`SA-04`); reported here first so the live
         # value can be checked before startup refuses it.
@@ -505,6 +512,7 @@ def create_app() -> FastAPI:
             and not worker_missing
             and rate_limit["ok"]
             and ai["ok"]
+            and ai_pricing["ok"]
             and auth["secret_ok"]
         )
         if not ok:
@@ -524,6 +532,7 @@ def create_app() -> FastAPI:
             "queue": queue,
             "rate_limit": rate_limit,
             "ai": ai,
+            "ai_pricing": ai_pricing,
             "auth": auth,
         }
 
