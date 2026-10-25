@@ -77,7 +77,7 @@ def load_model_pricing(raw: str) -> dict[str, dict[str, float]]:
         prices = parse_model_pricing(raw)
     except ValueError as exc:
         pricing_status.problem = str(exc)
-        log.error("%s; every model will be recorded as unpriced", exc)
+        log.exception("%s; every model will be recorded as unpriced", exc)
         return {}
     return prices
 
