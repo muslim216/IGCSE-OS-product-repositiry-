@@ -23,6 +23,7 @@ import { EarlierAttempts } from "./EarlierAttempts";
 import { ABSENT, sourceLabel } from "../lib/labels";
 import { ApiError } from "../api/client";
 import DownloadChildData from "../components/DownloadChildData";
+import DeleteChildData from "../components/DeleteChildData";
 import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
 import { Button, Field, Input, Select, Textarea } from "../components/controls";
 import {
@@ -279,6 +280,9 @@ export default function StudentDetailPage() {
           />
           <div className="mt-4">
             <DownloadChildData key={sid} asker="tutor" studentId={sid} name={r.student_name} />
+            <div className="mt-4">
+              <DeleteChildData key={sid} asker="tutor" studentId={sid} name={r.student_name} />
+            </div>
           </div>
         </SectionCard>
 
