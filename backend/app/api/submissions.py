@@ -73,6 +73,7 @@ from app.services.injection_scan import scan_typed_answer
 from app.services.marking import (
     MarkingRetryNotFound,
     MarkingRetryRefused,
+    queue_marking,
     record_marks_as_evidence,
     retry_marking,
 )
@@ -80,7 +81,6 @@ from app.services.mistake_revision import RevisionRejected, revise_mistake
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 from app.services.submission_kind import HOMEWORK, MOCK, PAST_PAPER, kind_of
 from app.services.work import parent_of
-from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["submissions"])
 
@@ -222,7 +222,7 @@ async def submit_work(
                     submission_id=submission.id, position=position, path=path, name=name, mime=mime
                 )
             )
-        await enqueue(db, "mark_submission", {"submission_id": submission.id})
+        await queue_marking(db, submission.id)
     await db.commit()
     return await _student_view(db, assignment, submission)
 

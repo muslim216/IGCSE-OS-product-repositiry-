@@ -57,6 +57,7 @@ from app.services.extraction import queue_past_paper_read, read_in_progress
 # it now lives in the service the tutor's redo shares with the student routes.
 from app.services.hand_in_gate import enrolled_scope as _enrolled_scope
 from app.services.hand_in_gate import past_paper_open_to
+from app.services.marking import queue_marking
 from app.services.submission_kind import PAST_PAPER
 from app.services.work import create_work, parent_of
 from app.workers.jobs import enqueue
@@ -460,7 +461,7 @@ async def log_attempt(
                     submission_id=submission.id, position=position, path=path, name=name, mime=mime
                 )
             )
-        await enqueue(db, "mark_submission", {"submission_id": submission.id})
+        await queue_marking(db, submission.id)
     await db.commit()
     return await _attempt_out(db, submission)
 
