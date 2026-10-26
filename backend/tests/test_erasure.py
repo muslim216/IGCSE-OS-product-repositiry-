@@ -785,21 +785,25 @@ async def test_after_the_sweep_nothing_about_the_child_is_left_and_a_classmate_i
         assert not (hits and table in UNSEEDED), f"{table} is seeded now; drop it from UNSEEDED"
     assert not unseeded, f"seed something of the child's in {unseeded}, or list them in UNSEEDED"
 
-    # Real foreign keys, as Postgres has: SQLite is told to enforce them now, so
-    # a wrong order fails here and not only in CI's Postgres job. Proved to be on,
-    # not assumed: a statement that breaks a key must be refused.
-    async with engine.begin() as conn:
-        await conn.execute(text("PRAGMA foreign_keys=ON"))
+    # Real foreign keys: Postgres always enforces them, and SQLite is told to
+    # now, so a wrong order fails on either database. Proved to be on, not
+    # assumed: a statement that breaks a key must be refused.
+    sqlite = engine.dialect.name == "sqlite"
+    if sqlite:
+        async with engine.begin() as conn:
+            await conn.execute(text("PRAGMA foreign_keys=ON"))
     try:
-        async with engine.connect() as conn:
-            assert (await conn.execute(text("PRAGMA foreign_keys"))).scalar() == 1
+        if sqlite:
+            async with engine.connect() as conn:
+                assert (await conn.execute(text("PRAGMA foreign_keys"))).scalar() == 1
         with pytest.raises(IntegrityError):
             await _break_a_key()
         async with async_session() as session:
             await retention.sweep_retention(session, {})
     finally:
-        async with engine.begin() as conn:
-            await conn.execute(text("PRAGMA foreign_keys=OFF"))
+        if sqlite:
+            async with engine.begin() as conn:
+                await conn.execute(text("PRAGMA foreign_keys=OFF"))
 
     after = await _everything()
     # Running it again is harmless.
