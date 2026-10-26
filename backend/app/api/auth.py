@@ -7,7 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, is_erasing
 from app.config import get_settings
 from app.models import (
     Group,
@@ -157,9 +157,14 @@ def _dummy_hash() -> str:
 
 
 async def _find_account(db: AsyncSession, identifier: str) -> User | None:
+    # A child whose data is waiting to be erased (or already is) cannot sign in:
+    # they get the same generic refusal as an unknown account, so the answer
+    # does not say a deletion is under way (P-3, `SEC-14`).
     return await db.scalar(
         select(User).where(
-            or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier)
+            or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier),
+            User.erasure_requested_at.is_(None),
+            User.deleted_at.is_(None),
         )
     )
 
@@ -229,7 +234,9 @@ async def refresh(
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
-    if token_version != user.token_version:
+    # The second lock behind the `token_version` bump a deletion request makes
+    # (P-3): it holds even if an undo ever forgot to leave the version alone.
+    if token_version != user.token_version or is_erasing(user):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
     session = await refresh_sessions.rotate(db, user, session_id, generation)
     if session is None:
@@ -290,6 +297,16 @@ async def me(user: CurrentUser) -> UserOut:
     return UserOut.model_validate(user)
 
 
+async def _target_is_erasing(db: AsyncSession, invite: Invite) -> bool:
+    """A parent link to a child whose data is waiting to be erased (or already
+    was) must not be made: it would hand a new adult the record being deleted,
+    and the sweep would find a link it did not scrub (P-3)."""
+    if invite.kind != InviteKind.parent_link or invite.student_id is None:
+        return False
+    student = await db.get(User, invite.student_id)
+    return student is None or is_erasing(student)
+
+
 async def _valid_invite(db: AsyncSession, code: str, kind: InviteKind) -> Invite:
     invite = await db.scalar(
         select(Invite).where(Invite.code == code).options(selectinload(Invite.group))
@@ -300,6 +317,8 @@ async def _valid_invite(db: AsyncSession, code: str, kind: InviteKind) -> Invite
     if invite.group is not None and invite.group.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
     check_usable(invite)
+    if await _target_is_erasing(db, invite):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
     return invite
 
 
@@ -312,6 +331,8 @@ async def preview_invite(code: str, db: DbSession) -> InvitePreview:
     # Unauthenticated endpoint: a spent or expired code must stop disclosing the
     # tutor's name, the group, and the student's name along with it.
     check_usable(invite)
+    if await _target_is_erasing(db, invite):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
     if invite.kind == InviteKind.student_join and invite.group_id is not None:
         group = await db.scalar(
             select(Group)
@@ -419,6 +440,8 @@ async def join_with_invite(body: JoinRequest, db: DbSession, user: CurrentUser) 
     if invite is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
     check_usable(invite)
+    if await _target_is_erasing(db, invite):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
 
     if invite.kind == InviteKind.student_join:
         if user.role != UserRole.student:

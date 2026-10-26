@@ -17,6 +17,7 @@ import WeeklySendLink from "../components/WeeklySendLink";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import AttendancePanel from "../components/AttendancePanel";
 import DownloadChildData from "../components/DownloadChildData";
+import DeleteChildData from "../components/DeleteChildData";
 import StopFollowing from "./StopFollowing";
 import { ABSENT } from "../lib/labels";
 import { parentVerdict, provenance, whatYouCanDo } from "../lib/parent";
@@ -223,7 +224,18 @@ export default function ParentDashboard() {
           />
           {/* Still reachable when the readiness read fails: not being able to
               see a child is no reason to be unable to stop following them. */}
-          <DownloadChildData key={selected} asker="parent" studentId={selected!} name={name} />
+          <DownloadChildData
+            key={`dl-${selected}`}
+            asker="parent"
+            studentId={selected!}
+            name={name}
+          />
+          <DeleteChildData
+            key={`del-${selected}`}
+            asker="parent"
+            studentId={selected!}
+            name={name}
+          />
           <StopFollowing studentId={selected!} name={name} onDone={setStopped} />
         </>
       ) : (
@@ -281,7 +293,18 @@ export default function ParentDashboard() {
             <p className="max-w-prose text-sm text-ink-700">{whatYouCanDo(subjects)}</p>
           </Section>
 
-          <DownloadChildData key={selected} asker="parent" studentId={selected!} name={name} />
+          <DownloadChildData
+            key={`dl-${selected}`}
+            asker="parent"
+            studentId={selected!}
+            name={name}
+          />
+          <DeleteChildData
+            key={`del-${selected}`}
+            asker="parent"
+            studentId={selected!}
+            name={name}
+          />
           <StopFollowing studentId={selected!} name={name} onDone={setStopped} />
         </>
       )}

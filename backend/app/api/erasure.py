@@ -1,10 +1,15 @@
-"""Downloading a child's data (launch audit P-3, part 2 of 3).
+"""Downloading and erasing a child's data (launch audit P-3, parts 2 and 3 of 3).
 
 Who may ask: the child's tutor (a student they teach), a linked parent (their own
 child) and a workspace admin (their own organization). Never the student. Anyone
 else, and any export that is not the caller's own, is a 404 (`API-7`, `SEC-9`);
 the role gates are in the signatures (`SEC-11`, `BE-17`). The ZIP is built by a
 background job (`services/data_export.py`) and kept seven days.
+
+Erasure is asked by the same three, with the child's full name typed to confirm,
+and waits out a 14-day undo window before the retention sweep wipes the child
+(`services/erasure.py`). The student cannot ask, and a child already wiped is a
+404 like any child the caller may not know exists.
 """
 
 import asyncio
@@ -21,9 +26,9 @@ from starlette.background import BackgroundTask
 
 from app.api.deps import DbSession, ParentUser, TutorUser
 from app.api.students import _tutor_student
-from app.models import DataExport, DataExportStatus, ParentLink, User, UserRole
-from app.schemas.erasure import DataExportOut
-from app.services import data_export, storage
+from app.models import DataExport, DataExportStatus, ErasureRequest, ParentLink, User, UserRole
+from app.schemas.erasure import DataExportOut, ErasureRequestIn, ErasureRequestOut
+from app.services import data_export, erasure, storage
 
 log = logging.getLogger("api")
 
@@ -165,3 +170,80 @@ async def child_export_file(
 ) -> Response:
     student = await _linked_child(db, user, student_id)
     return await _zip_response(await _own_export(db, student, user, export_id))
+
+
+# ------------------------------------------------------------------- erasure
+
+
+def _erasure_out(request: ErasureRequest) -> ErasureRequestOut:
+    return ErasureRequestOut(
+        id=request.id,
+        status=request.status.value,
+        scheduled_for=request.scheduled_for,
+        requested_role=request.requested_role.value,
+        created_at=request.created_at,
+    )
+
+
+def _live(student: User) -> User:
+    """A child already wiped is the blank placeholder: nothing to ask about."""
+    if student.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+    return student
+
+
+async def _ask(db: DbSession, student: User, user: User, body: ErasureRequestIn):
+    try:
+        return _erasure_out(await erasure.request_erasure(db, student, user, body.confirm_name))
+    except erasure.NameMismatch:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, erasure.NAME_MISMATCH) from None
+
+
+async def _waiting(db: DbSession, student: User) -> ErasureRequestOut | None:
+    request = await erasure.pending_request(db, student.id)
+    return _erasure_out(request) if request is not None else None
+
+
+async def _undo(db: DbSession, student: User, user: User) -> None:
+    if not await erasure.cancel_erasure(db, student, user):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No deletion is scheduled for this student")
+
+
+@router.post("/students/{student_id}/erasure", status_code=status.HTTP_202_ACCEPTED)
+async def request_student_erasure(
+    student_id: int, body: ErasureRequestIn, db: DbSession, user: TutorUser
+) -> ErasureRequestOut:
+    """Schedule a student's deletion in 14 days; they cannot sign in meanwhile.
+    Returns the request already waiting, if there is one."""
+    return await _ask(db, _live(await _tutor_student(db, user, student_id)), user, body)
+
+
+@router.get("/students/{student_id}/erasure")
+async def student_erasure_status(
+    student_id: int, db: DbSession, user: TutorUser
+) -> ErasureRequestOut | None:
+    return await _waiting(db, _live(await _tutor_student(db, user, student_id)))
+
+
+@router.delete("/students/{student_id}/erasure", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_student_erasure(student_id: int, db: DbSession, user: TutorUser) -> None:
+    await _undo(db, _live(await _tutor_student(db, user, student_id)), user)
+
+
+@router.post("/me/children/{student_id}/erasure", status_code=status.HTTP_202_ACCEPTED)
+async def request_child_erasure(
+    student_id: int, body: ErasureRequestIn, db: DbSession, user: ParentUser
+) -> ErasureRequestOut:
+    return await _ask(db, _live(await _linked_child(db, user, student_id)), user, body)
+
+
+@router.get("/me/children/{student_id}/erasure")
+async def child_erasure_status(
+    student_id: int, db: DbSession, user: ParentUser
+) -> ErasureRequestOut | None:
+    return await _waiting(db, _live(await _linked_child(db, user, student_id)))
+
+
+@router.delete("/me/children/{student_id}/erasure", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_child_erasure(student_id: int, db: DbSession, user: ParentUser) -> None:
+    await _undo(db, _live(await _linked_child(db, user, student_id)), user)

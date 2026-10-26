@@ -973,8 +973,12 @@ async def build_parent_facts(session: AsyncSession, parent: User, window: Window
             parent.organization_id,
             sorted(dropped),
         )
+    # After `dropped` is worked out: a child waiting to be erased is not a link
+    # that failed to resolve, they are simply left out of this week (P-3).
     blocks = []
     for child in children:
+        if child.erasure_requested_at is not None:
+            continue
         weeks = await _student_weeks(session, child, clock)
         blocks.append(
             ParentChildFacts(

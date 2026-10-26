@@ -315,6 +315,11 @@ BODIES: dict[tuple[str, str], dict] = {
         "password": "password123",
     },
     ("PATCH", "/groups/{group_id}/plan/slots/{slot_id}"): {"scheduled_date": "2030-01-01"},
+    # A name no student has: the sweep renames students along the way, and a body
+    # that happened to match would schedule a real erasure and lock the child out
+    # of every later call. The owner's own call is a 422, listed below.
+    ("POST", "/students/{student_id}/erasure"): {"confirm_name": "nobody by this name"},
+    ("POST", "/me/children/{student_id}/erasure"): {"confirm_name": "nobody by this name"},
     ("PUT", "/subjects/{subject_id}/grade-boundaries"): {
         "boundaries": [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}]
     },
@@ -400,7 +405,19 @@ _BODY = (
 )
 _FORBIDDEN = "the owner is refused by the handler's own rule (an admin who does not teach the student; accounts with email)"
 
+_NAME_WRONG = (
+    "the body is deliberately a wrong name: a right one would erase the seeded child, so the "
+    "owner reaches the child and is refused by the name check (422), after the ownership check"
+)
+_NO_DELETION = (
+    "nothing is scheduled for the seeded child, so the owner is told 404 after the ownership check"
+)
 CONTROL_EXCEPTIONS: dict[tuple[str, str, str, str], tuple[int, str]] = {
+    ("tutor", "POST", "/students/{student_id}/erasure", ""): (422, _NAME_WRONG),
+    ("admin", "POST", "/students/{student_id}/erasure", ""): (422, _NAME_WRONG),
+    ("parent", "POST", "/me/children/{student_id}/erasure", ""): (422, _NAME_WRONG),
+    ("tutor", "DELETE", "/students/{student_id}/erasure", ""): (404, _NO_DELETION),
+    ("parent", "DELETE", "/me/children/{student_id}/erasure", ""): (404, _NO_DELETION),
     ("parent", "GET", "/booklets/{booklet_id}", ""): (404, _NO_CLAIM_PARENT),
     ("parent", "GET", "/booklets/{booklet_id}/file", ""): (404, _NO_CLAIM_PARENT),
     ("parent", "GET", "/classifieds/{classified_id}/file", ""): (404, _NO_CLAIM_PARENT),

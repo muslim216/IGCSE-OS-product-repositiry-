@@ -14,6 +14,8 @@ So, once a day:
   when newer runs failed (`readiness_summary_v2.latest_ready_snapshot`).
   Snapshots themselves are kept: they are the score history, and each carries
   its own score;
+- a child whose deletion was requested 14 days ago and not undone is wiped
+  (`services/erasure.py`);
 - a stored file no row points at, last written more than 30 days ago, is
   deleted. Replacing a submission's pages leaves the old ones on disk
   (`attempts.open_attempt`); this is what finally removes them.
@@ -49,6 +51,7 @@ from app.models import (
 )
 from app.services import storage
 from app.services.data_export import expire_data_exports
+from app.services.erasure import erase_due
 from app.workers.jobs import enqueue
 
 log = logging.getLogger(__name__)
@@ -274,6 +277,9 @@ async def sweep_retention(session: AsyncSession, _payload: dict) -> None:
         # A child's data export is kept 7 days (P-3); its own expiry, not the
         # orphan rule, owns its file.
         ("expired data exports", expire_data_exports),
+        # A child whose 14-day undo window has passed (P-3); its own step so a
+        # failure here cannot hold up the file clean-up, and the reverse.
+        ("erased children", erase_due),
     ):
         try:
             counts[name] = await step(session, now)
