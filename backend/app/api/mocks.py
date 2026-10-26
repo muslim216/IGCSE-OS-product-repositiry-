@@ -60,6 +60,7 @@ from app.schemas.mock import (
 from app.services import mock_clock, storage
 from app.services.attempts import open_attempt
 from app.services.injection_scan import scan_typed_answer
+from app.services.marking import queue_marking
 from app.services.submission_kind import MOCK
 from app.services.work import create_work
 from app.workers.jobs import enqueue
@@ -557,7 +558,7 @@ async def sit_mock(
                     position=position,
                 )
             )
-        await enqueue(db, "mark_submission", {"submission_id": submission.id})
+        await queue_marking(db, submission.id)
     await db.commit()
     await db.refresh(submission)
     return await _submission_out(db, mock, submission)

@@ -148,6 +148,15 @@ NOT_RETRYABLE = "Only work the AI couldn't mark can be marked again"
 ALREADY_MARKING = "The AI is marking this right now. Check back in a few minutes."
 
 
+async def queue_marking(session: AsyncSession, submission_id: int) -> None:
+    """Queue this attempt's marking, once. A student who hands in again before
+    the first marking has started would otherwise queue a second paid model call
+    for the same attempt (launch audit SA-07); the waiting job is reused, and it
+    reads the newest pages when it runs (`BE-9`). A marking already running read
+    the old pages, so a fresh one is queued behind it."""
+    await run_now(session, "mark_submission", [{"submission_id": submission_id}])
+
+
 async def retry_marking(session: AsyncSession, submission: Submission, tutor: User) -> None:
     """Send work the AI could not mark back to the AI (cleanup stage, OPS-08).
 
