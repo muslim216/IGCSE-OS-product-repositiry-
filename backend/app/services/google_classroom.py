@@ -37,8 +37,8 @@ from app.models import (
     WorkKind,
 )
 from app.services import storage
-from app.services.marking import queue_marking
 from app.services.work import create_work
+from app.workers.jobs import enqueue
 
 log = logging.getLogger(__name__)
 
@@ -384,7 +384,7 @@ async def _sync_submissions(
                 )
             )
         if files:
-            await queue_marking(session, submission.id)
+            await enqueue(session, "mark_submission", {"submission_id": submission.id})
 
 
 async def _download_attachments(

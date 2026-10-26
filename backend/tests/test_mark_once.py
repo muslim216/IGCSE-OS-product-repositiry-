@@ -3,6 +3,8 @@
 Each marking is a paid model call, and a student re-uploading a blurry page used
 to queue one per hand-in for the same attempt."""
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select
 
 from app.db import async_session
@@ -68,3 +70,23 @@ async def test_a_hand_in_while_marking_runs_is_marked_again_afterwards(
     await _hand_in(client, student, aid, "second.png")
     jobs = await _marking_jobs()
     assert sorted(j.status for j in jobs) == sorted([JobStatus.running, JobStatus.pending])
+
+
+async def test_new_pages_bring_a_waiting_retry_forward_with_a_fresh_budget(
+    client, student, published_assignment
+):
+    aid = published_assignment["id"]
+    await _hand_in(client, student, aid, "first.png")
+    (job,) = await _marking_jobs()
+    # The first marking failed and waits out its backoff before the one retry.
+    async with async_session() as session:
+        waiting = await session.get(Job, job.id)
+        waiting.attempts = 1
+        waiting.run_after = datetime.now(timezone.utc) + timedelta(minutes=1)
+        await session.commit()
+
+    await _hand_in(client, student, aid, "second.png")
+    (job,) = await _marking_jobs()
+    assert job.status == JobStatus.pending
+    assert job.attempts == 0
+    assert job.run_after is None
