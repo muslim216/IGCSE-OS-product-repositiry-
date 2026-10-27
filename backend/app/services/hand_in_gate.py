@@ -27,11 +27,10 @@ from app.services.submission_kind import HOMEWORK, MOCK, PAST_PAPER, SubmissionK
 async def enrolled_scope(db: AsyncSession, student_id: int) -> set[tuple[int, int]]:
     """The (organization_id, subject_id) pairs a student is actually taught in.
 
-    Subjects are global — every organization shares the same five built-in
-    syllabuses — so enrollment alone does not bound what a student may see.
-    Scoping on the pair keeps one tutor's uploads inside that tutor's
-    organization; matching on subject alone would show a student every past
-    paper any tutor anywhere had uploaded for their subject.
+    Subjects belong to the tutor who created them (task 2.2), so the subject
+    alone already points inside one organization; the pair is kept as a second
+    line (`SEC-8`), so a subject reached some other way still cannot show a
+    student another organization's papers.
 
     The pair comes from the groups the student is in rather than from
     `user.organization_id`, so a student who joined a second tutor's group with
