@@ -1,6 +1,7 @@
 """Erasing and exporting a child's data (launch audit P-3).
 
-Schema only so far: nothing reads or writes these tables yet.
+Who reads them: `services/data_export.py` (the ZIP, kept seven days) and
+`services/erasure.py` (the request, the undo and the sweep).
 
 Erasure is a request, then a 14-day undo window, then a sweep. The request hides
 the child and blocks sign-in; the sweep wipes their data unless the request was

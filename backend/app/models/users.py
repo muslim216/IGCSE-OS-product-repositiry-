@@ -47,7 +47,8 @@ class User(TimestampMixin, Base):
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Child-data erasure (P-3). `erasure_requested_at` hides the child and blocks
     # sign-in during the 14-day undo window; `deleted_at` is set once the sweep
-    # has wiped them (the blank users row stays). Nothing reads either yet.
+    # has wiped them (the blank users row stays). Sign-in refuses both
+    # (`api/auth.py`, `api/deps.py`); see `services/erasure.py`.
     erasure_requested_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
