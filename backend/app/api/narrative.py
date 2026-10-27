@@ -117,7 +117,7 @@ async def _readable_student(db: AsyncSession, user: User, student_id: int) -> Us
 
     if user.role == UserRole.tutor:
         # Scoped by the groups this tutor owns, so a tutor in another
-        # organization cannot read it, whatever subject id it names (SEC-8).
+        # organization cannot read it (SEC-8).
         teaches = await db.scalar(
             select(Group.id)
             .join(GroupMember, GroupMember.group_id == Group.id)
