@@ -309,6 +309,54 @@ async def test_a_non_owners_new_class_is_in_flow_for_that_class_only(client, tut
     assert (await _get(client, tutor))["is_owner"] is True
 
 
+async def test_owner_is_found_within_the_organization_and_among_tutors(client):
+    """Rows with lower ids must not steal ownership: another organization's tutor,
+    and a student and parent of this one, all predate its first tutor."""
+    async with async_session() as session:
+        other = Organization(name="Elsewhere")
+        mine = Organization(name="Mine")
+        session.add_all([other, mine])
+        await session.flush()
+        await make_user(
+            session, organization_id=other.id, role=UserRole.tutor, name="O", email="o@example.com"
+        )
+        await make_user(
+            session, organization_id=mine.id, role=UserRole.student, name="S", email="s@example.com"
+        )
+        await make_user(
+            session, organization_id=mine.id, role=UserRole.parent, name="P", email="p@example.com"
+        )
+        first = await make_user(
+            session, organization_id=mine.id, role=UserRole.tutor, name="T", email="t@example.com"
+        )
+        later = await make_user(
+            session, organization_id=mine.id, role=UserRole.tutor, name="L", email="l@example.com"
+        )
+        await session.commit()
+        heads = {
+            u.id: {
+                "headers": {"Authorization": f"Bearer {create_access_token(u.id, u.token_version)}"}
+            }
+            for u in (first, later)
+        }
+    body = await _get(client, heads[first.id])
+    assert body["is_owner"] is True
+    assert body["in_flow"] is True
+    assert (await _get(client, heads[later.id]))["is_owner"] is False
+
+
+async def test_an_accepted_plan_beats_a_failed_redraft(client, tutor):
+    sid = await _subject(tutor, chapters=1)
+    gid = await _group(tutor, sid)
+    await _slot(gid)
+    await _answer_taught_before(gid)
+    await _plan(gid, TeachingPlanStatus.accepted, tutor["user"]["id"])
+    await _plan(gid, TeachingPlanStatus.draft, draft_result=_failed("all_taught"))
+    cls = (await _get(client, tutor))["subjects"][0]["classes"][0]
+    assert cls["plan_not_needed"] is False
+    assert _steps(cls)["plan_accepted"] is True
+
+
 # --- A class that cannot get a plan ------------------------------------------
 
 

@@ -237,6 +237,7 @@ test("a later member's guide leaves out the workspace-level steps", async () => 
     screen.queryByRole("heading", { level: 2, name: /Grade boundaries/ }),
   ).not.toBeInTheDocument();
 });
+
 test("a tutor in the flow with no class gets the guide alone", async () => {
   renderApp();
   await screen.findByRole("heading", { level: 1, name: "Set up your first class" });

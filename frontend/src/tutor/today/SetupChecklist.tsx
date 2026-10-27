@@ -21,6 +21,8 @@ const ROW = "flex flex-wrap items-center gap-x-3 gap-y-1 py-2";
  *  Schedule tab, so both plan steps point there. A step this client does not
  *  know is still outstanding, because the server counted it. */
 function classStep(group: OnboardingClass): { label: string; to: string } | null {
+  // A class that cannot get a plan is finished: its page says why there is none.
+  if (group.complete || group.plan_not_needed) return null;
   const step = group.steps.find((s) => !s.done);
   if (!step) return null;
   const base = `/tutor/groups/${group.group_id}`;
@@ -54,15 +56,20 @@ const classLine = (c: OnboardingClass) =>
   `class-${c.group_id}-${c.steps.find((s) => !s.done)?.key ?? "open"}`;
 const ACCOUNT_LINE = "setup_checklist:account";
 
-function subjectNeeds(subject: OnboardingSubject, hidden: (key: string) => boolean) {
+function subjectNeeds(subject: OnboardingSubject, hidden: (key: string) => boolean, owner = true) {
   const shown = (line: string) => !hidden(lineKey(subject, line));
   const noSyllabus = subject.required.some((r) => r.key === "syllabus" && !r.done);
   const syllabusMissing = noSyllabus && shown("syllabus");
-  const defaults = subject.items.filter(
-    (i) => i.kind === "defaulted" && i.state === "default" && shown(`default-${i.key}`),
-  );
-  const boundariesNotSet = itemState(subject, "boundaries") === "not_set" && shown("boundaries");
-  const guidanceNotSet = itemState(subject, "teaching_guidance") === "not_set" && shown("guidance");
+  // Time zone, boundaries, defaults and guidance are the workspace's, set up by its owner.
+  const defaults = owner
+    ? subject.items.filter(
+        (i) => i.kind === "defaulted" && i.state === "default" && shown(`default-${i.key}`),
+      )
+    : [];
+  const boundariesNotSet =
+    owner && itemState(subject, "boundaries") === "not_set" && shown("boundaries");
+  const guidanceNotSet =
+    owner && itemState(subject, "teaching_guidance") === "not_set" && shown("guidance");
   const classes = subject.classes
     .map((c) => ({ group: c, step: classStep(c) }))
     .filter((c) => c.step !== null && shown(classLine(c.group)));
@@ -83,8 +90,8 @@ function subjectNeeds(subject: OnboardingSubject, hidden: (key: string) => boole
 }
 
 /** Every line the server still asks for in a subject, hidden or not. */
-function rawLines(subject: OnboardingSubject): string[] {
-  const raw = subjectNeeds(subject, () => false);
+function rawLines(subject: OnboardingSubject, owner: boolean): string[] {
+  const raw = subjectNeeds(subject, () => false, owner);
   const flags: [boolean, string][] = [
     [raw.syllabusMissing, "syllabus"],
     [raw.boundariesNotSet, "boundaries"],
@@ -102,9 +109,11 @@ function rawLines(subject: OnboardingSubject): string[] {
 /** The hidden keys whose line the server still asks for: what is raw-outstanding
  *  (nothing hidden) and is hidden now. */
 function hiddenLines(data: OnboardingState, hidden: (key: string) => boolean): string[] {
-  const account = data.account.state === "default" && hidden(ACCOUNT_LINE) ? [ACCOUNT_LINE] : [];
+  const owner = data.is_owner !== false;
+  const account =
+    owner && data.account.state === "default" && hidden(ACCOUNT_LINE) ? [ACCOUNT_LINE] : [];
   const subjects = data.subjects.flatMap((s) =>
-    rawLines(s)
+    rawLines(s, owner)
       .map((line) => lineKey(s, line))
       .filter((key) => hidden(key)),
   );
@@ -112,9 +121,10 @@ function hiddenLines(data: OnboardingState, hidden: (key: string) => boolean): s
 }
 
 function anyOutstanding(data: OnboardingState, hidden: (key: string) => boolean): boolean {
+  const owner = data.is_owner !== false;
   return (
-    (data.account.state === "default" && !hidden(ACCOUNT_LINE)) ||
-    data.subjects.some((s) => subjectNeeds(s, hidden).outstanding)
+    (owner && data.account.state === "default" && !hidden(ACCOUNT_LINE)) ||
+    data.subjects.some((s) => subjectNeeds(s, hidden, owner).outstanding)
   );
 }
 
@@ -248,7 +258,7 @@ export default function SetupChecklist({
         None of this blocks anything. Anything left on Avora&apos;s default keeps working.
       </p>
 
-      {data.account.state === "default" && !hidden(ACCOUNT_LINE) && (
+      {data.is_owner !== false && data.account.state === "default" && !hidden(ACCOUNT_LINE) && (
         <ul className="mt-4 border-t border-line">
           <li className={ROW}>
             <p className="min-w-0 flex-1 text-sm text-ink-700">
@@ -265,7 +275,7 @@ export default function SetupChecklist({
       )}
 
       {data.subjects.map((subject) => {
-        const needs = subjectNeeds(subject, hidden);
+        const needs = subjectNeeds(subject, hidden, data.is_owner !== false);
         if (!needs.outstanding) return null;
         const headingId = `setup-subject-${subject.subject_id}`;
         const name = subject.subject_name;

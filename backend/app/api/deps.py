@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models.syllabus import Chapter, Subject
-from app.models.users import User, UserRole
+from app.models.users import TUTOR_ROLES, User, UserRole
 from app.schemas.homework import MAX_CLASSIFIED_NOTES, MAX_TYPED_ANSWER, clean_notes
 from app.security import decode_token
 
@@ -69,10 +69,8 @@ def require_role(*roles: UserRole, detail: str = "Insufficient permissions"):
     return Depends(checker)
 
 
-#: Admin counts as a tutor everywhere a tutor is required. That was true of all
-#: ten copies replaced here, and the 403 detail strings are preserved exactly so
-#: no client sees a changed message.
-TUTOR_ROLES = (UserRole.tutor, UserRole.admin)
+# `TUTOR_ROLES` (models.users): admin counts as a tutor everywhere one is required.
+# The 403 detail strings are preserved exactly so no client sees a changed message.
 
 
 def assert_tutor(user: User) -> None:

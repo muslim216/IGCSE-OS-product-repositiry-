@@ -20,8 +20,6 @@ import {
   CLASS_STEPS,
   DEFAULT_ROWS,
   GUIDE_KEY,
-  STEPS,
-  WORKSPACE_STEPS,
   SUBJECT_STEPS,
   guideModel,
   stepName,
@@ -149,14 +147,9 @@ export default function OnboardingFlow({
   overDashboard?: boolean;
 }>) {
   // Without `dismissals` nothing can be put aside and nothing is: the guide as it was.
-  const { subject, klass, defaultOpen, isDone, needs, keyOf, skipped, actionable } = guideModel(
-    data,
-    dismissals?.isHidden ?? (() => false),
-  );
+  const { steps, subject, klass, defaultOpen, isDone, needs, keyOf, skipped, actionable } =
+    guideModel(data, dismissals?.isHidden ?? (() => false));
   const nextId = defaultOpen;
-  const visibleSteps = STEPS.filter(
-    (s) => data.is_owner !== false || !WORKSPACE_STEPS.includes(s.id),
-  );
 
   const [manual, setManual] = useState<StepId | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -359,7 +352,7 @@ export default function OnboardingFlow({
         </div>
       )}
       <ol className="space-y-3" data-not-now-scope>
-        {visibleSteps.map((step, index) => {
+        {steps.map((step, index) => {
           const locked = needs(step.id);
           const isOpen = open === step.id && !locked;
           const headingId = `onboarding-step-${step.id}`;

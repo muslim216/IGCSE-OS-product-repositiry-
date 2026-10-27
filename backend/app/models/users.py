@@ -14,6 +14,11 @@ class UserRole(str, enum.Enum):
     admin = "admin"
 
 
+#: Admin counts as a tutor everywhere a tutor is required. Lives here, below both
+#: `api/` and `services/`, so each can use it (`BE-1`).
+TUTOR_ROLES = (UserRole.tutor, UserRole.admin)
+
+
 class User(TimestampMixin, Base):
     __tablename__ = "users"
     # Sign-in and sign-up look a person up by the folded address or username

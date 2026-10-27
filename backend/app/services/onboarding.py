@@ -28,7 +28,6 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TUTOR_ROLES
 from app.models import (
     ACCOUNT_ITEMS,
     Chapter,
@@ -46,6 +45,7 @@ from app.models import (
     User,
 )
 from app.models.base import utcnow
+from app.models.users import TUTOR_ROLES
 from app.schemas.onboarding import (
     ClassStatus,
     ItemState,
@@ -393,6 +393,8 @@ async def load_state(db: AsyncSession, user: User) -> OnboardingState:
         plan_status[plan_group_id].add(plan_state)
         if plan_state is TeachingPlanStatus.draft and is_terminal_failure(result):
             cannot_plan.add(plan_group_id)
+    # An accepted plan wins: no "no plan needed" beside a live plan.
+    cannot_plan = {g for g in cannot_plan if TeachingPlanStatus.accepted not in plan_status[g]}
     # "Owner" is the earliest tutor-gate user of the organization: whoever signed
     # it up. No column says so, and the account-level steps are theirs.
     owner_id = await db.scalar(

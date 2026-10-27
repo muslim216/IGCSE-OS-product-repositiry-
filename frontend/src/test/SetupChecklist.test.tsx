@@ -512,3 +512,47 @@ test("when the last thing is cleared, focus moves to a note where the card was",
   const note = await screen.findByText("Nothing is left in the setup checklist.");
   await waitFor(() => expect(note).toHaveFocus());
 });
+
+test("a later member is not asked for the workspace's time zone, boundaries or defaults", async () => {
+  payload = state({
+    is_owner: false,
+    account: item("account_basics", "default"),
+    subjects: [
+      subject({
+        items: [
+          item("boundaries", "not_set"),
+          item("marking_rules", "default"),
+          item("mistake_categories", "default"),
+          item("weak_threshold", "default"),
+          item("teaching_guidance", "not_set", "optional"),
+        ],
+      }),
+    ],
+  });
+  renderCard();
+  await waitFor(() => expect(client.isFetching()).toBe(0));
+  expect(screen.queryByRole("region", { name: "Setup" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Time zone/)).not.toBeInTheDocument();
+});
+
+test("a class that cannot get a plan is not asked to accept one", async () => {
+  payload = state({
+    subjects: [
+      subject({
+        classes: [
+          {
+            group_id: 1,
+            group_name: "Chem A",
+            complete: false,
+            plan_not_needed: true,
+            steps: allDone.map((s) => (s.key === "plan_accepted" ? { ...s, done: false } : s)),
+          },
+        ],
+      }),
+    ],
+  });
+  renderCard();
+  await waitFor(() => expect(client.isFetching()).toBe(0));
+  expect(screen.queryByText(/Accept the teaching plan/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Setup" })).not.toBeInTheDocument();
+});
