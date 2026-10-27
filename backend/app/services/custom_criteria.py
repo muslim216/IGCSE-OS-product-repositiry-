@@ -25,10 +25,11 @@ from app.models import (
     CustomCriterion,
     CustomCriterionScore,
     CustomCriterionScoreAudit,
-    StudentSubject,
+    Group,
     Subject,
 )
 from app.models.base import utcnow
+from app.services.student_crm import enrolled_subjects_query
 
 
 class CriterionNotFound(LookupError):
@@ -95,8 +96,10 @@ def update_criterion(criterion: CustomCriterion, changes: dict) -> None:
             criterion.archived_at = utcnow()
 
 
-def _enrolled_subjects(student_id: int):
-    return select(StudentSubject.subject_id).where(StudentSubject.student_id == student_id)
+def _enrolled_subjects(student_id: int, organization_id: int):
+    # The class roster is the one list of a student's subjects (`StudentSubject`
+    # holds only a target grade), so this is the shared query, live classes only.
+    return enrolled_subjects_query(student_id, organization_id, live_only=True)
 
 
 async def criteria_for_student(
@@ -120,7 +123,7 @@ async def criteria_for_student(
             CustomCriterion.archived_at.is_(None),
             or_(
                 CustomCriterion.subject_id.is_(None),
-                CustomCriterion.subject_id.in_(_enrolled_subjects(student_id)),
+                CustomCriterion.subject_id.in_(_enrolled_subjects(student_id, organization_id)),
             ),
         )
         .order_by(CustomCriterion.id)
@@ -160,7 +163,9 @@ async def _scorable(
         raise CriterionConflict("This criterion is archived. Unarchive it to change scores.")
     if criterion.subject_id is not None:
         enrolled = await session.scalar(
-            _enrolled_subjects(student_id).where(StudentSubject.subject_id == criterion.subject_id)
+            _enrolled_subjects(student_id, organization_id).where(
+                Group.subject_id == criterion.subject_id
+            )
         )
         if enrolled is None:
             raise CriterionConflict(

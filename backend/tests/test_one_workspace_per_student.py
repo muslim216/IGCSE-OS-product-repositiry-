@@ -227,7 +227,8 @@ async def test_the_other_tutors_view_holds_only_their_own_organizations_work(
     assert theirs.status_code == 200, theirs.text
     body = theirs.json()
     assert body["homework"] == []
-    assert body["enrollments"] == []
+    # Only this organization's class subject: the home tutor's is not handed over.
+    assert [e["subject_id"] for e in body["enrollments"]] == [other_class["subject_id"]]
     assert {r["subject_id"] for r in body["readiness"]} == {other_class["subject_id"]}
 
 

@@ -6,15 +6,18 @@ engine reads none of these tables. Unscored is absent (null), never 0
 (`PROD-2`); every score edit leaves an append-only audit row (`PROD-7`).
 """
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db import async_session
 from app.models import (
     CustomCriterion,
     CustomCriterionScore,
     CustomCriterionScoreAudit,
+    Group,
     GroupMember,
+    StudentSubject,
     Subject,
+    User,
 )
 from tests.factories import make_subject, other_org_subject, subject_for_tutor
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
@@ -32,15 +35,6 @@ async def _create(client, headers, **body) -> dict:
     resp = await client.post(BASE, json=body, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
-
-
-async def _enroll(client, headers, student_id: int, subject_id: int) -> None:
-    resp = await client.post(
-        f"/api/v1/students/{student_id}/subjects",
-        json={"subject_id": subject_id},
-        headers=headers,
-    )
-    assert resp.status_code == 201, resp.text
 
 
 async def _audit(student_id: int, criterion_id: int) -> list[tuple[int | None, int | None]]:
@@ -161,47 +155,103 @@ async def test_an_all_subject_criterion_applies_to_every_student(client, tutor, 
     assert [c["criterion_id"] for c in listed] == [criterion["id"]]
 
 
-async def test_a_subject_criterion_applies_only_to_enrolled_students(client, tutor, world):  # noqa: F811
-    criterion = await _create(client, tutor["headers"], subject_id=world["subject_id"])
-    url = _scores_url(world["student_id"])
-
-    assert (await client.get(url, headers=tutor["headers"])).json() == []
-    resp = await client.put(
-        _scores_url(world["student_id"], criterion["id"]),
-        json={"score": 50},
-        headers=tutor["headers"],
+async def _put_score(client, headers, student_id: int, criterion_id: int):
+    return await client.put(
+        _scores_url(student_id, criterion_id), json={"score": 50}, headers=headers
     )
-    assert resp.status_code == 409
-    assert "enrolled" in resp.json()["detail"]
 
-    await _enroll(client, tutor["headers"], world["student_id"], world["subject_id"])
-    listed = (await client.get(url, headers=tutor["headers"])).json()
+
+async def test_a_class_member_is_scored_on_the_class_subject_with_no_enrolment_row(  # noqa: F811
+    client, tutor, world
+):
+    criterion = await _create(client, tutor["headers"], subject_id=world["subject_id"])
+    listed = (await client.get(_scores_url(world["student_id"]), headers=tutor["headers"])).json()
     assert [c["criterion_id"] for c in listed] == [criterion["id"]]
     # Two subject-specific criteria can share a name, so each row says which
     # subject it is for; an account-wide one has none to name.
     async with async_session() as session:
         subject_name = (await session.get(Subject, world["subject_id"])).name
+        assert await session.scalar(select(StudentSubject.id)) is None
     assert listed[0]["subject_name"] == subject_name
-    scored = await client.put(
-        _scores_url(world["student_id"], criterion["id"]),
-        json={"score": 50},
-        headers=tutor["headers"],
-    )
+    scored = await _put_score(client, tutor["headers"], world["student_id"], criterion["id"])
+    assert scored.status_code == 200, scored.text
     assert scored.json()["subject_name"] == subject_name
     everywhere = await _create(client, tutor["headers"], name="Focus")
-    listed = (await client.get(url, headers=tutor["headers"])).json()
+    listed = (await client.get(_scores_url(world["student_id"]), headers=tutor["headers"])).json()
     assert {c["criterion_id"]: c["subject_name"] for c in listed}[everywhere["id"]] is None
 
 
-async def test_a_criterion_for_another_subject_does_not_apply(client, tutor, world):  # noqa: F811
+async def test_a_student_in_no_class_of_the_subject_is_refused(client, tutor, world):  # noqa: F811
     async with async_session() as session:
         physics = await make_subject(session, code="4PH1", name="Physics")
         await session.commit()
         physics_id = physics.id
-    await _enroll(client, tutor["headers"], world["student_id"], world["subject_id"])
-    await _create(client, tutor["headers"], subject_id=physics_id)
-    listed = (await client.get(_scores_url(world["student_id"]), headers=tutor["headers"])).json()
-    assert listed == []
+    criterion = await _create(client, tutor["headers"], subject_id=physics_id)
+    assert (
+        await client.get(_scores_url(world["student_id"]), headers=tutor["headers"])
+    ).json() == []
+    resp = await _put_score(client, tutor["headers"], world["student_id"], criterion["id"])
+    assert resp.status_code == 409
+    assert "enrolled" in resp.json()["detail"]
+
+
+async def _join_physics_class(client, headers, student_id: int) -> None:
+    """Put the student in a live Physics class, so the tutor still teaches them
+    (and the route is reached) once the Chemistry class is gone."""
+    async with async_session() as session:
+        physics = await make_subject(session, code="4PH1", name="Physics")
+        await session.commit()
+        physics_id = physics.id
+    group = (
+        await client.post(
+            "/api/v1/groups", json={"name": "Phys", "subject_id": physics_id}, headers=headers
+        )
+    ).json()
+    async with async_session() as session:
+        session.add(GroupMember(group_id=group["id"], student_id=student_id))
+        await session.commit()
+
+
+async def test_a_student_in_a_deleted_class_is_refused(client, tutor, world):  # noqa: F811
+    criterion = await _create(client, tutor["headers"], subject_id=world["subject_id"])
+    await _join_physics_class(client, tutor["headers"], world["student_id"])
+    resp = await client.delete(f"/api/v1/groups/{world['group']['id']}", headers=tutor["headers"])
+    assert resp.status_code == 204, resp.text
+    listed = await client.get(_scores_url(world["student_id"]), headers=tutor["headers"])
+    assert listed.json() == []
+    resp = await _put_score(client, tutor["headers"], world["student_id"], criterion["id"])
+    assert resp.status_code == 409
+
+
+async def test_another_organizations_class_does_not_count(client, tutor, world):  # noqa: F811
+    """The student's only Chemistry class belongs to another organization (a
+    row that points at the home subject): that is not the home organization's
+    roster (QA-12, `SEC-7`)."""
+    await _rival(client)
+    criterion = await _create(client, tutor["headers"], subject_id=world["subject_id"])
+    await _join_physics_class(client, tutor["headers"], world["student_id"])
+    async with async_session() as session:
+        rival_tutor = await session.scalar(select(User).where(User.email == "rival@example.com"))
+        foreign = Group(
+            organization_id=rival_tutor.organization_id,
+            tutor_id=rival_tutor.id,
+            subject_id=world["subject_id"],
+            name="Foreign",
+        )
+        session.add(foreign)
+        await session.flush()
+        await session.execute(
+            delete(GroupMember).where(
+                GroupMember.student_id == world["student_id"],
+                GroupMember.group_id == world["group"]["id"],
+            )
+        )
+        session.add(GroupMember(group_id=foreign.id, student_id=world["student_id"]))
+        await session.commit()
+    listed = await client.get(_scores_url(world["student_id"]), headers=tutor["headers"])
+    assert listed.json() == []
+    resp = await _put_score(client, tutor["headers"], world["student_id"], criterion["id"])
+    assert resp.status_code == 409
 
 
 # ---- Scores ----

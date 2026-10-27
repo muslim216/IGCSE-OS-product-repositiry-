@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -60,12 +60,14 @@ class StudentCrm:
     communications: list[ParentCommunication]
 
 
-async def enrolled_subject_ids(
-    session: AsyncSession, student_id: int, organization_id: int | None = None
-) -> list[int]:
-    """Subjects the student is enrolled in via group membership — used to
-    scope the readiness summary regardless of the CRM's own enrollment rows.
-    With `organization_id`, only that organization's classes count."""
+def enrolled_subjects_query(
+    student_id: int, organization_id: int | None = None, *, live_only: bool = False
+) -> Select[tuple[int]]:
+    """The one definition of "which subjects does this student take": the
+    subjects of the classes they sit in. `StudentSubject` only carries a
+    per-subject target grade; it is not a second roster. With
+    `organization_id`, only that organization's classes count; with
+    `live_only`, a deleted class does not."""
     query = (
         select(Group.subject_id)
         .join(GroupMember, GroupMember.group_id == Group.id)
@@ -73,8 +75,18 @@ async def enrolled_subject_ids(
     )
     if organization_id is not None:
         query = query.where(Group.organization_id == organization_id)
-    rows = (await session.scalars(query.distinct())).all()
-    return list(rows)
+    if live_only:
+        query = query.where(Group.deleted_at.is_(None))
+    return query.distinct()
+
+
+async def enrolled_subject_ids(
+    session: AsyncSession, student_id: int, organization_id: int | None = None
+) -> list[int]:
+    """Subjects the student is enrolled in via group membership — used to
+    scope the readiness summary. A deleted class still counts here: its
+    evidence stays in the student's readiness."""
+    return list(await session.scalars(enrolled_subjects_query(student_id, organization_id)))
 
 
 async def _homework(
@@ -152,22 +164,28 @@ async def get_student_crm(session: AsyncSession, student: User, viewer: User) ->
         profile_query = profile_query.where(StudentProfile.organization_id == staff_org)
     profile = await session.scalar(profile_query)
 
-    enrollment_rows = (
-        await session.scalars(select(StudentSubject).where(StudentSubject.student_id == student.id))
-    ).all()
-    enrollments: list[Enrollment] = []
-    for row in enrollment_rows:
-        subject = await session.get(Subject, row.subject_id)
-        if subject is None or (staff_org is not None and subject.organization_id != staff_org):
-            continue
-        enrollments.append(
-            Enrollment(
-                subject_id=subject.id,
-                subject_name=subject.name,
-                exam_board=subject.exam_board,
-                target_grade=row.target_grade,
-            )
+    # Subjects come from the class roster; StudentSubject only contributes
+    # the tutor-entered target grade where a row exists.
+    target_rows = await session.execute(
+        select(StudentSubject.subject_id, StudentSubject.target_grade).where(
+            StudentSubject.student_id == student.id
         )
+    )
+    targets: dict[int, str | None] = {row.subject_id: row.target_grade for row in target_rows}
+    subject_query = select(Subject).where(
+        Subject.id.in_(enrolled_subjects_query(student.id, staff_org, live_only=True))
+    )
+    if staff_org is not None:
+        subject_query = subject_query.where(Subject.organization_id == staff_org)
+    enrollments = [
+        Enrollment(
+            subject_id=subject.id,
+            subject_name=subject.name,
+            exam_board=subject.exam_board,
+            target_grade=targets.get(subject.id),
+        )
+        for subject in await session.scalars(subject_query.order_by(Subject.id))
+    ]
 
     subject_ids = await enrolled_subject_ids(session, student.id, staff_org)
     readiness_summary = await build_summary_v2(session, student, subject_ids)

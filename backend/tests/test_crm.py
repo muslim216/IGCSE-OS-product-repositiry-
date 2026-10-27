@@ -176,3 +176,55 @@ async def test_crm_access_control(client, tutor, world):
     bob_headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
     forbidden = await client.get(f"/api/v1/students/{world['student_id']}/crm", headers=bob_headers)
     assert forbidden.status_code == 404
+
+
+async def test_profile_enrollments_are_the_class_subjects_with_targets_merged(client, tutor, world):
+    """No StudentSubject row: the class still lists. With one: its target grade merges."""
+    url = f"/api/v1/students/{world['student_id']}/crm"
+    body = (await client.get(url, headers=tutor["headers"])).json()
+    assert [(e["subject_id"], e["target_grade"]) for e in body["enrollments"]] == [
+        (world["subject_id"], None)
+    ]
+
+    await client.post(
+        f"/api/v1/students/{world['student_id']}/subjects",
+        json={"subject_id": world["subject_id"], "target_grade": "8"},
+        headers=tutor["headers"],
+    )
+    body = (await client.get(url, headers=tutor["headers"])).json()
+    assert [(e["subject_id"], e["target_grade"]) for e in body["enrollments"]] == [
+        (world["subject_id"], "8")
+    ]
+
+
+async def test_a_deleted_class_drops_out_of_the_profile_enrollments(client, tutor, world):
+    """Another live class keeps the tutor teaching the student, so the profile
+    opens; the deleted Chemistry class is simply not listed."""
+    physics = await make_subject_group(client, tutor, world["student_id"])
+    await client.delete(f"/api/v1/groups/{world['group']['id']}", headers=tutor["headers"])
+    body = (
+        await client.get(f"/api/v1/students/{world['student_id']}/crm", headers=tutor["headers"])
+    ).json()
+    assert [e["subject_id"] for e in body["enrollments"]] == [physics]
+
+
+async def make_subject_group(client, tutor, student_id: int) -> int:
+    from app.db import async_session
+    from app.models import GroupMember
+    from tests.factories import make_subject
+
+    async with async_session() as session:
+        subject = await make_subject(session, code="4PH1", name="Physics")
+        await session.commit()
+        subject_id = subject.id
+    group = (
+        await client.post(
+            "/api/v1/groups",
+            json={"name": "Phys", "subject_id": subject_id},
+            headers=tutor["headers"],
+        )
+    ).json()
+    async with async_session() as session:
+        session.add(GroupMember(group_id=group["id"], student_id=student_id))
+        await session.commit()
+    return subject_id
