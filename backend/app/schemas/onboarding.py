@@ -32,6 +32,10 @@ class ClassStatus(BaseModel):
     group_name: str
     steps: list[StepDone]
     complete: bool
+    #: The last plan draft ended in a terminal "cannot plan" outcome (everything
+    #: taught, too few lessons before the exam, no chapters), so the class counts
+    #: as set up with no plan. The class page says why.
+    plan_not_needed: bool = False
 
 
 class SubjectStatus(BaseModel):
@@ -59,6 +63,10 @@ class OnboardingState(BaseModel):
     #: on the checklist, but its tutor has crossed the finish line and must not be
     #: sent back into the flow.
     in_flow: bool
+    #: Whether the caller set the workspace up (the earliest tutor of the
+    #: organization). Time zone, boundaries and marking defaults are theirs; a
+    #: later member's flow is their own classes only.
+    is_owner: bool = True
     account: ItemStatus
     subjects: list[SubjectStatus]
     next_step: NextStep | None

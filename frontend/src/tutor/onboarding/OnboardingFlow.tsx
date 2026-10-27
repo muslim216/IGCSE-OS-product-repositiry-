@@ -21,6 +21,7 @@ import {
   DEFAULT_ROWS,
   GUIDE_KEY,
   STEPS,
+  WORKSPACE_STEPS,
   SUBJECT_STEPS,
   guideModel,
   stepName,
@@ -153,6 +154,9 @@ export default function OnboardingFlow({
     dismissals?.isHidden ?? (() => false),
   );
   const nextId = defaultOpen;
+  const visibleSteps = STEPS.filter(
+    (s) => data.is_owner !== false || !WORKSPACE_STEPS.includes(s.id),
+  );
 
   const [manual, setManual] = useState<StepId | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -355,7 +359,7 @@ export default function OnboardingFlow({
         </div>
       )}
       <ol className="space-y-3" data-not-now-scope>
-        {STEPS.map((step, index) => {
+        {visibleSteps.map((step, index) => {
           const locked = needs(step.id);
           const isOpen = open === step.id && !locked;
           const headingId = `onboarding-step-${step.id}`;

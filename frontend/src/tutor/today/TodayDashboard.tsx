@@ -90,8 +90,8 @@ export default function TodayDashboard() {
   // it (owner, 2026-10-06): every tutor without an accepted plan is in the flow,
   // and replacing the page for one with lessons today would take away the agenda,
   // the reminders and the way to schedule a lesson, none of which live anywhere
-  // else. It would also strand a class that cannot get a plan (everything already
-  // taught, or the exam too close) on a page with nothing else on it.
+  // else. A class that cannot get a plan (everything already taught, or the exam
+  // too close) no longer holds the flow open: the server counts it as set up.
   const hasClass = onboarding.data?.subjects.some((s) => s.classes.length > 0) ?? false;
   const flowAlone = inFlow && !hasClass && !deciding;
   // The dashboard's own reads stop once the server says this tutor is in the

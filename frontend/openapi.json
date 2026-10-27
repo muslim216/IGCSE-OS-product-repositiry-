@@ -14200,6 +14200,11 @@
           "complete": {
             "type": "boolean",
             "title": "Complete"
+          },
+          "plan_not_needed": {
+            "type": "boolean",
+            "title": "Plan Not Needed",
+            "default": false
           }
         },
         "type": "object",
@@ -17953,6 +17958,11 @@
           "in_flow": {
             "type": "boolean",
             "title": "In Flow"
+          },
+          "is_owner": {
+            "type": "boolean",
+            "title": "Is Owner",
+            "default": true
           },
           "account": {
             "$ref": "#/components/schemas/ItemStatus"

@@ -40,6 +40,9 @@ export const STEPS: { id: StepId; name: string; marker: Marker }[] = [
 
 export const SUBJECT_STEPS: StepId[] = ["boundaries", "defaults", "guidance", "timetable"];
 export const CLASS_STEPS: StepId[] = ["taught_before", "plan_inputs", "plan_accepted"];
+/** Set once for the whole workspace, so only whoever set it up is guided through
+ *  them; a later tutor's guide is the syllabus, class and plan steps. */
+export const WORKSPACE_STEPS: StepId[] = ["account", "boundaries", "defaults", "guidance"];
 export const DEFAULT_ROWS = ["marking_rules", "mistake_categories", "weak_threshold"] as const;
 
 /** The key for the whole guide. */
