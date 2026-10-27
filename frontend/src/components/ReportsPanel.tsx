@@ -198,7 +198,7 @@ export function ReportsPanel({
                 {/* The stored error is a diagnostic for the operator, not a
                     sentence for this reader — it is never shown raw. */}
                 {opened.data.status === "failed" && (
-                  <p className="text-sm text-risk-600">
+                  <p role="alert" className="text-sm text-risk-600">
                     {canGenerate
                       ? "This report couldn't be written. Generate it again in a minute."
                       : "This report couldn't be written. Your tutor can try again."}

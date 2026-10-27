@@ -774,7 +774,9 @@ function MistakeTag({
         </p>
       )}
       {revise.isError && (
-        <p className="mt-2 text-sm text-risk-600">That change did not save. Try again.</p>
+        <p role="alert" className="mt-2 text-sm text-risk-600">
+          That change did not save. Try again.
+        </p>
       )}
     </div>
   );

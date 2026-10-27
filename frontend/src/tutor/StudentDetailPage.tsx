@@ -347,7 +347,9 @@ export default function StudentDetailPage() {
                   a screen reader does not surface (CodeRabbit). */}
               <p className="text-sm" aria-live="polite">
                 {seedReadiness.isError ? (
-                  <span className="text-risk-600">Could not save the estimate.</span>
+                  <span role="alert" className="text-risk-600">
+                    Could not save the estimate.
+                  </span>
                 ) : seedReadiness.isSuccess ? (
                   <span className="text-ink-500">Estimate saved.</span>
                 ) : null}
@@ -455,7 +457,11 @@ function ObservationRows({
     );
   }
   if (observations.isError)
-    return <p className="mt-2 text-sm text-risk-600">Could not load observations.</p>;
+    return (
+      <p role="alert" className="mt-2 text-sm text-risk-600">
+        Could not load observations.
+      </p>
+    );
   const rows = observations.data ?? [];
   if (rows.length === 0) return <p className="mt-2 text-sm text-ink-500">No observations yet.</p>;
   return (
@@ -571,7 +577,9 @@ function MistakeRollupSection({
       ) : rollup.isError || !d ? (
         // Never the clean-record line and never an empty table: a request that
         // failed knows nothing about this student's work (PROD-2).
-        <p className="mt-1 text-sm text-risk-600">Could not load mistakes. {ABSENT.loadFailed}</p>
+        <p role="alert" className="mt-1 text-sm text-risk-600">
+          Could not load mistakes. {ABSENT.loadFailed}
+        </p>
       ) : d.analysed_questions === 0 ? (
         <p className="mt-1 max-w-prose text-sm text-ink-500">
           Nobody has examined this student's work for mistakes — {ABSENT.noEvidence}. An empty

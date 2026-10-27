@@ -35,7 +35,11 @@ export default function ClassNarrative({ classes }: { classes: ClassStripRow[] }
     <section>
       <h3 className="avora-label mb-2">What changed</h3>
       {narrative.isLoading ? (
-        <span aria-hidden className="block h-10 w-full animate-pulse rounded bg-surface-muted" />
+        <span
+          role="status"
+          aria-label="Loading what changed"
+          className="block h-10 w-full animate-pulse rounded bg-surface-muted"
+        />
       ) : text ? (
         <p className="max-w-prose text-sm leading-relaxed text-ink-700">
           {text}

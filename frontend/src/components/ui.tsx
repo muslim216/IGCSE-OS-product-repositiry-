@@ -137,6 +137,8 @@ export function EmptyState({
    the whole subtree out of focus and the accessibility tree. Spread rather
    than written as a prop because React 18 has no typed `inert`. */
 const INERT = { inert: "" };
+const FOCUSABLE =
+  'a[href]:not([tabindex="-1"]),button:not([tabindex="-1"]),input:not([type="hidden"]):not([tabindex="-1"]),select:not([tabindex="-1"]),textarea:not([tabindex="-1"]),[tabindex]:not([tabindex="-1"])';
 
 const Freeze = memo(
   function Freeze({ children }: { frozen: boolean; children: ReactNode }) {
@@ -203,14 +205,55 @@ export function Modal({
     onCloseRef.current = onClose;
   });
 
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Focus is held inside the panel while it is open (Tab and Shift+Tab wrap),
+  // everything else in <body> is made inert so a screen reader cannot wander
+  // behind it, and focus goes back to the opener on close. Native <dialog>
+  // would do this but changes the stacking/animation the overlay relies on.
   useEffect(() => {
     if (!open) return;
-    panelRef.current?.focus();
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = panelRef.current;
+    const focusables = () =>
+      Array.from(panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
+        (el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true",
+      );
+    if (panel && !panel.contains(document.activeElement)) (focusables()[0] ?? panel).focus();
+
+    const silenced: Element[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (el === overlayRef.current || el.hasAttribute("inert")) continue;
+      el.setAttribute("inert", "");
+      silenced.push(el);
+    }
+
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onCloseRef.current();
+      if (e.key !== "Tab" || !panel) return;
+      const items = focusables();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) {
+        e.preventDefault();
+        panel.focus();
+      } else if (!panel.contains(document.activeElement) || document.activeElement === panel) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      for (const el of silenced) el.removeAttribute("inert");
+      if (opener?.isConnected) opener.focus();
+    };
   }, [open]);
 
   const { mounted, closing } = usePresence(open);
@@ -225,6 +268,7 @@ export function Modal({
   // counted as hovering it.
   return createPortal(
     <div
+      ref={overlayRef}
       className="avora-overlay fixed inset-0 z-50 grid place-items-center p-4"
       data-closing={closing || undefined}
       {...(closing ? INERT : null)}

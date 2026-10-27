@@ -240,7 +240,7 @@ export default function AssignmentDetailPage() {
       {a.status === "extracting" && (
         <SectionCard className="flex items-start gap-3">
           <Loader2 aria-hidden className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-brand-600" />
-          <p className="text-sm text-ink-700" aria-live="polite">
+          <p role="status" className="text-sm text-ink-700">
             Reading the paper and building the question list. This usually takes under a minute —
             the page updates by itself.
           </p>
