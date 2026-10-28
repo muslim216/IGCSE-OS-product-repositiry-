@@ -192,7 +192,7 @@ async def test_a_student_in_no_class_of_the_subject_is_refused(client, tutor, wo
     ).json() == []
     resp = await _put_score(client, tutor["headers"], world["student_id"], criterion["id"])
     assert resp.status_code == 409
-    assert "enrolled" in resp.json()["detail"]
+    assert "class" in resp.json()["detail"]
 
 
 async def _join_physics_class(client, headers, student_id: int) -> None:
@@ -217,10 +217,23 @@ async def test_a_student_in_a_deleted_class_is_refused(client, tutor, world):  #
     await _join_physics_class(client, tutor["headers"], world["student_id"])
     resp = await client.delete(f"/api/v1/groups/{world['group']['id']}", headers=tutor["headers"])
     assert resp.status_code == 204, resp.text
-    listed = await client.get(_scores_url(world["student_id"]), headers=tutor["headers"])
-    assert listed.json() == []
     resp = await _put_score(client, tutor["headers"], world["student_id"], criterion["id"])
     assert resp.status_code == 409
+
+
+async def test_a_scored_criterion_stays_visible_after_its_class_is_deleted(  # noqa: F811
+    client, tutor, world
+):
+    criterion = await _create(client, tutor["headers"], subject_id=world["subject_id"])
+    scored = await _put_score(client, tutor["headers"], world["student_id"], criterion["id"])
+    assert scored.status_code == 200, scored.text
+    await _join_physics_class(client, tutor["headers"], world["student_id"])
+    resp = await client.delete(f"/api/v1/groups/{world['group']['id']}", headers=tutor["headers"])
+    assert resp.status_code == 204, resp.text
+    listed = (await client.get(_scores_url(world["student_id"]), headers=tutor["headers"])).json()
+    assert [(c["criterion_id"], c["score"]) for c in listed] == [(criterion["id"], 50)]
+    refused = await _put_score(client, tutor["headers"], world["student_id"], criterion["id"])
+    assert refused.status_code == 409
 
 
 async def test_another_organizations_class_does_not_count(client, tutor, world):  # noqa: F811

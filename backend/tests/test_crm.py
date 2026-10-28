@@ -228,3 +228,35 @@ async def make_subject_group(client, tutor, student_id: int) -> int:
         session.add(GroupMember(group_id=group["id"], student_id=student_id))
         await session.commit()
     return subject_id
+
+
+async def test_a_student_sees_only_their_own_organizations_enrollments(client, tutor, world):
+    """A class of another organization the student also sits in is not listed
+    on their own profile (SEC-7)."""
+    from sqlalchemy import select
+
+    from app.models import Group, GroupMember, User
+    from tests.factories import other_org_subject
+
+    async with async_session() as session:
+        foreign_subject = await other_org_subject(session)
+        tutor_row = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        foreign = Group(
+            organization_id=foreign_subject.organization_id,
+            tutor_id=tutor_row.id,
+            subject_id=foreign_subject.id,
+            name="Foreign",
+        )
+        session.add(foreign)
+        await session.flush()
+        session.add(GroupMember(group_id=foreign.id, student_id=world["student_id"]))
+        await session.commit()
+        foreign_id = foreign_subject.id
+    body = (
+        await client.get(
+            f"/api/v1/students/{world['student_id']}/crm", headers=world["student_headers"]
+        )
+    ).json()
+    ids = [e["subject_id"] for e in body["enrollments"]]
+    assert ids == [world["subject_id"]]
+    assert foreign_id not in ids

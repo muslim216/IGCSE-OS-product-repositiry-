@@ -96,10 +96,12 @@ def update_criterion(criterion: CustomCriterion, changes: dict) -> None:
             criterion.archived_at = utcnow()
 
 
-def _enrolled_subjects(student_id: int, organization_id: int):
+def _enrolled_subjects(student_id: int, organization_id: int, *, live_only: bool):
     # The class roster is the one list of a student's subjects (`StudentSubject`
-    # holds only a target grade), so this is the shared query, live classes only.
-    return enrolled_subjects_query(student_id, organization_id, live_only=True)
+    # holds only a target grade), so this is the shared query. Showing scores
+    # keeps a deleted class's (readiness keeps its history too); only scoring
+    # new ones requires a live class.
+    return enrolled_subjects_query(student_id, organization_id, live_only=live_only)
 
 
 async def criteria_for_student(
@@ -123,7 +125,9 @@ async def criteria_for_student(
             CustomCriterion.archived_at.is_(None),
             or_(
                 CustomCriterion.subject_id.is_(None),
-                CustomCriterion.subject_id.in_(_enrolled_subjects(student_id, organization_id)),
+                CustomCriterion.subject_id.in_(
+                    _enrolled_subjects(student_id, organization_id, live_only=False)
+                ),
             ),
         )
         .order_by(CustomCriterion.id)
@@ -163,14 +167,14 @@ async def _scorable(
         raise CriterionConflict("This criterion is archived. Unarchive it to change scores.")
     if criterion.subject_id is not None:
         enrolled = await session.scalar(
-            _enrolled_subjects(student_id, organization_id).where(
+            _enrolled_subjects(student_id, organization_id, live_only=True).where(
                 Group.subject_id == criterion.subject_id
             )
         )
         if enrolled is None:
             raise CriterionConflict(
-                "This criterion is for a subject the student is not enrolled in. "
-                "Enroll them in the subject first."
+                "This criterion is for a subject the student has no current class in. "
+                "Add them to a class of that subject first."
             )
     return criterion
 

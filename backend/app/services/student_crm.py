@@ -61,7 +61,7 @@ class StudentCrm:
 
 
 def enrolled_subjects_query(
-    student_id: int, organization_id: int | None = None, *, live_only: bool = False
+    student_id: int, organization_id: int | None, *, live_only: bool = False
 ) -> Select[tuple[int]]:
     """The one definition of "which subjects does this student take": the
     subjects of the classes they sit in. `StudentSubject` only carries a
@@ -81,7 +81,7 @@ def enrolled_subjects_query(
 
 
 async def enrolled_subject_ids(
-    session: AsyncSession, student_id: int, organization_id: int | None = None
+    session: AsyncSession, student_id: int, organization_id: int | None
 ) -> list[int]:
     """Subjects the student is enrolled in via group membership — used to
     scope the readiness summary. A deleted class still counts here: its
@@ -172,11 +172,14 @@ async def get_student_crm(session: AsyncSession, student: User, viewer: User) ->
         )
     )
     targets: dict[int, str | None] = {row.subject_id: row.target_grade for row in target_rows}
+    # Live classes only, deliberately: enrolments are what the student takes now,
+    # while the readiness subjects below keep a deleted class's history.
+    # The student and parent see their own organization's, not every one they sit in.
+    subject_org = staff_org if staff_org is not None else student.organization_id
     subject_query = select(Subject).where(
-        Subject.id.in_(enrolled_subjects_query(student.id, staff_org, live_only=True))
+        Subject.id.in_(enrolled_subjects_query(student.id, subject_org, live_only=True)),
+        Subject.organization_id == subject_org,
     )
-    if staff_org is not None:
-        subject_query = subject_query.where(Subject.organization_id == staff_org)
     enrollments = [
         Enrollment(
             subject_id=subject.id,
