@@ -4515,7 +4515,7 @@
           "mocks"
         ],
         "summary": "Mock Results",
-        "description": "One row per live member of the mock's class, by name: four queries\nhowever large the class.",
+        "description": "One row per live member of the mock's class, by name: a fixed number of\nqueries however large the class. `marks_available` is the whole paper's\nmarks, so a question without a final mark still counts against the score.",
         "operationId": "mock_results_api_v1_mocks__mock_id__results_get",
         "security": [
           {

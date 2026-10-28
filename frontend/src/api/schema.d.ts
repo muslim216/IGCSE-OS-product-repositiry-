@@ -1650,8 +1650,9 @@ export interface paths {
         };
         /**
          * Mock Results
-         * @description One row per live member of the mock's class, by name: four queries
-         *     however large the class.
+         * @description One row per live member of the mock's class, by name: a fixed number of
+         *     queries however large the class. `marks_available` is the whole paper's
+         *     marks, so a question without a final mark still counts against the score.
          */
         get: operations["mock_results_api_v1_mocks__mock_id__results_get"];
         put?: never;
