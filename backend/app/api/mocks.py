@@ -261,7 +261,7 @@ async def create_mock(
 
     # Files reach disk before any row exists, so every way out before the commit
     # (a rejected scheme, `create_work`, the insert, the enqueue) deletes them
-    # (`discarded_unless_kept`, as `upload_past_paper`): a stored object with no
+    # (`discarded_unless_kept`, as `sit_mock` does): a stored object with no
     # row pointing at it is invisible and can never be found again.
     async with storage.discarded_unless_kept(db) as saved:
         saved.append(await storage.save_upload(paper, organization_id=user.organization_id))
@@ -476,8 +476,9 @@ _RESULT_STATUS = {
 
 @router.get("/{mock_id}/results", response_model=list[MockResultRow])
 async def mock_results(mock_id: int, db: DbSession, user: TutorUser) -> list[MockResultRow]:
-    """One row per live member of the mock's class, by name: four queries
-    however large the class."""
+    """One row per live member of the mock's class, by name: a fixed number of
+    queries however large the class. `marks_available` is the whole paper's
+    marks, so a question without a final mark still counts against the score."""
     mock = await _visible_mock(db, user, mock_id)
     _require_owner(mock, user)
     if mock.group_id is None:
@@ -504,22 +505,24 @@ async def mock_results(mock_id: int, db: DbSession, user: TutorUser) -> list[Moc
     # Final marks only: a draft is never a score (`PROD-5`). Asked only for
     # settled submissions, so a mark awaiting review cannot leak into a total.
     settled_ids = [s.id for s in submissions.values() if s.status in SETTLED_STATUSES]
-    totals: dict[int, tuple[int, int]] = {}
+    awarded: dict[int, int] = {}
+    available = 0
     if settled_ids:
         rows = await db.execute(
-            select(
-                QuestionMark.submission_id,
-                func.sum(QuestionMark.final_marks),
-                func.sum(MockQuestion.max_marks),
-            )
-            .join(MockQuestion, MockQuestion.id == QuestionMark.mock_question_id)
+            select(QuestionMark.submission_id, func.sum(QuestionMark.final_marks))
             .where(
                 QuestionMark.submission_id.in_(settled_ids),
                 QuestionMark.final_marks.is_not(None),
             )
             .group_by(QuestionMark.submission_id)
         )
-        totals = {sid: (got, out_of) for sid, got, out_of in rows.all()}
+        awarded = dict(rows.all())
+        available = (
+            await db.scalar(
+                select(func.sum(MockQuestion.max_marks)).where(MockQuestion.mock_id == mock.id)
+            )
+            or 0
+        )
     out = []
     for student_id, name in students:
         sub = submissions.get(student_id)
@@ -529,7 +532,8 @@ async def mock_results(mock_id: int, db: DbSession, user: TutorUser) -> list[Moc
         else:
             state = _RESULT_STATUS[sub.status]
             if state == "final":
-                got, out_of = totals.get(sub.id, (None, None))
+                got = awarded.get(sub.id)
+                out_of = available if got is not None else None
         timed = sub is not None and sub.measured_minutes is not None
         out.append(
             MockResultRow(

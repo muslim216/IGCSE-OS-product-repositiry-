@@ -1,8 +1,6 @@
 """GH-6: the tutor's side of AI-marked mocks — what the AI read (with topics),
 Try again, the class results table, and upload cleanup."""
 
-from datetime import timedelta
-
 import pytest
 from sqlalchemy import event, select
 
@@ -57,7 +55,6 @@ async def test_detail_topics_cost_a_fixed_number_of_queries(client, tutor, mock_
     try:
         two = await client.get(_url(mock_paper), headers=tutor["headers"])
         before = n
-        n = 0
         async with async_session() as s:
             mock = await s.get(Mock, mock_paper["id"])
             for i in range(3, 9):
@@ -129,7 +126,16 @@ async def test_retry_by_another_tutor_or_a_student_is_refused(client, student, m
 
 
 async def _classmate(
-    group, name, status=None, *, opened=False, final=None, minutes=None, late=False
+    group,
+    name,
+    status=None,
+    *,
+    opened=False,
+    final=None,
+    minutes=None,
+    late=False,
+    marks=True,
+    **user_fields,
 ):
     """A student in the class, optionally opened, optionally with a submission."""
     async with async_session() as s:
@@ -141,6 +147,7 @@ async def _classmate(
             role=UserRole.student,
             name=name,
             email=f"{name.lower()}@example.com",
+            **user_fields,
         )
         s.add(GroupMember(group_id=group["id"], student_id=user.id))
         if opened:
@@ -159,7 +166,7 @@ async def _classmate(
             questions = (
                 await s.scalars(select(MockQuestion).where(MockQuestion.mock_id == mock.id))
             ).all()
-            for q, fin in zip(questions, final or [None, None], strict=True):
+            for q, fin in zip(questions if marks else [], final or [None, None], strict=False):
                 s.add(
                     QuestionMark(
                         submission_id=sub.id,
@@ -312,7 +319,6 @@ async def test_a_failed_create_leaves_no_saved_file_behind(client, tutor, subjec
         deleted.append(key)
 
     monkeypatch.setattr("app.api.mocks.storage.save_upload", save)
-    monkeypatch.setattr("app.api.mocks.storage.delete_file", record)
     monkeypatch.setattr("app.services.storage.delete_file", record)
     with pytest.raises(RuntimeError):
         await client.post(
@@ -365,9 +371,6 @@ async def test_a_mock_created_with_a_class_is_still_hidden_until_extracted(
     assert (await client.get(_url(created), headers=student["headers"])).status_code == 200
 
 
-_ = timedelta
-
-
 async def test_an_admin_in_the_same_organization_is_not_the_owner(client, tutor, mock_paper):  # noqa: F811
     """`_visible_mock` lets an organization admin read a mock; Try again and the
     results table are the owning tutor's alone, so for an admin they are a 404."""
@@ -388,3 +391,141 @@ async def test_an_admin_in_the_same_organization_is_not_the_owner(client, tutor,
     retry = await client.post(_url(mock_paper, "/retry-extraction"), headers=headers)
     assert retry.status_code == 404
     assert (await client.get(_url(mock_paper, "/results"), headers=headers)).status_code == 404
+
+
+def test_every_submission_status_has_a_result_state():
+    from app.api.mocks import _RESULT_STATUS
+
+    assert set(SubmissionStatus) <= set(_RESULT_STATUS)
+
+
+async def test_a_same_org_tutor_who_does_not_own_the_mock_gets_404(client, mock_paper):  # noqa: F811
+    from app.security import create_access_token
+
+    async with async_session() as s:
+        mock = await s.get(Mock, mock_paper["id"])
+        mock.status = MockStatus.extraction_failed
+        mate = await make_user(
+            s,
+            organization_id=mock.organization_id,
+            role=UserRole.tutor,
+            name="Colleague",
+            email="colleague@example.com",
+        )
+        await s.commit()
+        headers = {"Authorization": f"Bearer {create_access_token(mate.id, mate.token_version)}"}
+    for tail, method in (("/retry-extraction", client.post), ("/results", client.get)):
+        assert (await method(_url(mock_paper, tail), headers=headers)).status_code == 404
+
+
+async def test_late_without_a_measured_time_is_not_reported_late(client, tutor, group, mock_paper):  # noqa: F811
+    await _classmate(group, "Kit", SubmissionStatus.submitted, late=True)
+    rows = await _results(client, tutor, mock_paper)
+    assert rows["Kit"]["submitted_late"] is False
+
+
+async def test_a_student_with_an_erasure_request_is_not_listed(client, tutor, group, mock_paper):  # noqa: F811
+    await _classmate(group, "Lee", erasure_requested_at=utcnow())
+    await _classmate(group, "Max")
+    assert list(await _results(client, tutor, mock_paper)) == ["Max"]
+
+
+async def test_results_are_scoped_to_this_mock(client, tutor, subject, group, mock_paper):  # noqa: F811
+    from app.models import WorkKind
+    from app.services.work import create_work
+
+    await _classmate(group, "Nia")
+    await _classmate(group, "Oz", SubmissionStatus.finalized, final=[1, 1])
+    before = await _results(client, tutor, mock_paper)
+    async with async_session() as s:
+        first = await s.get(Mock, mock_paper["id"])
+        work = await create_work(
+            s,
+            kind=WorkKind.mock,
+            organization_id=first.organization_id,
+            subject_id=first.subject_id,
+            title="Other",
+        )
+        other = Mock(
+            work_id=work.id,
+            organization_id=first.organization_id,
+            tutor_id=first.tutor_id,
+            subject_id=first.subject_id,
+            group_id=first.group_id,
+            title="Other",
+            paper_path="x",
+            paper_name="x.pdf",
+            paper_mime="application/pdf",
+        )
+        s.add(other)
+        await s.flush()
+        for uid in await s.scalars(select(GroupMember.student_id)):
+            s.add(MockOpening(mock_id=other.id, student_id=uid, opened_at=utcnow()))
+            s.add(
+                Submission(
+                    work_id=work.id,
+                    student_id=uid,
+                    status=SubmissionStatus.finalized,
+                    submitted_at=utcnow(),
+                )
+            )
+        await s.commit()
+    assert await _results(client, tutor, mock_paper) == before
+
+
+async def test_marks_available_is_the_whole_paper_even_with_an_unmarked_question(
+    client,
+    tutor,
+    group,
+    mock_paper,  # noqa: F811
+):
+    await _classmate(group, "Pam", SubmissionStatus.finalized, final=[2, None])
+    await _classmate(group, "Quin", SubmissionStatus.finalized, marks=False)
+    rows = await _results(client, tutor, mock_paper)
+    assert (rows["Pam"]["marks_awarded"], rows["Pam"]["marks_available"]) == (2, 6)
+    assert rows["Quin"]["status"] == "final"
+    assert rows["Quin"]["marks_awarded"] is None and rows["Quin"]["marks_available"] is None
+
+
+_TWO_FILES = {
+    "paper": ("p.pdf", PDF_BYTES, "application/pdf"),
+    "mark_scheme": ("ms.pdf", PDF_BYTES, "application/pdf"),
+}
+
+
+async def test_a_successful_create_keeps_both_files(client, tutor, subject, monkeypatch):
+    deleted: list[str] = []
+
+    async def record(key: str) -> None:
+        deleted.append(key)
+
+    monkeypatch.setattr("app.services.storage.delete_file", record)
+    resp = await client.post(
+        "/api/v1/mocks",
+        data={"subject_id": str(subject["id"]), "title": "T"},
+        files=_TWO_FILES,
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    assert deleted == []
+
+
+async def test_a_failed_enqueue_removes_both_files(client, tutor, subject, monkeypatch):
+    deleted: list[str] = []
+
+    async def record(key: str) -> None:
+        deleted.append(key)
+
+    async def boom(*a, **k):
+        raise RuntimeError("queue down")
+
+    monkeypatch.setattr("app.api.mocks.enqueue", boom)
+    monkeypatch.setattr("app.services.storage.delete_file", record)
+    with pytest.raises(RuntimeError):
+        await client.post(
+            "/api/v1/mocks",
+            data={"subject_id": str(subject["id"]), "title": "T"},
+            files=_TWO_FILES,
+            headers=tutor["headers"],
+        )
+    assert len(deleted) == 2
