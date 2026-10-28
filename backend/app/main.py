@@ -179,8 +179,8 @@ async def lifespan(app: FastAPI):
 #:   responses out of an attacker's iframe.
 #: - no-referrer keeps ids in request paths out of the Referer header on any
 #:   navigation away.
-#: The frontend is served separately (static host), so its own headers are set
-#: in render.yaml rather than here.
+#: The frontend is served separately (Vercel), so its own headers are set in
+#: frontend/vercel.json rather than here.
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
