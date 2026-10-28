@@ -190,7 +190,9 @@ async def get_student_crm(session: AsyncSession, student: User, viewer: User) ->
         for subject in await session.scalars(subject_query.order_by(Subject.id))
     ]
 
-    subject_ids = await enrolled_subject_ids(session, student.id, staff_org)
+    # The same organization as the enrolments above, for the student's and parent's own
+    # view too, so the two lists never disagree about where the student is taught.
+    subject_ids = await enrolled_subject_ids(session, student.id, subject_org)
     readiness_summary = await build_summary_v2(session, student, subject_ids)
 
     homework = await _homework(session, student, staff_org)
