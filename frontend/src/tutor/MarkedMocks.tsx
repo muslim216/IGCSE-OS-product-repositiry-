@@ -155,8 +155,7 @@ export default function MarkedMocks() {
                 loading={retry.isPending && retry.variables === m.id}
                 onClick={() => retry.mutate(m.id)}
               >
-                Try again
-                <span className="sr-only"> to read {m.title}</span>
+                Try again <span className="sr-only">to read {m.title}</span>
               </Button>
             )}
           </div>
@@ -164,6 +163,28 @@ export default function MarkedMocks() {
       ))}
     </ul>
   );
+
+  function mocksBody() {
+    if (mocks.isLoading) return <SectionSkeleton rows={3} label="Loading your mocks" />;
+    if (mocks.isError) return <ErrorState error={mocks.error} onRetry={() => mocks.refetch()} />;
+    if (mocks.data?.length === 0)
+      return (
+        <EmptyState
+          title="No mocks uploaded yet."
+          hint="Add one above and the AI starts reading its questions."
+        />
+      );
+    if (!subjects.isSuccess) return list(mocks.data ?? []);
+    return (
+      <div className="space-y-5">
+        {grouped.map((g) => (
+          <SubjectSection key={g.id} subject={g.subject}>
+            {list(g.items)}
+          </SubjectSection>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -251,9 +272,7 @@ export default function MarkedMocks() {
             </p>
           )}
           {added && (
-            <p role="status" className="text-sm text-ink-700">
-              Added. The AI is reading it.
-            </p>
+            <output className="block text-sm text-ink-700">Added. The AI is reading it.</output>
           )}
           <Button type="submit" disabled={!ready} loading={upload.isPending}>
             Add mock
@@ -263,28 +282,7 @@ export default function MarkedMocks() {
 
       <SectionCard>
         <SectionHeader title="Your mocks" level="h3" />
-        <div className="mt-3">
-          {mocks.isLoading ? (
-            <SectionSkeleton rows={3} label="Loading your mocks" />
-          ) : mocks.isError ? (
-            <ErrorState error={mocks.error} onRetry={() => mocks.refetch()} />
-          ) : mocks.data?.length === 0 ? (
-            <EmptyState
-              title="No mocks uploaded yet."
-              hint="Add one above and the AI starts reading its questions."
-            />
-          ) : subjects.isSuccess ? (
-            <div className="space-y-5">
-              {grouped.map((g) => (
-                <SubjectSection key={g.id} subject={g.subject}>
-                  {list(g.items)}
-                </SubjectSection>
-              ))}
-            </div>
-          ) : (
-            list(mocks.data ?? [])
-          )}
-        </div>
+        <div className="mt-3">{mocksBody()}</div>
       </SectionCard>
     </div>
   );

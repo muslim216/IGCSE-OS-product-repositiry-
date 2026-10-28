@@ -9,6 +9,7 @@ import {
   mockResults,
   retryMock,
   setMockClass,
+  type MockDetail,
   type MockResult,
 } from "../api/mocks";
 import { AuthFileLink } from "../components/AuthFile";
@@ -57,7 +58,7 @@ function marksCell(r: MockResult): string {
   }
 }
 
-function Results({ mockId }: { mockId: number }) {
+function Results({ mockId }: Readonly<{ mockId: number }>) {
   const results = useQuery({
     queryKey: ["mock-results", mockId],
     queryFn: () => mockResults(mockId),
@@ -67,87 +68,121 @@ function Results({ mockId }: { mockId: number }) {
         ? 15000
         : false,
   });
+  function body() {
+    if (results.isPending) return <SectionSkeleton rows={3} label="Loading the results" />;
+    if (results.isError)
+      return <ErrorState error={results.error} onRetry={() => results.refetch()} />;
+    if (results.data.length === 0)
+      return (
+        <EmptyState
+          title="No students to show yet."
+          hint="Open the mock to a class and its students are listed here."
+        />
+      );
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="text-xs text-ink-500">
+            <tr>
+              <th scope="col" className="py-2 pr-4 font-medium">
+                Student
+              </th>
+              <th scope="col" className="py-2 pr-4 font-medium">
+                Status
+              </th>
+              <th scope="col" className="py-2 pr-4 font-medium">
+                Handed in
+              </th>
+              <th scope="col" className="py-2 pr-4 font-medium">
+                Marks
+              </th>
+              <th scope="col" className="py-2 font-medium">
+                <span className="sr-only">Review</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {results.data.map((r) => (
+              <tr key={r.student_id}>
+                <th scope="row" className="py-2.5 pr-4 font-medium text-ink-900">
+                  {r.student_name}
+                </th>
+                <td className="py-2.5 pr-4 text-ink-700">{RESULT_STATUS[r.status]}</td>
+                <td className="py-2.5 pr-4 text-ink-700">
+                  {r.submitted_at ? (
+                    <>
+                      {formatDayMonth(new Date(r.submitted_at))}
+                      {r.measured_minutes != null && (
+                        <span className="text-ink-500">
+                          {" "}
+                          · {formatDuration(r.measured_minutes)}
+                        </span>
+                      )}
+                      {r.submitted_late && (
+                        <span className="ml-2 rounded-full bg-warn-100 px-2 py-0.5 text-xs font-medium text-warn-700">
+                          Late
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-ink-500">—</span>
+                  )}
+                </td>
+                <td className="py-2.5 pr-4 tabular-nums text-ink-900">{marksCell(r)}</td>
+                <td className="py-2.5">
+                  {r.submission_id != null && (
+                    <Link
+                      to={`/tutor/submissions/${r.submission_id}`}
+                      className="font-medium text-brand-600 hover:text-brand-700"
+                    >
+                      Review<span className="sr-only"> {r.student_name}&apos;s work</span>
+                    </Link>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   return (
     <SectionCard>
       <SectionHeader title="Results" level="h2" />
-      <div className="mt-3">
-        {results.isPending ? (
-          <SectionSkeleton rows={3} label="Loading the results" />
-        ) : results.isError ? (
-          <ErrorState error={results.error} onRetry={() => results.refetch()} />
-        ) : results.data.length === 0 ? (
-          <EmptyState
-            title="No students to show yet."
-            hint="Open the mock to a class and its students are listed here."
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs text-ink-500">
-                <tr>
-                  <th scope="col" className="py-2 pr-4 font-medium">
-                    Student
-                  </th>
-                  <th scope="col" className="py-2 pr-4 font-medium">
-                    Status
-                  </th>
-                  <th scope="col" className="py-2 pr-4 font-medium">
-                    Handed in
-                  </th>
-                  <th scope="col" className="py-2 pr-4 font-medium">
-                    Marks
-                  </th>
-                  <th scope="col" className="py-2 font-medium">
-                    <span className="sr-only">Review</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {results.data.map((r) => (
-                  <tr key={r.student_id}>
-                    <th scope="row" className="py-2.5 pr-4 font-medium text-ink-900">
-                      {r.student_name}
-                    </th>
-                    <td className="py-2.5 pr-4 text-ink-700">{RESULT_STATUS[r.status]}</td>
-                    <td className="py-2.5 pr-4 text-ink-700">
-                      {r.submitted_at ? (
-                        <>
-                          {formatDayMonth(new Date(r.submitted_at))}
-                          {r.measured_minutes != null && (
-                            <span className="text-ink-500">
-                              {" "}
-                              · {formatDuration(r.measured_minutes)}
-                            </span>
-                          )}
-                          {r.submitted_late && (
-                            <span className="ml-2 rounded-full bg-warn-100 px-2 py-0.5 text-xs font-medium text-warn-700">
-                              Late
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-ink-500">—</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 pr-4 tabular-nums text-ink-900">{marksCell(r)}</td>
-                    <td className="py-2.5">
-                      {r.submission_id != null && (
-                        <Link
-                          to={`/tutor/submissions/${r.submission_id}`}
-                          className="font-medium text-brand-600 hover:text-brand-700"
-                        >
-                          Review<span className="sr-only"> {r.student_name}&apos;s work</span>
-                        </Link>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <div className="mt-3">{body()}</div>
     </SectionCard>
+  );
+}
+
+function ReadQuestions({ m, untagged }: Readonly<{ m: MockDetail; untagged: number }>) {
+  if (m.status === "extracting") return <p className="text-ink-500">Reading the paper…</p>;
+  if (m.questions.length === 0)
+    return <p className="text-ink-500">No questions were read from this paper.</p>;
+  return (
+    <>
+      <p className="text-ink-500">
+        The questions can&apos;t be edited here. If the AI misread the paper, upload it again as a
+        new mock.
+      </p>
+      {untagged > 0 && (
+        <p className="text-warn-700">
+          {plural(untagged, "question isn't", "questions aren't")} linked to a topic, so{" "}
+          {untagged === 1 ? "its marks count" : "their marks count"} towards no topic score.
+        </p>
+      )}
+      <ol className="space-y-1.5">
+        {m.questions.map((q) => (
+          <li key={q.id} className="flex flex-wrap gap-x-2 text-ink-500">
+            <span className="font-medium text-ink-700">Q{q.number}</span>
+            <span>{plural(q.max_marks, "mark", "marks")}</span>
+            <span>
+              · {q.topics.length > 0 ? q.topics.map((t) => t.title).join(", ") : "No topic"}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </>
   );
 }
 
@@ -260,37 +295,7 @@ export default function MockPage() {
                 <span className="text-ink-500">No mark scheme</span>
               )}
             </div>
-            {m.status === "extracting" ? (
-              <p className="text-ink-500">Reading the paper…</p>
-            ) : m.questions.length === 0 ? (
-              <p className="text-ink-500">No questions were read from this paper.</p>
-            ) : (
-              <>
-                <p className="text-ink-500">
-                  The questions can&apos;t be edited here. If the AI misread the paper, upload it
-                  again as a new mock.
-                </p>
-                {untagged > 0 && (
-                  <p className="text-warn-700">
-                    {plural(untagged, "question isn't", "questions aren't")} linked to a topic, so{" "}
-                    {untagged === 1 ? "its marks count" : "their marks count"} towards no topic
-                    score.
-                  </p>
-                )}
-                <ol className="space-y-1.5">
-                  {m.questions.map((q) => (
-                    <li key={q.id} className="flex flex-wrap gap-x-2 text-ink-500">
-                      <span className="font-medium text-ink-700">Q{q.number}</span>
-                      <span>{plural(q.max_marks, "mark", "marks")}</span>
-                      <span>
-                        ·{" "}
-                        {q.topics.length > 0 ? q.topics.map((t) => t.title).join(", ") : "No topic"}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              </>
-            )}
+            <ReadQuestions m={m} untagged={untagged} />
           </div>
         </SectionCard>
 

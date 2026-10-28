@@ -2,7 +2,7 @@
 Try again, the class results table, and upload cleanup."""
 
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import event, select, update
 
 from app.db import async_session, engine
 from app.models import (
@@ -103,7 +103,7 @@ async def test_retry_requeues_a_failed_read(client, tutor, subject, group, monke
 @pytest.mark.parametrize("state", [MockStatus.extracting, MockStatus.published])
 async def test_retry_is_refused_unless_the_read_failed(client, tutor, mock_paper, state):  # noqa: F811
     async with async_session() as s:
-        (await s.get(Mock, mock_paper["id"])).status = state
+        await s.execute(update(Mock).where(Mock.id == mock_paper["id"]).values(status=state))
         await s.commit()
     resp = await client.post(_url(mock_paper, "/retry-extraction"), headers=tutor["headers"])
     assert resp.status_code == 409
@@ -113,7 +113,11 @@ async def test_retry_is_refused_unless_the_read_failed(client, tutor, mock_paper
 async def test_retry_by_another_tutor_or_a_student_is_refused(client, student, mock_paper):  # noqa: F811
     other = await register_other_tutor(client)
     async with async_session() as s:
-        (await s.get(Mock, mock_paper["id"])).status = MockStatus.extraction_failed
+        await s.execute(
+            update(Mock)
+            .where(Mock.id == mock_paper["id"])
+            .values(status=MockStatus.extraction_failed)
+        )
         await s.commit()
     url = _url(mock_paper, "/retry-extraction")
     assert (await client.post(url, headers=other["headers"])).status_code == 404
@@ -217,11 +221,14 @@ async def test_results_map_every_status_and_count_final_marks_only(
     }
     # Nothing but a final submission has a score, and a 0 is a real 0 only there.
     for name in ("Ann", "Ben", "Cal", "Dee", "Eve", "Fay", "Gus"):
-        assert rows[name]["marks_awarded"] is None and rows[name]["marks_available"] is None
+        assert rows[name]["marks_awarded"] is None
+        assert rows[name]["marks_available"] is None
     assert (rows["Hal"]["marks_awarded"], rows["Hal"]["marks_available"]) == (5, 6)
     assert (rows["Ivy"]["marks_awarded"], rows["Ivy"]["marks_available"]) == (4, 6)
-    assert rows["Ann"]["submission_id"] is None and rows["Ann"]["submitted_at"] is None
-    assert rows["Cal"]["submission_id"] is not None and rows["Cal"]["submitted_at"]
+    assert rows["Ann"]["submission_id"] is None
+    assert rows["Ann"]["submitted_at"] is None
+    assert rows["Cal"]["submission_id"] is not None
+    assert rows["Cal"]["submitted_at"]
 
 
 async def test_results_report_late_and_measured_minutes(client, tutor, group, mock_paper):  # noqa: F811
@@ -247,7 +254,7 @@ async def test_results_are_ordered_by_name_and_skip_removed_and_erased_students(
     async with async_session() as s:
         member = await s.scalar(select(GroupMember).where(GroupMember.student_id == gone))
         await s.delete(member)
-        (await s.get(User, erased)).deleted_at = utcnow()
+        await s.execute(update(User).where(User.id == erased).values(deleted_at=utcnow()))
         await s.commit()
     resp = await client.get(_url(mock_paper, "/results"), headers=tutor["headers"])
     assert [r["student_name"] for r in resp.json()] == ["Amy", "Zed"]
@@ -265,7 +272,8 @@ async def test_a_mock_with_no_class_has_no_results(
     )
     assert resp.status_code == 201, resp.text
     resp = await client.get(_url(resp.json(), "/results"), headers=tutor["headers"])
-    assert resp.status_code == 200 and resp.json() == []
+    assert resp.status_code == 200
+    assert resp.json() == []
 
 
 async def test_results_are_the_owning_tutors_alone(client, student, mock_paper):  # noqa: F811
@@ -330,7 +338,8 @@ async def test_a_failed_create_leaves_no_saved_file_behind(client, tutor, subjec
             },
             headers=tutor["headers"],
         )
-    assert len(kept) == 1 and deleted == kept
+    assert len(kept) == 1
+    assert deleted == kept
     async with async_session() as s:
         assert (await s.scalar(select(Mock.id))) is None
 
@@ -484,7 +493,8 @@ async def test_marks_available_is_the_whole_paper_even_with_an_unmarked_question
     rows = await _results(client, tutor, mock_paper)
     assert (rows["Pam"]["marks_awarded"], rows["Pam"]["marks_available"]) == (2, 6)
     assert rows["Quin"]["status"] == "final"
-    assert rows["Quin"]["marks_awarded"] is None and rows["Quin"]["marks_available"] is None
+    assert rows["Quin"]["marks_awarded"] is None
+    assert rows["Quin"]["marks_available"] is None
 
 
 _TWO_FILES = {

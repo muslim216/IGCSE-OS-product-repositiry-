@@ -17,7 +17,7 @@ What differs from a past paper:
 
 from collections.abc import Sequence
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, or_, select
@@ -433,7 +433,7 @@ async def assign_mock_group(
     return _out(mock, counts.get(mock.id, 0), for_tutor=True)
 
 
-@router.post("/{mock_id}/retry-extraction", response_model=MockOut)
+@router.post("/{mock_id}/retry-extraction")
 async def retry_mock_extraction(mock_id: int, db: DbSession, user: TutorUser) -> MockOut:
     """Try reading a paper again. Only a mock whose read failed, and only its own
     tutor (anyone else's is a 404, `API-7`). Locked before the status check so
@@ -474,7 +474,7 @@ _RESULT_STATUS = {
 }
 
 
-@router.get("/{mock_id}/results", response_model=list[MockResultRow])
+@router.get("/{mock_id}/results")
 async def mock_results(mock_id: int, db: DbSession, user: TutorUser) -> list[MockResultRow]:
     """One row per live member of the mock's class, by name: a fixed number of
     queries however large the class. `marks_available` is the whole paper's
@@ -483,18 +483,7 @@ async def mock_results(mock_id: int, db: DbSession, user: TutorUser) -> list[Moc
     _require_owner(mock, user)
     if mock.group_id is None:
         return []
-    students = (
-        await db.execute(
-            select(User.id, User.name)
-            .join(GroupMember, GroupMember.student_id == User.id)
-            .where(
-                GroupMember.group_id == mock.group_id,
-                User.deleted_at.is_(None),
-                User.erasure_requested_at.is_(None),
-            )
-            .order_by(User.name, User.id)
-        )
-    ).all()
+    students = await _class_students(db, mock)
     submissions = {
         s.student_id: s
         for s in await db.scalars(select(Submission).where(Submission.work_id == mock.work_id))
@@ -502,53 +491,80 @@ async def mock_results(mock_id: int, db: DbSession, user: TutorUser) -> list[Moc
     opened = set(
         await db.scalars(select(MockOpening.student_id).where(MockOpening.mock_id == mock.id))
     )
-    # Final marks only: a draft is never a score (`PROD-5`). Asked only for
-    # settled submissions, so a mark awaiting review cannot leak into a total.
+    awarded, available = await _final_totals(db, mock, submissions)
+    return [
+        _result_row(student_id, name, submissions.get(student_id), opened, awarded, available)
+        for student_id, name in students
+    ]
+
+
+async def _class_students(db: DbSession, mock: Mock) -> list[Any]:
+    result = await db.execute(
+        select(User.id, User.name)
+        .join(GroupMember, GroupMember.student_id == User.id)
+        .where(
+            GroupMember.group_id == mock.group_id,
+            User.deleted_at.is_(None),
+            User.erasure_requested_at.is_(None),
+        )
+        .order_by(User.name, User.id)
+    )
+    return list(result.all())
+
+
+async def _final_totals(
+    db: DbSession, mock: Mock, submissions: dict[int, Submission]
+) -> tuple[dict[int, int], int]:
+    """Final marks only: a draft is never a score (`PROD-5`). Asked only for
+    settled submissions, so a mark awaiting review cannot leak into a total."""
     settled_ids = [s.id for s in submissions.values() if s.status in SETTLED_STATUSES]
-    awarded: dict[int, int] = {}
-    available = 0
-    if settled_ids:
-        rows = await db.execute(
-            select(QuestionMark.submission_id, func.sum(QuestionMark.final_marks))
-            .where(
-                QuestionMark.submission_id.in_(settled_ids),
-                QuestionMark.final_marks.is_not(None),
-            )
-            .group_by(QuestionMark.submission_id)
+    if not settled_ids:
+        return {}, 0
+    rows = await db.execute(
+        select(QuestionMark.submission_id, func.sum(QuestionMark.final_marks))
+        .where(
+            QuestionMark.submission_id.in_(settled_ids),
+            QuestionMark.final_marks.is_not(None),
         )
-        awarded = dict(rows.all())
-        available = (
-            await db.scalar(
-                select(func.sum(MockQuestion.max_marks)).where(MockQuestion.mock_id == mock.id)
-            )
-            or 0
+        .group_by(QuestionMark.submission_id)
+    )
+    available = (
+        await db.scalar(
+            select(func.sum(MockQuestion.max_marks)).where(MockQuestion.mock_id == mock.id)
         )
-    out = []
-    for student_id, name in students:
-        sub = submissions.get(student_id)
-        got = out_of = None
-        if sub is None:
-            state = "in_progress" if student_id in opened else "not_started"
-        else:
-            state = _RESULT_STATUS[sub.status]
-            if state == "final":
-                got = awarded.get(sub.id)
-                out_of = available if got is not None else None
-        timed = sub is not None and sub.measured_minutes is not None
-        out.append(
-            MockResultRow(
-                student_id=student_id,
-                student_name=name,
-                submission_id=sub.id if sub else None,
-                status=state,
-                submitted_at=sub.submitted_at if sub else None,
-                submitted_late=bool(timed and sub.submitted_late),
-                measured_minutes=sub.measured_minutes if sub else None,
-                marks_awarded=got,
-                marks_available=out_of,
-            )
-        )
-    return out
+        or 0
+    )
+    return dict(rows.all()), available
+
+
+def _result_row(
+    student_id: int,
+    name: str,
+    sub: Submission | None,
+    opened: set[int],
+    awarded: dict[int, int],
+    available: int,
+) -> MockResultRow:
+    got = out_of = None
+    if sub is None:
+        state = "in_progress" if student_id in opened else "not_started"
+    else:
+        state = _RESULT_STATUS[sub.status]
+        if state == "final":
+            got = awarded.get(sub.id)
+            out_of = available if got is not None else None
+    timed = sub is not None and sub.measured_minutes is not None
+    return MockResultRow(
+        student_id=student_id,
+        student_name=name,
+        submission_id=sub.id if sub else None,
+        status=state,
+        submitted_at=sub.submitted_at if sub else None,
+        submitted_late=bool(timed and sub.submitted_late),
+        measured_minutes=sub.measured_minutes if sub else None,
+        marks_awarded=got,
+        marks_available=out_of,
+    )
 
 
 @router.get("/{mock_id}/paper", response_class=Response, responses=FILE_RESPONSES)
