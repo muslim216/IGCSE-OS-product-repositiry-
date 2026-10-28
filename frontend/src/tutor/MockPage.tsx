@@ -43,7 +43,10 @@ function marksCell(r: MockResult): string {
 }
 
 function Results({ mockId }: { mockId: number }) {
-  const results = useQuery({ queryKey: ["mock-results", mockId], queryFn: () => mockResults(mockId) });
+  const results = useQuery({
+    queryKey: ["mock-results", mockId],
+    queryFn: () => mockResults(mockId),
+  });
   return (
     <SectionCard>
       <SectionHeader title="Results" level="h2" />
@@ -163,11 +166,14 @@ export default function MockPage() {
     onError: refresh,
   });
 
-  const retry = useMutation({ mutationFn: () => retryMock(id), onSuccess: refresh, onError: refresh });
+  const retry = useMutation({
+    mutationFn: () => retryMock(id),
+    onSuccess: refresh,
+    onError: refresh,
+  });
 
   if (mock.isPending) return <SectionSkeleton rows={4} label="Loading the mock" />;
-  if (mock.isError)
-    return <ErrorState error={mock.error} onRetry={() => mock.refetch()} />;
+  if (mock.isError) return <ErrorState error={mock.error} onRetry={() => mock.refetch()} />;
 
   const m = mock.data;
   const back = { to: "/tutor/mocks", label: "Mocks" };
@@ -183,7 +189,10 @@ export default function MockPage() {
       <PageHeader
         title={m.title}
         back={back}
-        description={mockStatusLine(m) + (m.duration_minutes ? ` · ${formatDuration(m.duration_minutes)} allowed` : " · Untimed")}
+        description={
+          mockStatusLine(m) +
+          (m.duration_minutes ? ` · ${formatDuration(m.duration_minutes)} allowed` : " · Untimed")
+        }
       />
 
       <div className="space-y-6">
@@ -192,7 +201,9 @@ export default function MockPage() {
             <p role="alert" className="text-sm text-risk-600">
               Couldn&apos;t read this paper.
             </p>
-            {m.extraction_error && <p className="mt-1 text-sm text-ink-500">{m.extraction_error}</p>}
+            {m.extraction_error && (
+              <p className="mt-1 text-sm text-ink-500">{m.extraction_error}</p>
+            )}
             {retry.isError && (
               <p role="alert" className="mt-2 text-sm text-risk-600">
                 {friendlyError(retry.error, "That didn't start. Try again.")}
@@ -244,7 +255,8 @@ export default function MockPage() {
                       <span className="font-medium text-ink-700">Q{q.number}</span>
                       <span>{plural(q.max_marks, "mark", "marks")}</span>
                       <span>
-                        · {q.topics.length > 0 ? q.topics.map((t) => t.title).join(", ") : "No topic"}
+                        ·{" "}
+                        {q.topics.length > 0 ? q.topics.map((t) => t.title).join(", ") : "No topic"}
                       </span>
                     </li>
                   ))}

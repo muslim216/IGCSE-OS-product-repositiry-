@@ -35,8 +35,7 @@ export const mockPaperPath = (id: number) => `/api/v1/mocks/${id}/paper`;
 
 /* ---- The tutor's side: upload a mock for the AI to read and mark ---------- */
 
-// TODO(types): replace with components["schemas"][...] once origin/feat/tutor-mocks
-// regenerates schema.d.ts (FE-4).
+/** One student of the mock's class. Marks are final marks only, null until then. */
 export type MockResult = components["schemas"]["MockResultRow"];
 
 export const listMocks = () => api<Mock[]>("/api/v1/mocks");
