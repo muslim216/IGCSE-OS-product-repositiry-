@@ -21,6 +21,8 @@ export function mockStatusLine(m: Mock): string {
   if (m.status === "extraction_failed")
     return "Couldn't read this paper. Try again, or upload a clearer copy as a new mock.";
   if (m.status === "extracting") return "Reading the paper…";
+  if (m.status === "closed") return "Closed";
+  if (m.question_count === 0) return "No questions read";
   const marks = m.total_marks ? ` · ${m.total_marks} marks` : "";
   return `${plural(m.question_count, "question", "questions")}${marks}`;
 }
@@ -48,6 +50,13 @@ export default function MarkedMocks() {
   // would leave them still naming what was just sent.
   const [pickerKey, setPickerKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [added, setAdded] = useState(false);
+  // Any edit starts a fresh attempt: the old error and "Added" no longer apply.
+  const edit = (set: (v: string) => void) => (e: { target: { value: string } }) => {
+    setError(null);
+    setAdded(false);
+    set(e.target.value);
+  };
 
   const upload = useMutation({
     mutationFn: () =>
@@ -66,6 +75,7 @@ export default function MarkedMocks() {
       setPaper(null);
       setMarkScheme(null);
       setPickerKey((k) => k + 1);
+      setAdded(true);
       queryClient.invalidateQueries({ queryKey: ["mocks"] });
     },
     onError: (err) => setError(friendlyError(err, "That mock didn't upload. Try again.")),
@@ -94,6 +104,7 @@ export default function MarkedMocks() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setAdded(false);
     if (ready) upload.mutate();
   }
 
@@ -166,7 +177,7 @@ export default function MarkedMocks() {
           <SectionHeader level="h3" title="Add a mock" />
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Subject">
-              <Select value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+              <Select value={subjectId} onChange={edit(setSubjectId)}>
                 <option value="">Choose a subject</option>
                 {subjects.data?.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -179,7 +190,7 @@ export default function MarkedMocks() {
               <Input
                 value={title}
                 maxLength={200}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={edit(setTitle)}
                 placeholder="e.g. Year 11 Chemistry mock"
               />
             </Field>
@@ -193,12 +204,12 @@ export default function MarkedMocks() {
                 min={1}
                 inputMode="numeric"
                 value={duration}
-                onChange={(e) => setDuration(e.target.value)}
+                onChange={edit(setDuration)}
                 placeholder="e.g. 90"
               />
             </Field>
             <Field label="Date it is sat" optional>
-              <Input type="date" value={satOn} onChange={(e) => setSatOn(e.target.value)} />
+              <Input type="date" value={satOn} onChange={edit(setSatOn)} />
             </Field>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -208,7 +219,11 @@ export default function MarkedMocks() {
                 accept="application/pdf,image/*"
                 prompt="Choose the question paper"
                 hint="PDF or photo"
-                onFiles={(files) => setPaper(files[0] ?? null)}
+                onFiles={(files) => {
+                  setError(null);
+                  setAdded(false);
+                  setPaper(files[0] ?? null);
+                }}
               />
             </Field>
             <Field label="Mark scheme" optional>
@@ -217,7 +232,11 @@ export default function MarkedMocks() {
                 accept="application/pdf,image/*"
                 prompt="Choose the mark scheme"
                 hint="PDF or photo"
-                onFiles={(files) => setMarkScheme(files[0] ?? null)}
+                onFiles={(files) => {
+                  setError(null);
+                  setAdded(false);
+                  setMarkScheme(files[0] ?? null);
+                }}
               />
             </Field>
           </div>
@@ -229,6 +248,11 @@ export default function MarkedMocks() {
           {error && (
             <p role="alert" className="text-sm text-risk-600">
               {error}
+            </p>
+          )}
+          {added && (
+            <p role="status" className="text-sm text-ink-700">
+              Added. The AI is reading it.
             </p>
           )}
           <Button type="submit" disabled={!ready} loading={upload.isPending}>

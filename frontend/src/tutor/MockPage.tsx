@@ -13,7 +13,13 @@ import {
 } from "../api/mocks";
 import { AuthFileLink } from "../components/AuthFile";
 import { Button, Field, Select } from "../components/controls";
-import { ConfirmDialog, ErrorState, PageHeader, SectionSkeleton } from "../components/page";
+import {
+  ConfirmDialog,
+  ErrorState,
+  NotFoundState,
+  PageHeader,
+  SectionSkeleton,
+} from "../components/page";
 import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
 import { friendlyError } from "../lib/errors";
 import { formatDuration } from "../lib/schedule";
@@ -34,18 +40,32 @@ const RESULT_STATUS: Record<MockResult["status"], string> = {
 /** A mark is shown only when it is final. Anything else says why there is
  *  none, and never as 0 (PROD-2, UX-19). */
 function marksCell(r: MockResult): string {
-  if (r.status === "final" && r.marks_awarded !== null && r.marks_awarded !== undefined) {
-    return r.marks_available ? `${r.marks_awarded}/${r.marks_available}` : String(r.marks_awarded);
+  switch (r.status) {
+    case "final":
+      if (r.marks_awarded == null) return "No marks recorded";
+      return r.marks_available != null
+        ? `${r.marks_awarded}/${r.marks_available}`
+        : String(r.marks_awarded);
+    case "marked":
+      return "Waiting for your review";
+    case "handed_in":
+      return "Being marked by the AI";
+    case "in_progress":
+      return "Sitting it now";
+    default:
+      return "Not handed in";
   }
-  if (r.status === "marked") return "Waiting for your review";
-  if (r.status === "handed_in") return "Being marked by the AI";
-  return "Not handed in";
 }
 
 function Results({ mockId }: { mockId: number }) {
   const results = useQuery({
     queryKey: ["mock-results", mockId],
     queryFn: () => mockResults(mockId),
+    // Marking runs in the background; poll until nothing is still being sat or marked.
+    refetchInterval: (query) =>
+      query.state.data?.some((r) => r.status === "in_progress" || r.status === "handed_in")
+        ? 15000
+        : false,
   });
   return (
     <SectionCard>
@@ -172,6 +192,14 @@ export default function MockPage() {
     onError: refresh,
   });
 
+  if (!Number.isFinite(id)) {
+    return (
+      <NotFoundState
+        title="We couldn't find that mock"
+        back={{ to: "/tutor/mocks", label: "Mocks" }}
+      />
+    );
+  }
   if (mock.isPending) return <SectionSkeleton rows={4} label="Loading the mock" />;
   if (mock.isError) return <ErrorState error={mock.error} onRetry={() => mock.refetch()} />;
 
@@ -313,7 +341,13 @@ export default function MockPage() {
                         Open to class
                       </Button>
                       {changing && (
-                        <Button variant="ghost" onClick={() => setChanging(false)}>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setChanging(false);
+                            setPicked("");
+                          }}
+                        >
                           Cancel
                         </Button>
                       )}
