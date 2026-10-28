@@ -465,7 +465,7 @@ test("nothing is rendered when every question has a topic", async () => {
   expect(screen.queryByText(/linked to a syllabus topic/)).not.toBeInTheDocument();
 });
 
-test("a mock's bare-question link goes to mocks, not the past-paper library", async () => {
+test("a mock's bare-question link goes to the mock's page, not the past-paper library", async () => {
   // A mock carries `mock_id` and never `assignment_id`, so a two-arm
   // `assignment_id ? … : past-papers` test sends every mock to the past-paper
   // library — wrong destination, nothing failing, and the tutor cannot reach
@@ -488,9 +488,9 @@ test("a mock's bare-question link goes to mocks, not the past-paper library", as
     }),
   );
   renderPage();
-  expect(await screen.findByRole("link", { name: "Fix this" })).toHaveAttribute(
+  expect(await screen.findByRole("link", { name: "See the mock's questions" })).toHaveAttribute(
     "href",
-    "/tutor/mocks",
+    "/tutor/mocks/4",
   );
 });
 

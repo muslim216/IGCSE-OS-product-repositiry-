@@ -51,6 +51,7 @@ import ClassReportPage from "./tutor/ClassReportPage";
 import TodayDashboard from "./tutor/today/TodayDashboard";
 import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
+import MockPage from "./tutor/MockPage";
 import MocksPage from "./tutor/MocksPage";
 import SubjectSetupPage from "./tutor/SubjectSetupPage";
 import SettingsPage from "./tutor/SettingsPage";
@@ -193,6 +194,7 @@ export default function App() {
             element={<Navigate to="/tutor/subject-setup#preferences" replace />}
           />
           <Route path="/tutor/mocks" element={<MocksPage />} />
+          <Route path="/tutor/mocks/:mockId" element={<MockPage />} />
           <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />
           <Route path="/tutor/homework" element={<TutorHomeworkPage />} />
           <Route path="/tutor/students" element={<TutorStudentsPage />} />

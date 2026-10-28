@@ -497,14 +497,31 @@ export default function SubmissionReviewPage() {
                 s.assignment_id
                   ? `/tutor/assignments/${s.assignment_id}`
                   : s.mock_id
-                    ? "/tutor/mocks"
+                    ? `/tutor/mocks/${s.mock_id}`
                     : "/tutor/past-papers"
               }
               className="font-medium text-brand-600 hover:text-brand-700"
             >
-              Fix this
+              {/* A mock's questions can't be edited, so "Fix this" would promise
+                  an edit that doesn't exist. */}
+              {s.mock_id ? "See the mock's questions" : "Fix this"}
             </Link>
           </div>
+        )}
+
+        {/* The minutes are measured by the server's clock, not self-declared. A
+            mock whose student never opened a clock has none, and then says
+            nothing about timing beyond a late flag. */}
+        {s.mock_id && (s.measured_minutes != null || s.submitted_late) && (
+          <p className="text-sm text-ink-700">
+            {s.measured_minutes != null &&
+              `Handed in ${s.measured_minutes} ${s.measured_minutes === 1 ? "minute" : "minutes"} after starting`}
+            {s.submitted_late && (
+              <span className="ml-2 rounded-full bg-warn-100 px-2 py-0.5 text-xs font-medium text-warn-700">
+                Late
+              </span>
+            )}
+          </p>
         )}
 
         {s.ai_error && (

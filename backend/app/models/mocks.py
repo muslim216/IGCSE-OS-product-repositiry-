@@ -10,8 +10,10 @@ homework into a shape it is not.
 `Assessment` (models/readiness.py) stays what it has always been: a mock or
 test whose marks the tutor types in by hand. The two coexist because they are
 two ways of recording the same kind of event — typed in, or sat and AI-marked —
-and both write `EvidenceSource.mock`, so readiness weighs them identically. A
-mock counts for what it is, not for how its marks were produced.
+and both write `EvidenceSource.mock`. They are NOT weighed identically
+everywhere: an AI mock's marks feed the averaging grade and mock Evidence, but
+not Topic Mastery or Assessment Performance (owner decision, 2 October 2026;
+`TOPIC_MASTERY_KINDS`).
 """
 
 import enum

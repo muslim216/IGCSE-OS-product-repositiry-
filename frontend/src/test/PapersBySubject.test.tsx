@@ -64,6 +64,10 @@ function mockApi(data: Api) {
       if (init?.method === "POST" && url.includes("/past-papers")) {
         return new Response(JSON.stringify(data.created), { status: 201 });
       }
+      // The AI-marked mocks list (`GET /mocks`) is a different resource from the
+      // manual assessments below, and these tests are about the latter.
+      if (new URL(url, "http://localhost").pathname === "/api/v1/mocks")
+        return new Response("[]", { status: 200 });
       const body =
         url.includes("/assessments") || url.includes("/mocks")
           ? (data.assessments ?? [])

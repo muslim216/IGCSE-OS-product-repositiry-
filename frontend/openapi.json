@@ -4230,6 +4230,7 @@
           "mocks"
         ],
         "summary": "Create Mock",
+        "description": "Upload a paper (and optionally its scheme) and queue the AI read.\n\n`group_id` is accepted for API compatibility, but the mock is not visible to\nthe class until extraction has published it (`_student_may_see`). The tutor\nscreens never send it: they check what the AI read, then open the mock to a\nclass with `PATCH /mocks/{id}`.",
         "operationId": "create_mock_api_v1_mocks_post",
         "security": [
           {
@@ -4443,6 +4444,106 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MockOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mocks/{mock_id}/retry-extraction": {
+      "post": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "Retry Mock Extraction",
+        "description": "Try reading a paper again. Only a mock whose read failed, and only its own\ntutor (anyone else's is a 404, `API-7`). Locked before the status check so\ntwo presses of Try again cannot both pass it and queue two reads.",
+        "operationId": "retry_mock_extraction_api_v1_mocks__mock_id__retry_extraction_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mock Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MockOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mocks/{mock_id}/results": {
+      "get": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "Mock Results",
+        "description": "One row per live member of the mock's class, by name: a fixed number of\nqueries however large the class. `marks_available` is the whole paper's\nmarks, so a question without a final mark still counts against the score.",
+        "operationId": "mock_results_api_v1_mocks__mock_id__results_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mock Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MockResultRow"
+                  },
+                  "title": "Response Mock Results Api V1 Mocks  Mock Id  Results Get"
                 }
               }
             }
@@ -17377,6 +17478,14 @@
           "has_mark_scheme": {
             "type": "boolean",
             "title": "Has Mark Scheme"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/TopicOut"
+            },
+            "type": "array",
+            "title": "Topics",
+            "default": []
           }
         },
         "type": "object",
@@ -17388,6 +17497,103 @@
           "has_mark_scheme"
         ],
         "title": "MockQuestionOut"
+      },
+      "MockResultRow": {
+        "properties": {
+          "student_id": {
+            "type": "integer",
+            "title": "Student Id"
+          },
+          "student_name": {
+            "type": "string",
+            "title": "Student Name"
+          },
+          "submission_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_started",
+              "in_progress",
+              "handed_in",
+              "marked",
+              "final"
+            ],
+            "title": "Status"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "submitted_late": {
+            "type": "boolean",
+            "title": "Submitted Late"
+          },
+          "measured_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Minutes"
+          },
+          "marks_awarded": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marks Awarded"
+          },
+          "marks_available": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marks Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id",
+          "student_name",
+          "submission_id",
+          "status",
+          "submitted_at",
+          "submitted_late",
+          "measured_minutes",
+          "marks_awarded",
+          "marks_available"
+        ],
+        "title": "MockResultRow",
+        "description": "One student of the mock's class. `status` collapses `SubmissionStatus`:\nno opening = not_started; opened, nothing handed in = in_progress;\nsubmitted/marking/ai_failed = handed_in; ai_marked/needs_review = marked;\nfinalized/auto_finalized = final. Marks are FINAL marks only and null until\nthen, never 0 (`PROD-2`, `PROD-5`)."
       },
       "MockStatus": {
         "type": "string",
