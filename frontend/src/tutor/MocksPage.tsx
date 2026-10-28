@@ -8,6 +8,7 @@ import { ErrorState, PageHeader, SectionSkeleton, Skeleton } from "../components
 import { SubjectPicker, SubjectSection } from "../components/SubjectGroups";
 import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
 import { useSubjectFilter } from "../lib/subjectGroups";
+import MarkedMocks from "./MarkedMocks";
 import { formatDayMonth } from "../lib/timezones";
 
 /** What the API's lowercase `type` means, said the way a tutor would. */
@@ -90,6 +91,8 @@ export default function MocksPage() {
       />
 
       <div className="space-y-8">
+        <MarkedMocks />
+
         <section className="space-y-3">
           <SectionHeader
             title="Enter marks"
