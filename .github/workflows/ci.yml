@@ -41,7 +41,7 @@ jobs:
     # wrong thing, and the first question about a red run is always which kind of
     # wrong it is. This one is also the cheapest, so it answers first.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -147,7 +147,7 @@ jobs:
       # service most of them have no opinion about.
       TEST_REDIS_URL: redis://localhost:6379/0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -237,7 +237,7 @@ jobs:
       TEST_DATABASE_URL: postgresql+asyncpg://igcse:igcse@localhost:5432/igcse_suite
       TEST_DATABASE_THROWAWAY: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -301,7 +301,7 @@ jobs:
       DATABASE_URL: postgresql://igcse:igcse@localhost:5432/igcse
       JWT_SECRET: ci-only-secret-not-used-to-sign-anything-real
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -436,7 +436,7 @@ jobs:
     # this job that failure arrives as a broken production deploy after the merge
     # (INF-1) instead of as a red pull request.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: docker build
         run: docker build --tag avora-api-ci backend/
@@ -469,7 +469,7 @@ jobs:
     name: Dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
@@ -496,7 +496,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
