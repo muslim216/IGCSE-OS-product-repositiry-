@@ -146,8 +146,9 @@ services:
         sync: false
 
       # --- Readiness v2 -------------------------------------------------
-      # Kill switch, not a shadow flag: false stops v2 runs being enqueued and
-      # readiness falls back to the v1 engine instead of breaking.
+      # Kill switch, not a shadow flag: false stops new readiness runs being
+      # enqueued, and every page keeps showing the last score it calculated (the
+      # v1 engine is gone, so there is nothing to fall back to).
       - key: READINESS_V2_SHADOW_ENABLED
         value: "true"
       - key: READINESS_V2_COALESCE_SECONDS

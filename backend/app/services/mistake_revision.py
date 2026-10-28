@@ -87,8 +87,8 @@ async def revise_mistake(
             # `parent.tutor_id` with no organization check at all — so a work
             # row whose org had drifted from its tutor's would resolve
             # categories in the other tenant. The subject does come off the
-            # work: a subject is global, and (organization, subject) together
-            # are what scopes a category (`SEC-8`).
+            # work, and (organization, subject) together are what scopes a
+            # category (`SEC-8`).
             MistakeCategory.organization_id == tutor.organization_id,
             MistakeCategory.subject_id == work.subject_id,
             # Archived categories are hidden from new tagging and from the
