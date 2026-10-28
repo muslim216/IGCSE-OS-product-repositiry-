@@ -1559,7 +1559,15 @@ export interface paths {
         /** List Mocks */
         get: operations["list_mocks_api_v1_mocks_get"];
         put?: never;
-        /** Create Mock */
+        /**
+         * Create Mock
+         * @description Upload a paper (and optionally its scheme) and queue the AI read.
+         *
+         *     `group_id` is accepted for API compatibility, but the mock is not visible to
+         *     the class until extraction has published it (`_student_may_see`). The tutor
+         *     screens never send it: they check what the AI read, then open the mock to a
+         *     class with `PATCH /mocks/{id}`.
+         */
         post: operations["create_mock_api_v1_mocks_post"];
         delete?: never;
         options?: never;
@@ -1609,6 +1617,49 @@ export interface paths {
          *     who are no longer its audience.
          */
         patch: operations["assign_mock_group_api_v1_mocks__mock_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/mocks/{mock_id}/retry-extraction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Mock Extraction
+         * @description Try reading a paper again. Only a mock whose read failed, and only its own
+         *     tutor (anyone else's is a 404, `API-7`). Locked before the status check so
+         *     two presses of Try again cannot both pass it and queue two reads.
+         */
+        post: operations["retry_mock_extraction_api_v1_mocks__mock_id__retry_extraction_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mocks/{mock_id}/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mock Results
+         * @description One row per live member of the mock's class, by name: four queries
+         *     however large the class.
+         */
+        get: operations["mock_results_api_v1_mocks__mock_id__results_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/mocks/{mock_id}/paper": {
@@ -6032,6 +6083,42 @@ export interface components {
             max_marks: number;
             /** Has Mark Scheme */
             has_mark_scheme: boolean;
+            /**
+             * Topics
+             * @default []
+             */
+            topics: components["schemas"]["TopicOut"][];
+        };
+        /**
+         * MockResultRow
+         * @description One student of the mock's class. `status` collapses `SubmissionStatus`:
+         *     no opening = not_started; opened, nothing handed in = in_progress;
+         *     submitted/marking/ai_failed = handed_in; ai_marked/needs_review = marked;
+         *     finalized/auto_finalized = final. Marks are FINAL marks only and null until
+         *     then, never 0 (`PROD-2`, `PROD-5`).
+         */
+        MockResultRow: {
+            /** Student Id */
+            student_id: number;
+            /** Student Name */
+            student_name: string;
+            /** Submission Id */
+            submission_id: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_started" | "in_progress" | "handed_in" | "marked" | "final";
+            /** Submitted At */
+            submitted_at: string | null;
+            /** Submitted Late */
+            submitted_late: boolean;
+            /** Measured Minutes */
+            measured_minutes: number | null;
+            /** Marks Awarded */
+            marks_awarded: number | null;
+            /** Marks Available */
+            marks_available: number | null;
         };
         /**
          * MockStatus
@@ -11371,6 +11458,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MockOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_mock_extraction_api_v1_mocks__mock_id__retry_extraction_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mock_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mock_results_api_v1_mocks__mock_id__results_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mock_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockResultRow"][];
                 };
             };
             /** @description Validation Error */

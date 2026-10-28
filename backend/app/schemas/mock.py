@@ -1,8 +1,10 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.models import AssessmentType, MockStatus
+from app.schemas.groups import TopicOut
 
 
 class MockQuestionOut(BaseModel):
@@ -11,6 +13,10 @@ class MockQuestionOut(BaseModel):
     text_summary: str
     max_marks: int
     has_mark_scheme: bool
+    # The syllabus topics the AI linked this question to. Filled for the owning
+    # tutor/admin only; a student always gets [] because the student pages show
+    # no topics (and the tutor's classification is not theirs to read).
+    topics: list[TopicOut] = []
 
 
 class MockOut(BaseModel):
@@ -85,3 +91,21 @@ class MockSubmissionOut(BaseModel):
     # Null until the submission has settled.
     raw_marks: int | None = None
     max_marks: int | None = None
+
+
+class MockResultRow(BaseModel):
+    """One student of the mock's class. `status` collapses `SubmissionStatus`:
+    no opening = not_started; opened, nothing handed in = in_progress;
+    submitted/marking/ai_failed = handed_in; ai_marked/needs_review = marked;
+    finalized/auto_finalized = final. Marks are FINAL marks only and null until
+    then, never 0 (`PROD-2`, `PROD-5`)."""
+
+    student_id: int
+    student_name: str
+    submission_id: int | None
+    status: Literal["not_started", "in_progress", "handed_in", "marked", "final"]
+    submitted_at: datetime | None
+    submitted_late: bool
+    measured_minutes: int | None
+    marks_awarded: int | None
+    marks_available: int | None

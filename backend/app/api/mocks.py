@@ -39,26 +39,32 @@ from app.models import (
     Mock,
     MockOpening,
     MockQuestion,
+    MockQuestionTopic,
     MockStatus,
     QuestionMark,
     Subject,
     Submission,
     SubmissionFile,
+    SubmissionStatus,
+    Topic,
     User,
     UserRole,
     WorkKind,
 )
 from app.models.base import utcnow
+from app.schemas.groups import TopicOut
 from app.schemas.mock import (
     MockAssignGroup,
     MockClockOut,
     MockDetail,
     MockOut,
     MockQuestionOut,
+    MockResultRow,
     MockSubmissionOut,
 )
 from app.services import mock_clock, storage
 from app.services.attempts import open_attempt
+from app.services.extraction import run_now
 from app.services.injection_scan import scan_typed_answer
 from app.services.marking import queue_marking
 from app.services.submission_kind import MOCK
@@ -167,6 +173,22 @@ async def _question_counts(db, mock_ids: Sequence[int]) -> dict[int, int]:
     return dict(rows.all())
 
 
+async def _question_topics(db, question_ids: Sequence[int]) -> dict[int, list[TopicOut]]:
+    """Every question's topics in one round trip (as `past_papers._question_topics`)."""
+    if not question_ids:
+        return {}
+    rows = await db.execute(
+        select(MockQuestionTopic.question_id, Topic)
+        .join(Topic, Topic.id == MockQuestionTopic.topic_id)
+        .where(MockQuestionTopic.question_id.in_(question_ids))
+        .order_by(Topic.id)
+    )
+    topics: dict[int, list[TopicOut]] = {}
+    for question_id, topic in rows.all():
+        topics.setdefault(question_id, []).append(TopicOut.model_validate(topic))
+    return topics
+
+
 def _out(mock: Mock, question_count: int, *, for_tutor: bool) -> MockOut:
     return MockOut(
         id=mock.id,
@@ -220,6 +242,13 @@ async def create_mock(
     # against in the clock.
     duration_minutes: Annotated[int | None, Form(gt=0)] = None,
 ) -> MockOut:
+    """Upload a paper (and optionally its scheme) and queue the AI read.
+
+    `group_id` is accepted for API compatibility, but the mock is not visible to
+    the class until extraction has published it (`_student_may_see`). The tutor
+    screens never send it: they check what the AI read, then open the mock to a
+    class with `PATCH /mocks/{id}`.
+    """
     subject = await owned_subject(db, subject_id, user)
     if group_id is not None:
         group = await _owned_group(db, group_id, user)
@@ -230,42 +259,47 @@ async def create_mock(
             "A mock needs its question paper — there is nothing to extract or mark without it.",
         )
 
-    paper_path, paper_name, paper_mime = await storage.save_upload(
-        paper, organization_id=user.organization_id
-    )
-    ms_path = ms_name = ms_mime = None
-    if mark_scheme is not None and mark_scheme.filename:
-        ms_path, ms_name, ms_mime = await storage.save_upload(
-            mark_scheme, organization_id=user.organization_id
+    # Files reach disk before any row exists, so every way out before the commit
+    # (a rejected scheme, `create_work`, the insert, the enqueue) deletes them
+    # (`discarded_unless_kept`, as `upload_past_paper`): a stored object with no
+    # row pointing at it is invisible and can never be found again.
+    async with storage.discarded_unless_kept(db) as saved:
+        saved.append(await storage.save_upload(paper, organization_id=user.organization_id))
+        paper_path, paper_name, paper_mime = saved[0]
+        ms_path = ms_name = ms_mime = None
+        if mark_scheme is not None and mark_scheme.filename:
+            saved.append(
+                await storage.save_upload(mark_scheme, organization_id=user.organization_id)
+            )
+            ms_path, ms_name, ms_mime = saved[1]
+        work = await create_work(
+            db,
+            kind=WorkKind.mock,
+            organization_id=user.organization_id,
+            subject_id=subject.id,
+            title=title,
         )
-    work = await create_work(
-        db,
-        kind=WorkKind.mock,
-        organization_id=user.organization_id,
-        subject_id=subject.id,
-        title=title,
-    )
-    mock = Mock(
-        work_id=work.id,
-        organization_id=user.organization_id,
-        tutor_id=user.id,
-        subject_id=subject.id,
-        group_id=group_id,
-        title=title,
-        type=type,
-        sat_on=sat_on,
-        total_marks=total_marks,
-        duration_minutes=duration_minutes,
-        paper_path=paper_path,
-        paper_name=paper_name,
-        paper_mime=paper_mime,
-        mark_scheme_path=ms_path,
-        mark_scheme_name=ms_name,
-        mark_scheme_mime=ms_mime,
-    )
-    db.add(mock)
-    await db.flush()
-    await enqueue(db, "extract_mock", {"mock_id": mock.id})
+        mock = Mock(
+            work_id=work.id,
+            organization_id=user.organization_id,
+            tutor_id=user.id,
+            subject_id=subject.id,
+            group_id=group_id,
+            title=title,
+            type=type,
+            sat_on=sat_on,
+            total_marks=total_marks,
+            duration_minutes=duration_minutes,
+            paper_path=paper_path,
+            paper_name=paper_name,
+            paper_mime=paper_mime,
+            mark_scheme_path=ms_path,
+            mark_scheme_name=ms_name,
+            mark_scheme_mime=ms_mime,
+        )
+        db.add(mock)
+        await db.flush()
+        await enqueue(db, "extract_mock", {"mock_id": mock.id})
     await db.commit()
     return _out(mock, 0, for_tutor=True)
 
@@ -341,6 +375,7 @@ async def get_mock(mock_id: int, db: DbSession, user: CurrentUser) -> MockDetail
         )
     ).all()
     base = _out(mock, len(questions), for_tutor=for_tutor)
+    topics = await _question_topics(db, [q.id for q in questions]) if for_tutor else {}
     return MockDetail(
         **base.model_dump(),
         questions=[
@@ -350,6 +385,7 @@ async def get_mock(mock_id: int, db: DbSession, user: CurrentUser) -> MockDetail
                 text_summary=q.text_summary,
                 max_marks=q.max_marks,
                 has_mark_scheme=q.has_mark_scheme,
+                topics=topics.get(q.id, []),
             )
             for q in questions
         ],
@@ -395,6 +431,120 @@ async def assign_mock_group(
     await db.commit()
     counts = await _question_counts(db, [mock.id])
     return _out(mock, counts.get(mock.id, 0), for_tutor=True)
+
+
+@router.post("/{mock_id}/retry-extraction", response_model=MockOut)
+async def retry_mock_extraction(mock_id: int, db: DbSession, user: TutorUser) -> MockOut:
+    """Try reading a paper again. Only a mock whose read failed, and only its own
+    tutor (anyone else's is a 404, `API-7`). Locked before the status check so
+    two presses of Try again cannot both pass it and queue two reads."""
+    mock = await _visible_mock(db, user, mock_id, for_update=True)
+    _require_owner(mock, user)
+    if mock.status != MockStatus.extraction_failed:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This mock can only be read again after a failed read"
+        )
+    mock.status = MockStatus.extracting
+    mock.extraction_error = None
+    await run_now(db, "extract_mock", [{"mock_id": mock.id}])
+    await db.commit()
+    # A failed read keeps no questions (the job clears the list first).
+    return _out(mock, 0, for_tutor=True)
+
+
+def _require_owner(mock: Mock, user: User) -> None:
+    # `_visible_mock` also admits an admin of the organization; these two routes
+    # are the owning tutor's alone.
+    if mock.tutor_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
+
+
+# How a submission's status reads to a tutor looking at the class. `submitted`,
+# `marking` and `ai_failed` are all "handed in, marking not finished" (a failed
+# run is retried and waits in the queue); `ai_marked`/`needs_review` have AI marks
+# with something awaiting the tutor; the settled pair are final (`SETTLED_STATUSES`).
+_RESULT_STATUS = {
+    SubmissionStatus.submitted: "handed_in",
+    SubmissionStatus.marking: "handed_in",
+    SubmissionStatus.ai_failed: "handed_in",
+    SubmissionStatus.ai_marked: "marked",
+    SubmissionStatus.needs_review: "marked",
+    SubmissionStatus.finalized: "final",
+    SubmissionStatus.auto_finalized: "final",
+}
+
+
+@router.get("/{mock_id}/results", response_model=list[MockResultRow])
+async def mock_results(mock_id: int, db: DbSession, user: TutorUser) -> list[MockResultRow]:
+    """One row per live member of the mock's class, by name: four queries
+    however large the class."""
+    mock = await _visible_mock(db, user, mock_id)
+    _require_owner(mock, user)
+    if mock.group_id is None:
+        return []
+    students = (
+        await db.execute(
+            select(User.id, User.name)
+            .join(GroupMember, GroupMember.student_id == User.id)
+            .where(
+                GroupMember.group_id == mock.group_id,
+                User.deleted_at.is_(None),
+                User.erasure_requested_at.is_(None),
+            )
+            .order_by(User.name, User.id)
+        )
+    ).all()
+    submissions = {
+        s.student_id: s
+        for s in await db.scalars(select(Submission).where(Submission.work_id == mock.work_id))
+    }
+    opened = set(
+        await db.scalars(select(MockOpening.student_id).where(MockOpening.mock_id == mock.id))
+    )
+    # Final marks only: a draft is never a score (`PROD-5`). Asked only for
+    # settled submissions, so a mark awaiting review cannot leak into a total.
+    settled_ids = [s.id for s in submissions.values() if s.status in SETTLED_STATUSES]
+    totals: dict[int, tuple[int, int]] = {}
+    if settled_ids:
+        rows = await db.execute(
+            select(
+                QuestionMark.submission_id,
+                func.sum(QuestionMark.final_marks),
+                func.sum(MockQuestion.max_marks),
+            )
+            .join(MockQuestion, MockQuestion.id == QuestionMark.mock_question_id)
+            .where(
+                QuestionMark.submission_id.in_(settled_ids),
+                QuestionMark.final_marks.is_not(None),
+            )
+            .group_by(QuestionMark.submission_id)
+        )
+        totals = {sid: (got, out_of) for sid, got, out_of in rows.all()}
+    out = []
+    for student_id, name in students:
+        sub = submissions.get(student_id)
+        got = out_of = None
+        if sub is None:
+            state = "in_progress" if student_id in opened else "not_started"
+        else:
+            state = _RESULT_STATUS[sub.status]
+            if state == "final":
+                got, out_of = totals.get(sub.id, (None, None))
+        timed = sub is not None and sub.measured_minutes is not None
+        out.append(
+            MockResultRow(
+                student_id=student_id,
+                student_name=name,
+                submission_id=sub.id if sub else None,
+                status=state,
+                submitted_at=sub.submitted_at if sub else None,
+                submitted_late=bool(timed and sub.submitted_late),
+                measured_minutes=sub.measured_minutes if sub else None,
+                marks_awarded=got,
+                marks_available=out_of,
+            )
+        )
+    return out
 
 
 @router.get("/{mock_id}/paper", response_class=Response, responses=FILE_RESPONSES)
