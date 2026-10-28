@@ -49,9 +49,7 @@ export default function GuidancePanel({
             <SectionSkeleton rows={3} label="Preparing guidance" />
           </div>
         ) : error ? (
-          <p role="alert" className="text-sm text-risk-600">
-            {error}
-          </p>
+          <p className="text-sm text-risk-600">{error}</p>
         ) : body ? (
           <div className="text-ink-700">
             <Markdown content={body} />

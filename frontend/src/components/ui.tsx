@@ -183,6 +183,51 @@ export function Reveal({
   );
 }
 
+type OpenModal = { overlay: () => HTMLElement | null };
+/** Open dialogs, innermost last. */
+const openModals: OpenModal[] = [];
+/** The last few elements to take focus, so a dialog can find its opener even
+    after a child with autoFocus has moved focus on. */
+const recentFocus: HTMLElement[] = [];
+if (typeof document !== "undefined") {
+  document.addEventListener("focusin", (e) => {
+    if (!(e.target instanceof HTMLElement)) return;
+    recentFocus.push(e.target);
+    if (recentFocus.length > 8) recentFocus.shift();
+  });
+}
+
+const MODAL_INERT = "data-modal-inert";
+
+/** Inert for everything in <body> except the top dialog and live regions
+    (toasts), which must stay announceable. Recomputed on every open and close
+    so a non-top dialog closing never un-inerts the page under another. */
+function syncInert() {
+  const top = openModals[openModals.length - 1]?.overlay() ?? null;
+  for (const el of Array.from(document.body.children)) {
+    const ours = el.hasAttribute(MODAL_INERT);
+    const keep = !top || el === top || el.hasAttribute("data-live-region");
+    if (keep) {
+      if (ours) {
+        el.removeAttribute("inert");
+        el.removeAttribute(MODAL_INERT);
+      }
+    } else if (!el.hasAttribute("inert")) {
+      el.setAttribute("inert", "");
+      el.setAttribute(MODAL_INERT, "");
+    }
+  }
+}
+
+function focusables(panel: HTMLElement): HTMLElement[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (el) =>
+      !el.hasAttribute("disabled") &&
+      !el.closest('fieldset[disabled],[hidden],[inert],[aria-hidden="true"]') &&
+      (el.checkVisibility?.({ visibilityProperty: true }) ?? true),
+  );
+}
+
 export function Modal({
   open,
   onClose,
@@ -213,25 +258,24 @@ export function Modal({
   // would do this but changes the stacking/animation the overlay relies on.
   useEffect(() => {
     if (!open) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const panel = panelRef.current;
-    const focusables = () =>
-      Array.from(panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
-        (el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true",
-      );
-    if (panel && !panel.contains(document.activeElement)) (focusables()[0] ?? panel).focus();
-
-    const silenced: Element[] = [];
-    for (const el of Array.from(document.body.children)) {
-      if (el === overlayRef.current || el.hasAttribute("inert")) continue;
-      el.setAttribute("inert", "");
-      silenced.push(el);
-    }
+    if (!panel) return;
+    // From the focusin history, not activeElement: a child with autoFocus has
+    // already taken focus by now, and would be mistaken for the opener.
+    const opener =
+      [...recentFocus].reverse().find((el) => el.isConnected && !panel.contains(el)) ?? null;
+    const entry: OpenModal = { overlay: () => overlayRef.current };
+    openModals.push(entry);
+    syncInert();
+    if (!panel.contains(document.activeElement)) (focusables(panel)[0] ?? panel).focus();
 
     function onKey(e: KeyboardEvent) {
+      // Only the top dialog reacts, so Escape closes one at a time and an
+      // outer dialog cannot pull focus out of an inner one.
+      if (openModals[openModals.length - 1] !== entry || !panel) return;
       if (e.key === "Escape") onCloseRef.current();
-      if (e.key !== "Tab" || !panel) return;
-      const items = focusables();
+      if (e.key !== "Tab") return;
+      const items = focusables(panel);
       const first = items[0];
       const last = items[items.length - 1];
       if (!first || !last) {
@@ -251,8 +295,17 @@ export function Modal({
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      for (const el of silenced) el.removeAttribute("inert");
-      if (opener?.isConnected) opener.focus();
+      const wasTop = openModals[openModals.length - 1] === entry;
+      openModals.splice(openModals.indexOf(entry), 1);
+      syncInert();
+      if (!wasTop) return;
+      // Safari does not focus a clicked button, and the opener may be gone
+      // (a deleted row): fall back to the main landmark rather than <body>.
+      const target =
+        opener && opener !== document.body && opener.isConnected
+          ? opener
+          : document.getElementById("main");
+      target?.focus();
     };
   }, [open]);
 
@@ -320,6 +373,7 @@ export function useToast(): { toast: ReactNode; showToast: (message: string) => 
   const toast = createPortal(
     <div
       aria-live="polite"
+      data-live-region
       className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center"
     >
       {mounted && (

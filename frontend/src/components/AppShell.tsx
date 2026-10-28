@@ -196,7 +196,7 @@ export default function AppShell({
           e.preventDefault();
           document.getElementById("main")?.focus();
         }}
-        className="sr-only z-50 rounded-md bg-surface px-4 py-2 text-sm font-medium text-ink-900 shadow-lg focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+        className="sr-only z-50 rounded-md bg-surface px-4 py-2 text-sm font-medium text-ink-900 shadow-lg focus:not-sr-only focus:fixed! focus:left-4 focus:top-4 focus:px-4 focus:py-2"
       >
         Skip to main content
       </a>

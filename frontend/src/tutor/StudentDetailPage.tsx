@@ -347,9 +347,7 @@ export default function StudentDetailPage() {
                   a screen reader does not surface (CodeRabbit). */}
               <p className="text-sm" aria-live="polite">
                 {seedReadiness.isError ? (
-                  <span role="alert" className="text-risk-600">
-                    Could not save the estimate.
-                  </span>
+                  <span className="text-risk-600">Could not save the estimate.</span>
                 ) : seedReadiness.isSuccess ? (
                   <span className="text-ink-500">Estimate saved.</span>
                 ) : null}
