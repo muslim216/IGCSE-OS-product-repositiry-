@@ -66,8 +66,8 @@ async def validated_topic_ids(
     session: AsyncSession, group: Group, topic_ids: list[int]
 ) -> set[int]:
     """The ids as a set, only if every one is a topic of the class's subject.
-    Subjects are global but topics are not interchangeable across them, so a
-    foreign id must not become coverage (`SEC-8`, `PROD-14`). Shared by create
+    Topics are not interchangeable across subjects, so a foreign id must not
+    become coverage (`SEC-8`, `PROD-14`). Shared by create
     and by replacing a lesson's topics, so the two cannot drift."""
     wanted = set(topic_ids)
     if wanted:

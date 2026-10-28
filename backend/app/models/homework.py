@@ -138,8 +138,9 @@ class AssignmentQuestion(Base):
     text_summary: Mapped[str] = mapped_column(Text, nullable=False)
     max_marks: Mapped[int] = mapped_column(Integer, nullable=False)
     has_mark_scheme: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    # AI-assigned at extraction, tutor-overridable in the review UI — feeds
-    # the Topic Mastery readiness factor's difficulty-tiered breakdown.
+    # Never set today: extraction does not write it and no screen edits it, so
+    # it is always NULL and readiness treats NULL as unrated (weight 1.0). If a
+    # change starts setting it, it must also show it to the tutor (`PROD-1`).
     difficulty: Mapped[QuestionDifficulty | None] = mapped_column(
         Enum(QuestionDifficulty, native_enum=False, length=8), nullable=True
     )

@@ -445,7 +445,7 @@ async def student_mistakes(
     read of one student filtered to one subject, and the student is the thing
     being addressed. Both ids are authorized before the service sees either —
     `_tutor_student` for the student, `owned_subject` for the subject (`SEC-8`:
-    subjects are global, so subject-only scoping leaks across tenants). Both
+    a subject id from the query is checked, never trusted). Both
     answer **404** rather than 403, because integer keys are enumerable and a
     403 would confirm a row in another tenant exists (`API-7`, `SEC-9`).
 

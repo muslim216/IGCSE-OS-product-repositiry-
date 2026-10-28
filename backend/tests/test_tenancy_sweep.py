@@ -730,7 +730,11 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             **await _stored(organization_id, "mark_scheme_"),
         )
         lesson = Lesson(organization_id=organization_id, group_id=group_id, date=date.today())
-        slot = ScheduleSlot(group_id=group_id, weekday=1, start_time=_time())
+        # Never today's weekday: /me/today-lessons must see no slot, whichever day
+        # the suite runs (on a Tuesday, weekday=1 made it list one).
+        slot = ScheduleSlot(
+            group_id=group_id, weekday=(date.today().weekday() + 3) % 7, start_time=_time()
+        )
         resource = GroupResource(
             group_id=group_id,
             tutor_id=uid,
