@@ -238,7 +238,7 @@ export default function AssignmentDetailPage() {
       )}
 
       {/* The status container stays mounted so the message appearing in it is announced. */}
-      <div role="status">
+      <output className="block">
         {a.status === "extracting" && (
           <SectionCard className="flex items-start gap-3">
             <Loader2 aria-hidden className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-brand-600" />
@@ -248,7 +248,7 @@ export default function AssignmentDetailPage() {
             </p>
           </SectionCard>
         )}
-      </div>
+      </output>
 
       {a.status === "extraction_failed" && (
         <div className="rounded-xl border border-line bg-risk-100 p-4 text-sm text-ink-900">

@@ -215,10 +215,10 @@ const MODAL_INERT = "data-modal-inert";
     (toasts), which must stay announceable. Recomputed on every open and close
     so a non-top dialog closing never un-inerts the page under another. */
 function syncInert() {
-  const top = openModals[openModals.length - 1]?.overlay() ?? null;
+  const top = openModals.at(-1)?.overlay() ?? null;
   for (const el of Array.from(document.body.children)) {
     const ours = el.hasAttribute(MODAL_INERT);
-    const keep = !top || el === top || el.hasAttribute("data-live-region");
+    const keep = !top || el === top || (el as HTMLElement).dataset.liveRegion !== undefined;
     if (keep) {
       if (ours) {
         el.removeAttribute("inert");
@@ -284,12 +284,12 @@ export function Modal({
     function onKey(e: KeyboardEvent) {
       // Only the top dialog reacts, so Escape closes one at a time and an
       // outer dialog cannot pull focus out of an inner one.
-      if (openModals[openModals.length - 1] !== entry || !panel) return;
+      if (openModals.at(-1) !== entry || !panel) return;
       if (e.key === "Escape") onCloseRef.current();
       if (e.key !== "Tab") return;
       const items = focusables(panel);
       const first = items[0];
-      const last = items[items.length - 1];
+      const last = items.at(-1);
       if (!first || !last) {
         e.preventDefault();
         panel.focus();
@@ -307,7 +307,7 @@ export function Modal({
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      const wasTop = openModals[openModals.length - 1] === entry;
+      const wasTop = openModals.at(-1) === entry;
       openModals.splice(openModals.indexOf(entry), 1);
       syncInert();
       if (!wasTop) return;

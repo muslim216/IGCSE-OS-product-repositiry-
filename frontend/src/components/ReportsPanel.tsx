@@ -190,13 +190,13 @@ export function ReportsPanel({
                 </Button>
               </div>
               <div className="mt-3">
-                <div role="status">
+                <output className="block">
                   {opened.data.status === "generating" && (
                     <p className="text-sm text-ink-500">
                       Writing the report… this usually takes under a minute.
                     </p>
                   )}
-                </div>
+                </output>
                 {/* The stored error is a diagnostic for the operator, not a
                     sentence for this reader — it is never shown raw. */}
                 {opened.data.status === "failed" && (

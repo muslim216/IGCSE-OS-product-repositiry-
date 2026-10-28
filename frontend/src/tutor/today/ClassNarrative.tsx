@@ -36,9 +36,7 @@ export default function ClassNarrative({ classes }: { classes: ClassStripRow[] }
       <h3 className="avora-label mb-2">What changed</h3>
       {/* Mounted for the whole life of the section, so the text appearing
           inside it is announced. */}
-      <span role="status" className="sr-only">
-        {narrative.isLoading ? "Loading what changed…" : ""}
-      </span>
+      <output className="sr-only">{narrative.isLoading ? "Loading what changed…" : ""}</output>
       {narrative.isLoading ? (
         <span aria-hidden className="block h-10 w-full animate-pulse rounded bg-surface-muted" />
       ) : text ? (
