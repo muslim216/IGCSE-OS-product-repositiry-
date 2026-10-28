@@ -330,7 +330,7 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
         )}
 
         {upload.status === "extraction_failed" && (
-          <div className="rounded-lg bg-risk-100 p-4 text-sm">
+          <div role="alert" className="rounded-lg bg-risk-100 p-4 text-sm">
             <p className="font-medium text-risk-600">We couldn't read this syllabus.</p>
             <p className="mt-1 text-ink-700">
               Try again, or upload a clearer copy of the PDF. You can also fix the draft below by

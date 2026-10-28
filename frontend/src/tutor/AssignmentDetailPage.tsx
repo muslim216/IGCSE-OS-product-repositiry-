@@ -237,15 +237,18 @@ export default function AssignmentDetailPage() {
         </p>
       )}
 
-      {a.status === "extracting" && (
-        <SectionCard className="flex items-start gap-3">
-          <Loader2 aria-hidden className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-brand-600" />
-          <p className="text-sm text-ink-700" aria-live="polite">
-            Reading the paper and building the question list. This usually takes under a minute —
-            the page updates by itself.
-          </p>
-        </SectionCard>
-      )}
+      {/* The status container stays mounted so the message appearing in it is announced. */}
+      <output className="block">
+        {a.status === "extracting" && (
+          <SectionCard className="flex items-start gap-3">
+            <Loader2 aria-hidden className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-brand-600" />
+            <p className="text-sm text-ink-700">
+              Reading the paper and building the question list. This usually takes under a minute —
+              the page updates by itself.
+            </p>
+          </SectionCard>
+        )}
+      </output>
 
       {a.status === "extraction_failed" && (
         <div className="rounded-xl border border-line bg-risk-100 p-4 text-sm text-ink-900">

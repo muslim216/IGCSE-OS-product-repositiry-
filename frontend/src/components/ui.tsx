@@ -137,6 +137,8 @@ export function EmptyState({
    the whole subtree out of focus and the accessibility tree. Spread rather
    than written as a prop because React 18 has no typed `inert`. */
 const INERT = { inert: "" };
+const FOCUSABLE =
+  'a[href]:not([tabindex="-1"]),button:not([tabindex="-1"]),input:not([type="hidden"]):not([tabindex="-1"]),select:not([tabindex="-1"]),textarea:not([tabindex="-1"]),[tabindex]:not([tabindex="-1"])';
 
 const Freeze = memo(
   function Freeze({ children }: { frozen: boolean; children: ReactNode }) {
@@ -181,6 +183,63 @@ export function Reveal({
   );
 }
 
+type OpenModal = { overlay: () => HTMLElement | null };
+/** Open dialogs, innermost last. */
+const openModals: OpenModal[] = [];
+/** The last few elements to take focus, so a dialog can find its opener even
+    after a child with autoFocus has moved focus on. */
+const recentFocus: HTMLElement[] = [];
+if (typeof document !== "undefined") {
+  const remember = (el: HTMLElement | null) => {
+    if (!el) return;
+    recentFocus.push(el);
+    if (recentFocus.length > 8) recentFocus.shift();
+  };
+  document.addEventListener("focusin", (e) => {
+    if (e.target instanceof HTMLElement) remember(e.target);
+  });
+  // A press counts as the newest "focus" too: Safari does not focus a clicked
+  // button, and a menu item or div trigger is never focusable, so without this
+  // the opener would be an unrelated control focused earlier.
+  for (const type of ["pointerdown", "mousedown"]) {
+    document.addEventListener(type, (e) => {
+      if (e.target instanceof Element)
+        remember(e.target.closest<HTMLElement>("button,[role=button],a,[tabindex]"));
+    });
+  }
+}
+
+const MODAL_INERT = "data-modal-inert";
+
+/** Inert for everything in <body> except the top dialog and live regions
+    (toasts), which must stay announceable. Recomputed on every open and close
+    so a non-top dialog closing never un-inerts the page under another. */
+function syncInert() {
+  const top = openModals.at(-1)?.overlay() ?? null;
+  for (const el of Array.from(document.body.children)) {
+    const ours = el.hasAttribute(MODAL_INERT);
+    const keep = !top || el === top || (el as HTMLElement).dataset.liveRegion !== undefined;
+    if (keep) {
+      if (ours) {
+        el.removeAttribute("inert");
+        el.removeAttribute(MODAL_INERT);
+      }
+    } else if (!el.hasAttribute("inert")) {
+      el.setAttribute("inert", "");
+      el.setAttribute(MODAL_INERT, "");
+    }
+  }
+}
+
+function focusables(panel: HTMLElement): HTMLElement[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (el) =>
+      !el.hasAttribute("disabled") &&
+      !el.closest('fieldset[disabled],[hidden],[inert],[aria-hidden="true"]') &&
+      (el.checkVisibility?.({ visibilityProperty: true }) ?? true),
+  );
+}
+
 export function Modal({
   open,
   onClose,
@@ -203,14 +262,63 @@ export function Modal({
     onCloseRef.current = onClose;
   });
 
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Focus is held inside the panel while it is open (Tab and Shift+Tab wrap),
+  // everything else in <body> is made inert so a screen reader cannot wander
+  // behind it, and focus goes back to the opener on close. Native <dialog>
+  // would do this but changes the stacking/animation the overlay relies on.
   useEffect(() => {
     if (!open) return;
-    panelRef.current?.focus();
+    const panel = panelRef.current;
+    if (!panel) return;
+    // From the focusin history, not activeElement: a child with autoFocus has
+    // already taken focus by now, and would be mistaken for the opener.
+    const opener =
+      [...recentFocus].reverse().find((el) => el.isConnected && !panel.contains(el)) ?? null;
+    const entry: OpenModal = { overlay: () => overlayRef.current };
+    openModals.push(entry);
+    syncInert();
+    if (!panel.contains(document.activeElement)) (focusables(panel)[0] ?? panel).focus();
+
     function onKey(e: KeyboardEvent) {
+      // Only the top dialog reacts, so Escape closes one at a time and an
+      // outer dialog cannot pull focus out of an inner one.
+      if (openModals.at(-1) !== entry || !panel) return;
       if (e.key === "Escape") onCloseRef.current();
+      if (e.key !== "Tab") return;
+      const items = focusables(panel);
+      const first = items[0];
+      const last = items.at(-1);
+      if (!first || !last) {
+        e.preventDefault();
+        panel.focus();
+      } else if (!panel.contains(document.activeElement) || document.activeElement === panel) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      const wasTop = openModals.at(-1) === entry;
+      openModals.splice(openModals.indexOf(entry), 1);
+      syncInert();
+      if (!wasTop) return;
+      // Safari does not focus a clicked button, and the opener may be gone
+      // (a deleted row): fall back to the main landmark rather than <body>.
+      const target =
+        opener && opener !== document.body && opener.isConnected
+          ? opener
+          : document.getElementById("main");
+      target?.focus();
+    };
   }, [open]);
 
   const { mounted, closing } = usePresence(open);
@@ -225,6 +333,7 @@ export function Modal({
   // counted as hovering it.
   return createPortal(
     <div
+      ref={overlayRef}
       className="avora-overlay fixed inset-0 z-50 grid place-items-center p-4"
       data-closing={closing || undefined}
       {...(closing ? INERT : null)}
@@ -276,6 +385,7 @@ export function useToast(): { toast: ReactNode; showToast: (message: string) => 
   const toast = createPortal(
     <div
       aria-live="polite"
+      data-live-region
       className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center"
     >
       {mounted && (

@@ -134,7 +134,11 @@ export default function CreateLessonModal({
           />
         </label>
 
-        {error && <p className="text-sm text-risk-600">{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm text-risk-600">
+            {error}
+          </p>
+        )}
 
         <div className="flex justify-end gap-2 pt-1">
           <button

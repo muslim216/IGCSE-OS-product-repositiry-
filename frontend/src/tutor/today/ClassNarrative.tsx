@@ -34,16 +34,15 @@ export default function ClassNarrative({ classes }: { classes: ClassStripRow[] }
   return (
     <section>
       <h3 className="avora-label mb-2">What changed</h3>
+      {/* Mounted for the whole life of the section, so the text appearing
+          inside it is announced. */}
+      <output className="sr-only">{narrative.isLoading ? "Loading what changed…" : ""}</output>
       {narrative.isLoading ? (
         <span aria-hidden className="block h-10 w-full animate-pulse rounded bg-surface-muted" />
       ) : text ? (
         <p className="max-w-prose text-sm leading-relaxed text-ink-700">
           {text}
-          {refreshing && (
-            <span className="ml-2 text-xs text-ink-500" aria-live="polite">
-              {ABSENT.updating}
-            </span>
-          )}
+          {refreshing && <span className="ml-2 text-xs text-ink-500">{ABSENT.updating}</span>}
         </p>
       ) : narrative.isError ? (
         // A failed fetch is not an absence: claiming "nothing new" when the

@@ -115,6 +115,7 @@ export function BrandedLoading() {
       className="flex h-screen items-center justify-center bg-canvas"
     >
       <AvoraMark className="h-10 w-10 animate-pulse text-brand-600" />
+      <span className="sr-only">Loading…</span>
     </div>
   );
 }

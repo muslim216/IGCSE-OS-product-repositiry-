@@ -189,6 +189,17 @@ export default function AppShell({
 
   return (
     <div className="min-h-screen md:flex">
+      <a
+        href="#main"
+        onClick={(e) => {
+          // A hash link would hand the URL to the router; focus the landmark directly.
+          e.preventDefault();
+          document.getElementById("main")?.focus();
+        }}
+        className="sr-only z-50 rounded-md bg-surface px-4 py-2 text-sm font-medium text-ink-900 shadow-lg focus:not-sr-only focus:fixed! focus:left-4 focus:top-4 focus:px-4 focus:py-2"
+      >
+        Skip to main content
+      </a>
       <AvoraGrain />
       {/* Desktop: fixed left sidebar */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-line bg-canvas px-4 py-6 md:flex print:hidden">
@@ -267,7 +278,11 @@ export default function AppShell({
         </div>
       </header>
 
-      <main className="min-w-0 flex-1 px-4 py-6 pb-tabbar md:px-10 md:py-8 print:p-0">
+      <main
+        id="main"
+        tabIndex={-1}
+        className="min-w-0 outline-none flex-1 px-4 py-6 pb-tabbar md:px-10 md:py-8 print:p-0"
+      >
         <div className="mx-auto max-w-6xl">
           {/* Keyed by route, so each page mounts fresh, and reset by every
               navigation, so leaving a crash clears it even when only the query

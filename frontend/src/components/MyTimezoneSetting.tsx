@@ -73,7 +73,9 @@ export default function MyTimezoneSetting() {
           <SectionSkeleton rows={2} label="Loading your time zone" />
         ) : me.isError ? (
           <div className="flex flex-wrap items-center gap-3">
-            <p className="text-sm text-risk-600">Couldn&apos;t load your time zone.</p>
+            <p role="alert" className="text-sm text-risk-600">
+              Couldn&apos;t load your time zone.
+            </p>
             <Button variant="secondary" size="sm" onClick={() => void me.refetch()}>
               Try again
             </Button>

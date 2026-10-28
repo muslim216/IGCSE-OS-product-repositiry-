@@ -190,15 +190,17 @@ export function ReportsPanel({
                 </Button>
               </div>
               <div className="mt-3">
-                {opened.data.status === "generating" && (
-                  <p className="text-sm text-ink-500" aria-live="polite">
-                    Writing the report… this usually takes under a minute.
-                  </p>
-                )}
+                <output className="block">
+                  {opened.data.status === "generating" && (
+                    <p className="text-sm text-ink-500">
+                      Writing the report… this usually takes under a minute.
+                    </p>
+                  )}
+                </output>
                 {/* The stored error is a diagnostic for the operator, not a
                     sentence for this reader — it is never shown raw. */}
                 {opened.data.status === "failed" && (
-                  <p className="text-sm text-risk-600">
+                  <p role="alert" className="text-sm text-risk-600">
                     {canGenerate
                       ? "This report couldn't be written. Generate it again in a minute."
                       : "This report couldn't be written. Your tutor can try again."}
