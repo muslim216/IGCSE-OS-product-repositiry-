@@ -215,7 +215,7 @@ test("focus falls back to main when the opener is gone", () => {
   expect(screen.getByRole("main")).toHaveFocus();
 });
 
-test("the loading and narrative status regions carry text a screen reader can read", () => {
+test("ProtectedRoute loading status carries readable text", () => {
   auth.loading = true;
   render(
     <MemoryRouter>
@@ -227,4 +227,28 @@ test("the loading and narrative status regions carry text a screen reader can re
     </MemoryRouter>,
   );
   expect(screen.getByRole("status")).toHaveTextContent("Loading");
+});
+
+test("a click that does not focus its button still returns focus to that button", () => {
+  function Unfocused() {
+    const [open, setOpen] = useState(false);
+    return (
+      <div>
+        <input aria-label="Search" />
+        <button type="button" onClick={() => setOpen(true)}>
+          Open it
+        </button>
+        <Modal open={open} onClose={() => setOpen(false)} title="Hi">
+          <button type="button">Inside</button>
+        </Modal>
+      </div>
+    );
+  }
+  render(<Unfocused />);
+  screen.getByLabelText("Search").focus();
+  const trigger = screen.getByRole("button", { name: "Open it" });
+  fireEvent.mouseDown(trigger);
+  fireEvent.click(trigger);
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(trigger).toHaveFocus();
 });

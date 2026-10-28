@@ -190,11 +190,23 @@ const openModals: OpenModal[] = [];
     after a child with autoFocus has moved focus on. */
 const recentFocus: HTMLElement[] = [];
 if (typeof document !== "undefined") {
-  document.addEventListener("focusin", (e) => {
-    if (!(e.target instanceof HTMLElement)) return;
-    recentFocus.push(e.target);
+  const remember = (el: HTMLElement | null) => {
+    if (!el) return;
+    recentFocus.push(el);
     if (recentFocus.length > 8) recentFocus.shift();
+  };
+  document.addEventListener("focusin", (e) => {
+    if (e.target instanceof HTMLElement) remember(e.target);
   });
+  // A press counts as the newest "focus" too: Safari does not focus a clicked
+  // button, and a menu item or div trigger is never focusable, so without this
+  // the opener would be an unrelated control focused earlier.
+  for (const type of ["pointerdown", "mousedown"]) {
+    document.addEventListener(type, (e) => {
+      if (e.target instanceof Element)
+        remember(e.target.closest<HTMLElement>("button,[role=button],a,[tabindex]"));
+    });
+  }
 }
 
 const MODAL_INERT = "data-modal-inert";
