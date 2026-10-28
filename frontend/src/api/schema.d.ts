@@ -4917,6 +4917,11 @@ export interface components {
             steps: components["schemas"]["StepDone"][];
             /** Complete */
             complete: boolean;
+            /**
+             * Plan Not Needed
+             * @default false
+             */
+            plan_not_needed: boolean;
         };
         /**
          * ClassStripRow
@@ -6259,6 +6264,11 @@ export interface components {
             complete: boolean;
             /** In Flow */
             in_flow: boolean;
+            /**
+             * Is Owner
+             * @default true
+             */
+            is_owner: boolean;
             account: components["schemas"]["ItemStatus"];
             /** Subjects */
             subjects: components["schemas"]["SubjectStatus"][];

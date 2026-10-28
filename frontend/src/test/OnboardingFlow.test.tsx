@@ -220,6 +220,24 @@ test("a tutor in the flow who already has a class keeps the dashboard under the 
   expect(screen.getByText(/Your overview is below and keeps working/)).toBeInTheDocument();
 });
 
+test("a later member's guide leaves out the workspace-level steps", async () => {
+  classCount = 1;
+  onboarding = state({
+    is_owner: false,
+    subjects: [withClass([])],
+    next_step: next("timetable", 7, 11),
+  });
+  renderApp();
+  await screen.findByRole("heading", { level: 1, name: "Finish setting up" });
+  expect(
+    screen.getByRole("heading", { level: 2, name: /Class and timetable/ }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 2, name: /Time zone/ })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("heading", { level: 2, name: /Grade boundaries/ }),
+  ).not.toBeInTheDocument();
+});
+
 test("a tutor in the flow with no class gets the guide alone", async () => {
   renderApp();
   await screen.findByRole("heading", { level: 1, name: "Set up your first class" });

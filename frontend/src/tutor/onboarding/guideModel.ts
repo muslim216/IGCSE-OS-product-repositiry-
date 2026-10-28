@@ -40,6 +40,9 @@ export const STEPS: { id: StepId; name: string; marker: Marker }[] = [
 
 export const SUBJECT_STEPS: StepId[] = ["boundaries", "defaults", "guidance", "timetable"];
 export const CLASS_STEPS: StepId[] = ["taught_before", "plan_inputs", "plan_accepted"];
+/** Set once for the whole workspace, so only whoever set it up is guided through
+ *  them; a later tutor's guide is the syllabus, class and plan steps. */
+export const WORKSPACE_STEPS: StepId[] = ["account", "boundaries", "defaults", "guidance"];
 export const DEFAULT_ROWS = ["marking_rules", "mistake_categories", "weak_threshold"] as const;
 
 /** The key for the whole guide. */
@@ -51,6 +54,9 @@ const isStepId = (key: string | undefined): key is StepId =>
 
 export function guideModel(data: OnboardingState, isHidden: (key: string) => boolean) {
   const next = data.next_step;
+  // The one list of steps this tutor is guided through: a later member skips the
+  // workspace-level ones, so no loop below may point at a step that is not shown.
+  const steps = STEPS.filter((s) => data.is_owner !== false || !WORKSPACE_STEPS.includes(s.id));
   const subject = data.subjects.find((s) => s.subject_id === next?.subject_id);
   const klass = subject?.classes.find((c) => c.group_id === next?.group_id);
   const syllabusDone = data.subjects.some((s) =>
@@ -121,18 +127,19 @@ export function guideModel(data: OnboardingState, isHidden: (key: string) => boo
    *  not waiting on an earlier step. */
   const actionable = (id: StepId): boolean => !settled(id) && !skipped(id) && !needs(id);
 
-  const skippedKeys = STEPS.filter((s) => skipped(s.id)).flatMap((s) => keyOf(s.id) ?? []);
-  const anySkipped = STEPS.some((s) => skipped(s.id));
-  const anyActionable = STEPS.some((s) => actionable(s.id));
+  const skippedKeys = steps.filter((s) => skipped(s.id)).flatMap((s) => keyOf(s.id) ?? []);
+  const anySkipped = steps.some((s) => skipped(s.id));
+  const anyActionable = steps.some((s) => actionable(s.id));
   /** Every remaining step has been put aside (or waits on one that has). */
   const allSkipped = anySkipped && !anyActionable;
 
   /** The server's step, unless the tutor skipped it, then the first thing left. */
-  const firstActionable = STEPS.find((s) => actionable(s.id))?.id ?? null;
+  const firstActionable = steps.find((s) => actionable(s.id))?.id ?? null;
   let defaultOpen: StepId | null = null;
   if (nextId !== null) defaultOpen = skipped(nextId) ? firstActionable : nextId;
 
   return {
+    steps,
     subject,
     klass,
     nextId,

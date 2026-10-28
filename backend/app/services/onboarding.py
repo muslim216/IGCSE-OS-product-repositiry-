@@ -45,6 +45,7 @@ from app.models import (
     User,
 )
 from app.models.base import utcnow
+from app.models.users import TUTOR_ROLES
 from app.schemas.onboarding import (
     ClassStatus,
     ItemState,
@@ -107,6 +108,21 @@ class ClassFacts:
     taught_before_answered: bool
     has_plan_inputs: bool
     plan_accepted: bool
+    #: The last drafting run ended in a terminal "cannot plan" outcome.
+    plan_not_needed: bool = False
+
+
+#: `draft_result.failure.code` values no retry can fix without the tutor changing
+#: something else (`plan_drafting`): nothing left to teach, too few lesson dates
+#: before the exam, no chapters. Other codes (e.g. `missing_context`) are glitches
+#: and leave the class in set-up.
+TERMINAL_DRAFT_CODES = frozenset({"all_taught", "not_enough_lessons", "no_chapters"})
+
+
+def is_terminal_failure(draft_result: dict | None) -> bool:
+    if not draft_result or draft_result.get("status") != "failed":
+        return False
+    return (draft_result.get("failure") or {}).get("code") in TERMINAL_DRAFT_CODES
 
 
 def categories_differ(rows: Iterable[tuple[str, str | None, bool]]) -> bool:
@@ -183,7 +199,10 @@ def _subject_items(s: SubjectFacts) -> list[ItemStatus]:
 
 
 def build_state(
-    account: AccountFacts, subjects: list[SubjectFacts], classes: list[ClassFacts]
+    account: AccountFacts,
+    subjects: list[SubjectFacts],
+    classes: list[ClassFacts],
+    is_owner: bool = True,
 ) -> OnboardingState:
     by_subject: dict[int, list[ClassFacts]] = defaultdict(list)
     for c in classes:
@@ -204,9 +223,15 @@ def build_state(
         class_out: list[ClassStatus] = []
         for c in by_subject.get(s.id, []):
             steps = _class_steps(c)
-            class_done = all(st.done for st in steps)
+            class_done = c.plan_not_needed or all(st.done for st in steps)
             class_out.append(
-                ClassStatus(group_id=c.id, group_name=c.name, steps=steps, complete=class_done)
+                ClassStatus(
+                    group_id=c.id,
+                    group_name=c.name,
+                    steps=steps,
+                    complete=class_done,
+                    plan_not_needed=c.plan_not_needed,
+                )
             )
             if not syllabus_done:
                 continue
@@ -247,8 +272,13 @@ def build_state(
 
     return OnboardingState(
         complete=complete,
-        # The finish line is an accepted plan on any of the caller's classes.
-        in_flow=not any(c.plan_accepted for c in classes),
+        is_owner=is_owner,
+        # The finish line is an accepted plan on any of the caller's classes, or a
+        # class that cannot get one. Only whoever set the workspace up is sent into
+        # the flow with nothing of their own; a later member is in it only while a
+        # class of theirs is unfinished.
+        in_flow=(is_owner or bool(classes))
+        and not any(c.plan_accepted or c.plan_not_needed for c in classes),
         account=ItemStatus(
             key=SetupItem.account_basics.value,
             kind="defaulted",
@@ -352,14 +382,24 @@ async def load_state(db: AsyncSession, user: User) -> OnboardingState:
         )
     )
     plan_status: dict[int, set[TeachingPlanStatus]] = defaultdict(set)
-    for plan_group_id, plan_state in (
+    cannot_plan: set[int] = set()
+    for plan_group_id, plan_state, result in (
         await db.execute(
-            select(TeachingPlan.group_id, TeachingPlan.status).where(
+            select(TeachingPlan.group_id, TeachingPlan.status, TeachingPlan.draft_result).where(
                 TeachingPlan.group_id.in_(group_ids)
             )
         )
     ).all():
         plan_status[plan_group_id].add(plan_state)
+        if plan_state is TeachingPlanStatus.draft and is_terminal_failure(result):
+            cannot_plan.add(plan_group_id)
+    # An accepted plan wins: no "no plan needed" beside a live plan.
+    cannot_plan = {g for g in cannot_plan if TeachingPlanStatus.accepted not in plan_status[g]}
+    # "Owner" is the earliest tutor-gate user of the organization: whoever signed
+    # it up. No column says so, and the account-level steps are theirs.
+    owner_id = await db.scalar(
+        select(func.min(User.id)).where(User.organization_id == org_id, User.role.in_(TUTOR_ROLES))
+    )
 
     account = AccountFacts(
         differs_from_default=(
@@ -398,10 +438,11 @@ async def load_state(db: AsyncSession, user: User) -> OnboardingState:
             # accepted plan was a draft.
             has_plan_inputs=bool(plan_status.get(g.id)),
             plan_accepted=TeachingPlanStatus.accepted in plan_status.get(g.id, ()),
+            plan_not_needed=g.id in cannot_plan,
         )
         for g in groups
     ]
-    return build_state(account, subject_facts, class_facts)
+    return build_state(account, subject_facts, class_facts, is_owner=owner_id == user.id)
 
 
 class AcknowledgementError(Exception):
