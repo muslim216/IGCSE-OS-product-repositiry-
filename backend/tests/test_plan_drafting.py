@@ -448,14 +448,16 @@ async def test_a_misrouted_provider_is_not_mistaken_for_a_missing_key(world, mon
     assert await slots(world) == []
 
 
-async def test_a_provider_failure_fails_the_job_and_writes_nothing(world, monkeypatch):
+async def test_a_provider_failure_fails_the_job_and_writes_nothing(world, monkeypatch, caplog):
     async def _down(**kwargs):
         raise RuntimeError("provider returned 529")
 
     monkeypatch.setattr("app.services.plan_drafting.structured_complete", _down)
-    job = await run_job(world)
+    with caplog.at_level("ERROR"):
+        job = await run_job(world)
     assert job.status is JobStatus.pending  # first attempt: retried
-    assert "529" in (job.error or "")
+    assert job.error == "Something went wrong on our side. Try again in a few minutes."
+    assert "529" in caplog.text
     assert await slots(world) == []
 
 
@@ -645,7 +647,7 @@ async def test_an_unreadable_guidance_file_is_recorded_and_not_used(world, monke
     assert stored["status"] == "drafted"
 
 
-async def test_usage_survives_a_failure_after_the_ai_call(world, monkeypatch, fake_ai):
+async def test_usage_survives_a_failure_after_the_ai_call(world, monkeypatch, fake_ai, caplog):
     monkeypatch.setattr(
         "app.services.plan_drafting.structured_complete", fake_ai(advice(world, [1.0, 1.0, 1.0]))
     )
@@ -654,8 +656,10 @@ async def test_usage_survives_a_failure_after_the_ai_call(world, monkeypatch, fa
         raise RuntimeError("scheduler blew up")
 
     monkeypatch.setattr("app.services.plan_drafting.schedule", _explode)
-    job = await run_job(world)
-    assert "scheduler blew up" in (job.error or "")
+    with caplog.at_level("ERROR"):
+        job = await run_job(world)
+    assert job.error == "Something went wrong on our side. Try again in a few minutes."
+    assert "scheduler blew up" in caplog.text
     assert await slots(world) == []
     async with async_session() as session:
         events = (await session.scalars(select(AiUsageEvent))).all()

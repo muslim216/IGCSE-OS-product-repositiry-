@@ -165,8 +165,9 @@ async def test_a_failure_is_logged_with_the_student_and_subject(
     assert record.levelname == "WARNING"
     assert f"student {world['student_id']}" in record.getMessage()
     assert f"subject {world['subject_id']}" in record.getMessage()
-    # The class name only: the message can carry provider detail.
-    assert "did not answer" not in record.getMessage()
+    # The row keeps only a safe sentence now, so the log carries the detail.
+    assert "did not answer" in record.getMessage()
+    assert record.exc_info is not None
 
 
 async def _second_subject(world) -> int:  # noqa: F811
@@ -359,3 +360,25 @@ async def test_the_failure_text_is_for_staff_and_not_the_student_or_parent(clien
         theirs = _subject(await client.get(path, headers=headers))
         assert theirs["status"] == "failed"
         assert theirs["error"] is None
+
+
+async def test_a_failed_run_keeps_the_provider_detail_out_of_the_row_and_in_the_log(
+    client, tutor, world, monkeypatch, caplog
+):
+    secret = "sk-test-LEAK-9f3 at postgres://user:hunter2@db.internal/avora"
+    await _marked_work(client, tutor, world)
+    await _queue_run(world)
+    monkeypatch.setattr(
+        "app.services.readiness_v2_ai.structured_complete", _raising(RuntimeError(secret))
+    )
+
+    with caplog.at_level("WARNING"):
+        assert await asyncio.wait_for(process_one_job(), timeout=10) is True
+
+    [failed] = await _snapshots(world["student_id"])
+    assert failed.status == AiSynthesisStatus.failed
+    assert failed.error == "Something went wrong on our side. Try again in a few minutes."
+    assert secret in caplog.text
+    job = await _the_job()
+    assert job.status == JobStatus.pending, "the retry is unchanged"
+    assert secret not in (job.error or "")

@@ -120,9 +120,10 @@ async def _snapshot_out(
         ],
         rationale=snapshot.rationale,
         recommended_revision=snapshot.recommended_revision,
-        # Why a run failed is for the tutor: the text is the exception's own,
-        # which can carry provider detail. A student or parent still sees
-        # `status: failed`, which is what the screens say.
+        # Why a run failed is for the tutor. The stored text is a safe sentence
+        # (`services/job_errors.py`), but rows written before that kept the
+        # exception's own text, so the gate stays. A student or parent still
+        # sees `status: failed`, which is what the screens say.
         error=snapshot.error if show_error else None,
         created_at=snapshot.created_at,
         factors=[

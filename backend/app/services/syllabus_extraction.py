@@ -20,6 +20,7 @@ from app.db import release_connection
 from app.models import AiFeature, SubjectLevel, SyllabusUpload, SyllabusUploadStatus, User
 from app.services import storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
+from app.services.job_errors import DocumentProblem, safe_job_error
 
 
 class ExtractedTopic(BaseModel):
@@ -72,7 +73,7 @@ async def extract_syllabus(session: AsyncSession, payload: dict) -> None:
         upload.error = None
     except Exception as exc:
         upload.status = SyllabusUploadStatus.extraction_failed
-        upload.error = str(exc) or exc.__class__.__name__
+        upload.error = safe_job_error(exc)
         await session.commit()
         raise
 
@@ -119,12 +120,12 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
     )
     result = require_parsed(response)
     if not result.chapters:
-        raise ValueError("No chapters were found in the document")
+        raise DocumentProblem("No chapters were found in the document")
     # Chapters alone are not a syllabus: marks, mistakes and readiness all
     # attach at topic level, so a chapter-only draft applies cleanly into a
     # subject nothing can ever be tracked against. The flat extractor rejected
     # an empty topic list for the same reason (cubic).
     if not any(chapter.topics for chapter in result.chapters):
-        raise ValueError("No topics were found in the document")
+        raise DocumentProblem("No topics were found in the document")
 
     upload.draft = result.model_dump()

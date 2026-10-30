@@ -38,6 +38,7 @@ from app.models import (
 )
 from app.services import pdf, storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
+from app.services.job_errors import DocumentProblem, safe_job_error
 from app.services.knowledge import build_tutor_context
 from app.services.notifications.triggers import announce_homework_set
 from app.workers.jobs import enqueue, job_timeout_seconds
@@ -142,7 +143,7 @@ async def extract_assignment(session: AsyncSession, payload: dict) -> None:
         assignment.extraction_error = None
     except Exception as exc:
         assignment.status = AssignmentStatus.extraction_failed
-        assignment.extraction_error = str(exc) or exc.__class__.__name__
+        assignment.extraction_error = safe_job_error(exc)
         await session.commit()
         raise
     # Reached only when the assignment was published just above: this is the
@@ -210,7 +211,7 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
     )
     result = require_parsed(response)
     if not result.questions:
-        raise ValueError("No questions were found in the document")
+        raise DocumentProblem("No questions were found in the document")
 
     # Two reads of one assignment can be in flight together once the worker
     # runs several jobs at once (a retry queued after a failure, and a tutor's
@@ -270,7 +271,7 @@ async def extract_past_paper(session: AsyncSession, payload: dict) -> None:
         # leaving a paper with no questions that no fix will accept.
         await _mark_waiting_attempts(session, paper)
     except Exception as exc:
-        await _record_read_failure(session, past_paper_id, str(exc) or exc.__class__.__name__)
+        await _record_read_failure(session, past_paper_id, safe_job_error(exc))
         raise
 
 
@@ -494,7 +495,7 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
     )
     result = require_parsed(response)
     if not result.questions:
-        raise ValueError("No questions were found in the past paper")
+        raise DocumentProblem("No questions were found in the past paper")
     # Clamped to the column widths, the same way `q.number[:16]` is three lines
     # below. Nothing bounds what a model reads off a document, and an over-long
     # value does not fail cleanly: the assignment is flushed inside the question
@@ -572,7 +573,7 @@ async def extract_mock(session: AsyncSession, payload: dict) -> None:
         mock.extraction_error = None
     except Exception as exc:
         mock.status = MockStatus.extraction_failed
-        mock.extraction_error = str(exc) or exc.__class__.__name__
+        mock.extraction_error = safe_job_error(exc)
         await session.commit()
         raise
 
@@ -643,7 +644,7 @@ async def _run_mock_extraction(session: AsyncSession, mock: Mock) -> None:
     )
     result = require_parsed(response)
     if not result.questions:
-        raise ValueError("No questions were found in the mock paper")
+        raise DocumentProblem("No questions were found in the mock paper")
 
     topic_by_code = {t.code: t for t in topics}
     for position, q in enumerate(result.questions):
@@ -691,7 +692,7 @@ async def extract_booklet(session: AsyncSession, payload: dict) -> None:
         booklet.error = None
     except Exception as exc:
         booklet.status = BookletStatus.extraction_failed
-        booklet.error = str(exc) or exc.__class__.__name__
+        booklet.error = safe_job_error(exc)
         await session.commit()
         raise
 
@@ -782,7 +783,7 @@ async def _run_booklet_extraction(session: AsyncSession, booklet: Booklet) -> No
     assert booklet.file_mime is not None
     papers = await _read_papers(session, booklet, booklet.file_path, booklet.file_mime)
     if not papers:
-        raise ValueError("No papers were found in the booklet")
+        raise DocumentProblem("No papers were found in the booklet")
 
     # Counted here because the bytes are in hand anyway, and because approval
     # needs it: a page range running past the end of the document is refused
