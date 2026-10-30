@@ -47,6 +47,7 @@ from app.models import (
 from app.services.ai import record_usage, require_parsed, structured_complete
 from app.services.grade_boundaries import resolve_grade_boundaries
 from app.services.grades import predict_grade
+from app.services.job_errors import safe_job_error
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
 from app.services.readiness_config import (
     DEFAULT_WEIGHTS,
@@ -339,13 +340,15 @@ async def _synthesize_subject(
             extra_system=[kb_context] if kb_context else [],
         )
     except Exception as exc:  # noqa: BLE001 - AIUnavailableError or any API failure
-        # The class name only: the message can carry provider detail, and the
-        # snapshot's error column already keeps it.
+        # The full detail is logged here because the snapshot's error column
+        # no longer keeps it: that holds only a safe sentence.
         log.warning(
-            "readiness synthesis failed for student %s subject %s: %s",
+            "readiness synthesis failed for student %s subject %s: %s: %s",
             student.id,
             subject_id,
             exc.__class__.__name__,
+            exc,
+            exc_info=exc,
         )
         session.add(
             ReadinessSnapshot(
@@ -358,7 +361,7 @@ async def _synthesize_subject(
                 weak_topics=[],
                 rationale=None,
                 recommended_revision=None,
-                error=str(exc) or exc.__class__.__name__,
+                error=safe_job_error(exc),
             )
         )
         return exc
