@@ -1797,15 +1797,20 @@ async def test_a_wrongly_shaped_redo_record_is_skipped_and_the_wipe_finishes(
     assert not any(other in m or "etc/passwd" in m for m in errors)
 
 
-async def test_a_page_replaced_through_the_redo_route_is_deleted_with_the_child(
-    homework_attempt, monkeypatch, fake_ai, caplog
-):
+@pytest.fixture
+def _no_mistakes_tagged(monkeypatch, fake_ai):
+    """Listed before `homework_attempt`, whose setup can drain a tagging job (`QA-8`)."""
     from app.services.mistake_tagging import MistakeTaggingResult
 
     monkeypatch.setattr(
         "app.services.mistake_tagging.structured_complete",
         fake_ai(MistakeTaggingResult(mistakes=[])),
     )
+
+
+async def test_a_page_replaced_through_the_redo_route_is_deleted_with_the_child(
+    _no_mistakes_tagged, homework_attempt, caplog
+):
     attempt = homework_attempt
     async with async_session() as session:
         pages = list(
