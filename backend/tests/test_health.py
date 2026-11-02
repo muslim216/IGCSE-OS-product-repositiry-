@@ -309,7 +309,7 @@ async def test_a_failed_job_waits_before_its_second_attempt(client, monkeypatch)
     async with async_session() as session:
         job = await session.scalar(select(Job))
         assert job.status == JobStatus.pending, "first failure must schedule a retry"
-        assert job.error == "provider rate limited"
+        assert job.error == "Something went wrong on our side. Try again in a few minutes."
         assert job.run_after is not None, "the retry must be held back, not immediately due"
         run_after = job.run_after
         if run_after.tzinfo is None:

@@ -107,7 +107,7 @@ async def test_a_failed_extraction_records_the_error(monkeypatch, fake_ai):  # n
     async with async_session() as session:
         booklet = await session.get(Booklet, booklet_id)
     assert booklet.status is BookletStatus.extraction_failed
-    assert booklet.error == "model timed out"
+    assert booklet.error == "Something went wrong on our side. Try again in a few minutes."
     assert booklet.draft is None
 
 

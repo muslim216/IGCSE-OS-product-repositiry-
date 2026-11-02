@@ -49,6 +49,11 @@ log = logging.getLogger(__name__)
 class AIUnavailableError(RuntimeError):
     """Raised when AI features are used without an API key configured."""
 
+    #: Every message this family is raised with is a sentence written here, so a
+    #: failed job may show it (`services/job_errors.py`). Keep it so: provider
+    #: or library text never goes into one of these messages.
+    safe_to_show = True
+
 
 class AIKeyMissingError(AIUnavailableError):
     """The routed provider's API key is not set. Narrower than its parent so a
@@ -111,6 +116,10 @@ class AICallFailedError(RuntimeError):
     fault all keep the retry."""
 
     job_retryable: bool = True
+
+    #: As on `AIUnavailableError`. The provider's own wording is logged where it
+    #: is caught (`_provider_errors_as_ai_errors`) and never put in a message.
+    safe_to_show = True
 
     def __init__(
         self,

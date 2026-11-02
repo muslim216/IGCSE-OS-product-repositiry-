@@ -703,10 +703,10 @@ async def test_students_and_parents_read_their_reports_whichever_organization_wr
 
 
 async def test_why_a_report_failed_is_for_the_tutor_not_the_parent(
-    client, tutor, world, monkeypatch
+    client, tutor, world, monkeypatch, caplog
 ):
-    """The stored text is the exception's own and can carry what the model sent
-    back. The parent the report is addressed to sees only that it failed."""
+    """The stored text is a safe sentence: what the model sent back stays in the
+    log. The parent the report is addressed to sees only that it failed."""
 
     async def broken_write(*args, **kwargs):
         raise ValueError("model said: <raw provider output>")
@@ -718,12 +718,15 @@ async def test_why_a_report_failed_is_for_the_tutor_not_the_parent(
         headers=tutor["headers"],
     )
     assert resp.status_code == 201, resp.text
-    await process_one_job()
+    with caplog.at_level("ERROR"):
+        await process_one_job()
     path = f"/api/v1/reports/{resp.json()['id']}"
 
     staff = (await client.get(path, headers=tutor["headers"])).json()
     assert staff["status"] == "failed"
-    assert "raw provider output" in staff["error"]
+    assert staff["error"] == "Something went wrong on our side. Try again in a few minutes."
+    assert "raw provider output" not in staff["error"]
+    assert "raw provider output" in caplog.text
     theirs = await client.get(path, headers=world["parent_headers"])
     assert theirs.status_code == 200, theirs.text
     assert theirs.json()["status"] == "failed"

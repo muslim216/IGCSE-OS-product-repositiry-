@@ -216,7 +216,7 @@ async def test_the_sweep_runs_as_a_job_and_schedules_tomorrows():
     assert pending.run_after is not None
 
 
-async def test_one_failing_step_does_not_stop_the_others(monkeypatch):
+async def test_one_failing_step_does_not_stop_the_others(monkeypatch, caplog):
     """A step that fails every day must not leave the disk to fill: the rest
     still run, the job still fails, and tomorrow's run is still queued."""
     orphan = _stored(f"org/1/{secrets.token_hex(16)}.pdf", 31)
@@ -228,12 +228,17 @@ async def test_one_failing_step_does_not_stop_the_others(monkeypatch):
     async with async_session() as session:
         await retention.ensure_retention_sweep_scheduled(session)
         await session.commit()
-    await process_one_job()
+    with caplog.at_level("ERROR"):
+        await process_one_job()
     assert not orphan.exists()  # the file step ran after the failure
     async with async_session() as session:
         sweeps = (await session.scalars(select(Job).where(Job.type == retention.SWEEP_JOB))).all()
     assert JobStatus.pending in {job.status for job in sweeps}
-    assert any(job.error and "finished jobs" in job.error for job in sweeps)
+    assert any(
+        job.error == "Something went wrong on our side. Try again in a few minutes."
+        for job in sweeps
+    )
+    assert "deleting finished jobs failed" in caplog.text
 
 
 async def test_the_walk_pages_past_protected_rows(student, subject, monkeypatch):

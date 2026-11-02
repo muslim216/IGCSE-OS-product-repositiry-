@@ -20,9 +20,14 @@ by rubbish satisfies it. A caller must expect `ValueError` on a real tutor
 upload rather than treating it as impossible.
 """
 
+import logging
 from io import BytesIO
 
 from pypdf import PdfReader, PdfWriter
+
+from app.services.job_errors import DocumentProblem
+
+log = logging.getLogger(__name__)
 
 
 def _read(data: bytes) -> tuple[PdfReader, int]:
@@ -37,7 +42,7 @@ def _read(data: bytes) -> tuple[PdfReader, int]:
     try:
         reader = PdfReader(BytesIO(data))
         if reader.is_encrypted:
-            raise ValueError("This PDF is password-protected, so its pages cannot be read.")
+            raise DocumentProblem("This PDF is password-protected, so its pages cannot be read.")
         return reader, len(reader.pages)
     except ValueError:
         raise
@@ -45,7 +50,9 @@ def _read(data: bytes) -> tuple[PdfReader, int]:
     # on a handler that re-raises, so one here would be a comment pretending to
     # be a directive.
     except Exception as exc:
-        raise ValueError(f"This file could not be read as a PDF: {exc}") from exc
+        # The library's own text stays in the log: it is not ours to show.
+        log.warning("a PDF could not be read: %s: %s", type(exc).__name__, exc)
+        raise DocumentProblem("This file could not be read as a PDF.") from exc
 
 
 def page_count(data: bytes) -> int:
@@ -65,11 +72,13 @@ def extract_pages(data: bytes, first_page: int, last_page: int) -> bytes:
     """
     reader, total = _read(data)
     if first_page < 1:
-        raise ValueError(f"Pages start at 1, but the range starts at {first_page}.")
+        raise DocumentProblem(f"Pages start at 1, but the range starts at {first_page}.")
     if last_page < first_page:
-        raise ValueError(f"Page range {first_page}-{last_page} ends before it starts.")
+        raise DocumentProblem(f"Page range {first_page}-{last_page} ends before it starts.")
     if last_page > total:
-        raise ValueError(f"Page range {first_page}-{last_page} runs past the last page ({total}).")
+        raise DocumentProblem(
+            f"Page range {first_page}-{last_page} runs past the last page ({total})."
+        )
 
     # pypdf parses lazily, so a page's content streams are only touched here —
     # a file that survived `_read` can still blow up on the page it is asked
@@ -81,7 +90,14 @@ def extract_pages(data: bytes, first_page: int, last_page: int) -> bytes:
         out = BytesIO()
         writer.write(out)
     except Exception as exc:  # blind on purpose, as in `_read`
-        raise ValueError(
-            f"Pages {first_page}-{last_page} of this PDF could not be read: {exc}"
+        log.warning(
+            "pages %s-%s of a PDF could not be read: %s: %s",
+            first_page,
+            last_page,
+            type(exc).__name__,
+            exc,
+        )
+        raise DocumentProblem(
+            f"Pages {first_page}-{last_page} of this PDF could not be read."
         ) from exc
     return out.getvalue()

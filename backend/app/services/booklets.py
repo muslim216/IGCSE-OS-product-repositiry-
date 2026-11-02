@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Booklet, BookletStatus, PastPaper, WorkKind
 from app.schemas.booklet import BookletDraft, DraftPaper
 from app.services import pdf, storage
+from app.services.job_errors import safe_job_error
 from app.services.work import create_work
 from app.workers.jobs import enqueue
 
@@ -108,7 +109,7 @@ async def split_booklet(session: AsyncSession, payload: dict) -> None:
         stalled = await session.get(Booklet, payload["booklet_id"])
         if stalled is not None:
             stalled.status = BookletStatus.split_failed
-            stalled.error = str(exc) or exc.__class__.__name__
+            stalled.error = safe_job_error(exc)
             await session.commit()
         raise
 

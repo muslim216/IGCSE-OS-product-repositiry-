@@ -50,6 +50,7 @@ from app.services.attempt_redo import teaches_this_work
 from app.services.evidence import build_homework_evidence
 from app.services.extraction import run_now
 from app.services.groups import tutor_teaches_student
+from app.services.job_errors import DocumentProblem, safe_job_error
 from app.services.knowledge import build_tutor_context
 from app.services.marking_context import MarkingContextSources, build_marking_context
 from app.services.narrative import enqueue_class_narratives_for_student_subject
@@ -129,7 +130,7 @@ async def mark_submission(session: AsyncSession, payload: dict) -> None:
             _log_replaced(submission_id, marking_attempt, exc)
             return
         submission.status = SubmissionStatus.ai_failed
-        submission.ai_error = str(exc) or exc.__class__.__name__
+        submission.ai_error = safe_job_error(exc)
         await session.commit()
         raise
 
@@ -349,7 +350,7 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         # tutor's queue, which names nothing they can act on. Refuse with a
         # sentence instead: guessing an owner would mark against another
         # tutor's rules and bill them for it.
-        raise ValueError(
+        raise DocumentProblem(
             "This past paper has no owning tutor, so it cannot be marked — "
             "re-upload it from your library, or ask for it to be reassigned"
         )
@@ -363,7 +364,7 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         ).all()
     )
     if not questions:
-        raise ValueError(
+        raise DocumentProblem(
             "This past paper's questions haven't been extracted yet — try again shortly"
         )
     # Same rule as the homework branch: the sentence names only what is attached.
@@ -453,7 +454,9 @@ async def _mock_source(session: AsyncSession, submission: Submission) -> _Markin
         ).all()
     )
     if not questions:
-        raise ValueError("This mock's questions haven't been extracted yet — try again shortly")
+        raise DocumentProblem(
+            "This mock's questions haven't been extracted yet — try again shortly"
+        )
     # Same rule as the other two branches: the sentence names only what is
     # actually attached, because a model told it has a scheme it cannot see can
     # report a mark as scheme-backed and auto-finalize it (AI-11, ADR-0009).
@@ -518,7 +521,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     # Either channel is a submission (AV-73, task 3.3) — this is the line that
     # makes the pipeline "take text where it takes images". Neither is not.
     if not files and not submission.typed_answer:
-        raise ValueError("The submission has no answers — no files and no typed answer")
+        raise DocumentProblem("The submission has no answers — no files and no typed answer")
 
     # Idempotency: a worker retry (or a re-queued marking job) must not append
     # a second set of QuestionMark rows or re-charge an AI call for work

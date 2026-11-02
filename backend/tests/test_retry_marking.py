@@ -329,3 +329,52 @@ async def test_a_colleague_teaching_the_student_another_subject_cannot_retry_a_p
 
     assert response.status_code == 404
     assert await _marking_jobs(JobStatus.pending) == []
+
+
+SECRET = "sk-test-LEAK-9f3 at postgres://user:hunter2@db.internal/avora"
+
+
+async def test_a_marking_failure_stores_a_safe_sentence_and_logs_the_detail(
+    client,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    caplog,  # noqa: F811
+):
+    async def _boom(**_kwargs):
+        raise RuntimeError(SECRET)
+
+    monkeypatch.setattr("app.services.marking.structured_complete", _boom)
+    sid = await _hand_in(client, student, assignment_all_scheme)
+    with caplog.at_level("ERROR"):
+        assert await process_one_job() is True
+
+    row = await _submission(sid)
+    assert row.status is SubmissionStatus.ai_failed
+    assert row.ai_error == "Something went wrong on our side. Try again in a few minutes."
+    assert SECRET in caplog.text
+    # The worker's retry is unchanged.
+    assert len(await _marking_jobs(JobStatus.pending)) == 1
+
+
+async def test_a_replaced_attempt_still_logs_the_failure_it_discards(
+    client,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    caplog,  # noqa: F811
+):
+    async def _boom(**_kwargs):
+        raise RuntimeError(SECRET)
+
+    async def _replaced(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr("app.services.marking.structured_complete", _boom)
+    monkeypatch.setattr("app.services.marking._still_the_same_attempt", _replaced)
+    sid = await _hand_in(client, student, assignment_all_scheme)
+    with caplog.at_level("WARNING"):
+        assert await process_one_job() is True
+
+    assert (await _submission(sid)).ai_error is None
+    assert SECRET in caplog.text

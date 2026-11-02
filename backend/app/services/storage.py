@@ -221,6 +221,9 @@ class ObjectNotFoundError(Exception):
     #: gone is still gone a minute later, so the job is not retried.
     job_retryable = False
 
+    #: `__str__` below is a fixed sentence, so a failed job may show it.
+    safe_to_show = True
+
     def __init__(self, key: str) -> None:
         super().__init__(key)
         self.key = key

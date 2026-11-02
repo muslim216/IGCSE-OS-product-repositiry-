@@ -23,6 +23,7 @@ from app.models import (
 from app.schemas.readiness import StudentReadinessSummary
 from app.services.ai import record_usage, text_complete
 from app.services.custom_criteria import criteria_for_student, subject_names
+from app.services.job_errors import safe_job_error
 from app.services.knowledge import build_tutor_context
 from app.services.readiness_summary_v2 import build_summary_v2
 
@@ -135,6 +136,8 @@ class NothingToReport(ValueError):
     """The student is in no class the report could draw on, or is in one with
     nothing measured yet. The message is the tutor-facing sentence; the router
     maps this to a 409 (`BE-1`)."""
+
+    safe_to_show = True
 
 
 async def report_subjects(
@@ -316,7 +319,7 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
             # asks the same question, and the model is never called on an
             # empty facts block.
             report.status = ReportStatus.failed
-            report.error = str(exc)
+            report.error = safe_job_error(exc)
             return
         facts = await build_report_facts(session, student, subject_ids, summary)
         kb_context = await build_tutor_context(session, tutor.id, report.subject_id)
@@ -354,7 +357,7 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
         report.error = None
     except Exception as exc:
         report.status = ReportStatus.failed
-        report.error = str(exc) or exc.__class__.__name__
+        report.error = safe_job_error(exc)
         await session.commit()
         raise
 

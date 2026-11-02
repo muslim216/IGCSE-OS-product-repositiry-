@@ -204,7 +204,7 @@ async def test_a_timeout_raised_by_the_handler_itself_is_reported_as_its_own(cli
     assert await process_one_job() is True
 
     job = await _the_job()
-    assert job.error == "the meeting provider did not answer"
+    assert job.error == "Something went wrong on our side. Try again in a few minutes."
     assert job.status == JobStatus.pending
 
 
