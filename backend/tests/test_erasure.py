@@ -81,6 +81,11 @@ from tests.factories import (
     settled_submission,
     write_v2_snapshot,
 )
+from tests.redo_world import (  # noqa: F401  (fixtures; the autouse ones stay in redo_world)
+    _redo,
+    assignment_all_scheme,
+    homework_attempt,
+)
 from tests.test_data_export import (  # noqa: F401  (fixtures and helpers)
     _admin,
     _drain,
@@ -1701,3 +1706,120 @@ def test_no_message_a_tutor_or_admin_receives_carries_a_childs_name():
         NotificationKind.homework_due,
         NotificationKind.marked_work_ready,
     }
+
+
+# ----------------------------------------- the files named by a redo record
+
+
+async def _redo_with(student_id: int, record: object) -> int:
+    """A redo row for the child holding `record` as its record."""
+    async with async_session() as session:
+        submission = await session.scalar(
+            select(Submission).where(Submission.student_id == student_id)
+        )
+        row = AttemptRedo(
+            organization_id=await org_id(session),
+            work_id=submission.work_id,
+            student_id=student_id,
+            allowed_by_id=submission.student_id,
+            previous_submission_id=600_000 + student_id,
+            record=record,
+        )
+        session.add(row)
+        await session.commit()
+        return row.id
+
+
+async def _wipe(client, tutor, student_id: int) -> None:
+    asked = (await _ask(client, tutor["headers"], student_id)).json()
+    await _make_due(asked["id"])
+    assert await _sweep() == 1
+
+
+async def _stored_page(tag: str) -> str:
+    async with async_session() as session:
+        key = storage.new_key(await org_id(session), "application/pdf")
+    await storage.get_storage().upload(key, b"%PDF-1.4 " + tag.encode(), "application/pdf")
+    return key
+
+
+async def test_only_a_redo_records_listed_file_paths_are_deleted(
+    client, tutor, student, world, caplog
+):
+    sid = student["user"]["id"]
+    own = await _stored_page("replaced")
+    other = world["omar_key"]
+    async with async_session() as session:
+        submission = await session.scalar(select(Submission).where(Submission.student_id == sid))
+        submission.typed_answer = other
+        await session.commit()
+    await _redo_with(
+        sid,
+        {
+            "files": [{"path": own, "name": other}],
+            "submission": {"typed_answer": other},
+            "note": other,
+            "stray": [other],
+        },
+    )
+    await _wipe(client, tutor, sid)
+    assert not await storage.get_storage().exists(own)
+    assert await storage.get_storage().exists(other)
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
+async def test_a_wrongly_shaped_redo_record_is_skipped_and_the_wipe_finishes(
+    client, tutor, student, world, caplog
+):
+    sid = student["user"]["id"]
+    other = world["omar_key"]
+    bad = [
+        "not a dict",
+        {},
+        {"files": "x"},
+        {"files": None},
+        {"files": [other]},
+        {"files": [{"name": "a"}]},
+        {"files": [{"path": ""}]},
+        {"files": [{"path": 5}]},
+        {"files": [{"path": "../../etc/passwd"}]},
+    ]
+    ids = [await _redo_with(sid, record) for record in bad]
+    own = await _stored_page("fine")
+    ids.append(await _redo_with(sid, {"files": [{"path": own}]}))
+    await _wipe(client, tutor, sid)
+    assert not await storage.get_storage().exists(own)
+    assert await storage.get_storage().exists(other)
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    for redo_id in ids[:-1]:
+        assert any(f"redo {redo_id}" in m and f"student {sid}" in m for m in errors)
+    assert not any(f"redo {ids[-1]}" in m for m in errors)
+    assert not any(other in m or "etc/passwd" in m for m in errors)
+
+
+async def test_a_page_replaced_through_the_redo_route_is_deleted_with_the_child(
+    homework_attempt, monkeypatch, fake_ai, caplog
+):
+    from app.services.mistake_tagging import MistakeTaggingResult
+
+    monkeypatch.setattr(
+        "app.services.mistake_tagging.structured_complete",
+        fake_ai(MistakeTaggingResult(mistakes=[])),
+    )
+    attempt = homework_attempt
+    async with async_session() as session:
+        pages = list(
+            await session.scalars(
+                select(SubmissionFile.path).where(
+                    SubmissionFile.submission_id == attempt.submission_id
+                )
+            )
+        )
+    assert pages
+    assert (await _redo(attempt)).status_code == 201
+    for page in pages:
+        assert await storage.get_storage().exists(page)
+    await _wipe(attempt.client, attempt.tutor, attempt.student["user"]["id"])
+    for page in pages:
+        assert not await storage.get_storage().exists(page)
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
