@@ -10,6 +10,7 @@ from app.db import async_session
 from app.models import (
     AiFeature,
     AiUsageEvent,
+    AttemptRedo,
     Base,
     DataExport,
     DataExportStatus,
@@ -34,6 +35,15 @@ from app.security import create_access_token
 from app.services import data_export, storage
 from app.workers.jobs import enqueue, process_one_job
 from tests.factories import make_user, org_id, register_parent, settled_submission
+from tests.redo_world import (  # noqa: F401  (fixtures and helpers)
+    _carry_rows,
+    _enforce_foreign_keys,
+    _no_real_ai,
+    _only_redo,
+    _redo,
+    assignment_all_scheme,
+    homework_attempt,
+)
 from tests.test_data_export import (  # noqa: F401  (fixtures and helpers)
     PAGE,
     _drain,
@@ -455,3 +465,72 @@ async def test_every_table_reachable_from_an_exported_one_is_decided_and_every_l
         sara = await session.get(User, student["user"]["id"])
         data, _ = await data_export.collect(session, sara, "full")
     assert set(data["tables"]) == data_export.EXPORTED - {"users"}
+
+
+async def _redo_record_in(client, who, sid, *, parent=False) -> tuple[str, list[dict]]:
+    export = await _export(client, who["headers"], sid, parent=parent)
+    await _drain()
+    raw = await _download(client, who["headers"], sid, export["id"], parent=parent)
+    return _zip(raw).read("data.json").decode(), _data(raw)["tables"]["attempt_redos"]
+
+
+async def test_a_parent_copy_of_a_redone_attempt_leaves_out_the_tutors_mark_change_record(
+    homework_attempt,
+):
+    a = homework_attempt
+    sid = a.student["user"]["id"]
+    carried = await _carry_rows(a)
+    assert (await _redo(a)).status_code == 201
+    parent = await register_parent(a.client, a.tutor, a.student)
+    stored = (await _only_redo()).record
+
+    _, full = await _redo_record_in(a.client, a.tutor, sid)
+    raw_kept, kept = await _redo_record_in(a.client, parent, sid, parent=True)
+
+    # The tutor's copy still carries every change; the parent's has none.
+    assert full[0]["record"]["marks"][0]["override_audit"] == carried.audit
+    assert len(kept) == 1
+    for mark in kept[0]["record"]["marks"]:
+        assert "override_audit" not in mark
+    assert "override_audit" not in raw_kept
+    assert "remark_request" in raw_kept
+    # The rest of the record is still there.
+    first, original = kept[0]["record"]["marks"][0], full[0]["record"]["marks"][0]
+    assert {k: v for k, v in original.items() if k != "override_audit"} == first
+    assert kept[0]["record"]["submission"] == full[0]["record"]["submission"]
+    # The stored record is untouched.
+    assert (await _only_redo()).record == stored
+    assert stored["marks"][0]["override_audit"] == carried.audit
+
+
+async def test_a_parent_copy_builds_from_a_redo_record_of_an_unexpected_shape(homework_attempt):
+    a = homework_attempt
+    assert (await _redo(a)).status_code == 201
+    shapes = [
+        {},
+        {"marks": None},
+        {"marks": []},
+        {"marks": [1, "x", None, {"id": 3}, {"id": 4, "override_audit": [{"reason": "r"}]}]},
+        [],
+        "text",
+    ]
+    async with async_session() as session:
+        base = await session.scalar(select(AttemptRedo))
+        for shape in shapes:
+            session.add(
+                AttemptRedo(
+                    organization_id=base.organization_id,
+                    work_id=base.work_id,
+                    student_id=base.student_id,
+                    allowed_by_id=base.allowed_by_id,
+                    previous_submission_id=base.previous_submission_id,
+                    record=shape,
+                )
+            )
+        await session.commit()
+        student = await session.get(User, base.student_id)
+        data, _ = await data_export.collect(session, student, "parent")
+    records = [r["record"] for r in data["tables"]["attempt_redos"]]
+    assert len(records) == 1 + len(shapes)
+    odd = next(r for r in records if isinstance(r, dict) and len(r.get("marks") or []) == 5)
+    assert odd["marks"] == [1, "x", None, {"id": 3}, {"id": 4}]

@@ -112,6 +112,11 @@ PARENT_EXCLUDED: frozenset[str] = frozenset(
     }
 )
 
+#: Fields a parent's copy leaves out of each mark inside an `attempt_redos`
+#: record. A redo moves the tutor's mark-change rows into the record, so the
+#: record holds what `mark_override_audit` (above) is kept from a parent.
+PARENT_EXCLUDED_IN_REDO: tuple[str, ...] = ("override_audit",)
+
 #: Columns left out of every copy. A storage key is an internal address; the
 #: page itself is in files/. `suggested_student_id` names a *different*
 #: student, a guess the tutor was shown.
@@ -251,6 +256,19 @@ def _convert(objects: dict[str, list[object]]) -> dict[str, list[dict]]:
     return {name: [_row(o) for o in found] for name, found in objects.items()}
 
 
+def _strip_redo_records(tables: dict[str, list[dict]]) -> None:
+    """Drop `PARENT_EXCLUDED_IN_REDO` from each mark of each redo record, in
+    the plain dicts only (the stored record is never touched). Any other shape
+    is left as it is."""
+    for redo in tables.get("attempt_redos", []):
+        record = redo.get("record")
+        marks = record.get("marks") if isinstance(record, dict) else None
+        for mark in marks if isinstance(marks, list) else []:
+            if isinstance(mark, dict):
+                for key in PARENT_EXCLUDED_IN_REDO:
+                    mark.pop(key, None)
+
+
 async def _rows(
     session: AsyncSession, model: type, column: str, value: object, *extra: object
 ) -> list[object]:
@@ -323,6 +341,8 @@ async def collect(
         for f in files
     ]
     tables = await asyncio.to_thread(_convert, objects)
+    if parent:
+        _strip_redo_records(tables)
     profile = {
         key: _plain(getattr(student, key))
         for key in ("id", "name", "email", "username", "role", "time_zone", "created_at")
