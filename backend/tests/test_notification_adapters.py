@@ -97,8 +97,10 @@ async def test_a_rejection_keeps_the_providers_text_out_of_the_error(configured,
         err = {"code": code, "message": "MARKER-from-provider"}
         return httpx.Response(400, json={"error": err})
 
-    with caplog.at_level("WARNING", logger="notifications"), pytest.raises(ChannelError) as err:
-        await _channel(handler).send("+201001234567", "avora_homework_set", PARAMS, "https://x")
+    caplog.set_level("WARNING", logger="notifications")
+    channel = _channel(handler)
+    with pytest.raises(ChannelError) as err:
+        await channel.send("+201001234567", "avora_homework_set", PARAMS, "https://x")
     want = "WhatsApp rejected the message (400)" + (f", code {code}" if code == 131026 else "")
     assert str(err.value) == want
     assert "MARKER-from-provider" in caplog.text
