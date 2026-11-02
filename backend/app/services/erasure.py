@@ -236,21 +236,30 @@ async def storage_keys(scope: Scope) -> list[str]:
             DataExport.student_id == sid, DataExport.storage_key.is_not(None)
         ),
     )
-    for record in (
-        await session.scalars(select(AttemptRedo.record).where(AttemptRedo.student_id == sid))
+    for redo_id, record in (
+        await session.execute(
+            select(AttemptRedo.id, AttemptRedo.record).where(AttemptRedo.student_id == sid)
+        )
     ).all():
-        keys += _keys_in(record)
+        keys += _listed_paths(sid, redo_id, record)
     return sorted(set(keys))
 
 
-def _keys_in(value: object) -> list[str]:
-    if isinstance(value, str):
-        return [value] if _KEY.fullmatch(value) else []
-    if isinstance(value, dict):
-        return [k for v in value.values() for k in _keys_in(v)]
-    if isinstance(value, list):
-        return [k for v in value for k in _keys_in(v)]
-    return []
+def _listed_paths(student_id: int, redo_id: int, record: Any) -> list[str]:
+    # Only a redo record's listed file paths are deleted; other text in the
+    # record is never treated as a file address.
+    files = record.get("files") if isinstance(record, dict) else None
+    if not isinstance(files, list):
+        log.error("erasure: student %s redo %s: record has no file list", student_id, redo_id)
+        return []
+    paths: list[str] = []
+    for entry in files:
+        path = entry.get("path") if isinstance(entry, dict) else None
+        if isinstance(path, str) and _KEY.fullmatch(path):
+            paths.append(path)
+        else:
+            log.error("erasure: student %s redo %s: a file entry was skipped", student_id, redo_id)
+    return paths
 
 
 # Each step below is one numbered item of the order; see ERASE_ORDER.
