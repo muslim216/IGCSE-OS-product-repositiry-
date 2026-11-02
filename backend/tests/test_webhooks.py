@@ -300,7 +300,7 @@ async def test_a_redelivered_stop_is_harmless(client, replies, contact):
 # --- status callbacks -------------------------------------------------------
 
 
-def _status(message_id: str, status: str, code: int | None = None) -> bytes:
+def _status(message_id: str, status: str, code: int | str | None = None) -> bytes:
     entry: dict = {"id": message_id, "status": status}
     if code is not None:
         entry["errors"] = [{"code": code}]
@@ -392,3 +392,11 @@ async def test_a_failure_for_a_number_changed_since_does_not_suppress_the_new_on
         await session.commit()
     await _post(client, _status("wamid.1", "failed", code=131026))
     assert (await _contact(contact)).suppressed_at is None
+
+
+async def test_a_failure_code_that_is_not_a_number_is_not_saved(client, sent_note):
+    assert (await _post(client, _status("wamid.1", "failed", "MARKER"))).status_code == 200
+    async with async_session() as session:
+        note = await session.scalar(select(Notification).where(Notification.id == sent_note))
+    assert note.status == NotificationStatus.failed
+    assert note.error == "WhatsApp delivery failed"
