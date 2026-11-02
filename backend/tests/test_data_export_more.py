@@ -493,7 +493,7 @@ async def test_a_parent_copy_of_a_redone_attempt_leaves_out_the_tutors_mark_chan
     for mark in kept[0]["record"]["marks"]:
         assert "override_audit" not in mark
     assert "override_audit" not in raw_kept
-    assert "remark_request" in raw_kept
+    assert all("remark_request" in mark for mark in kept[0]["record"]["marks"])
     # The rest of the record is still there.
     first, original = kept[0]["record"]["marks"][0], full[0]["record"]["marks"][0]
     assert {k: v for k, v in original.items() if k != "override_audit"} == first
