@@ -67,7 +67,10 @@ class WhatsAppChannel:
                 err = {}
             if isinstance(err, dict):
                 code = err.get("code")
-                message = f"{message}: {err.get('message', '')}"[:300]
+                # The provider's wording is for the logs only; the stored error is ours.
+                log.warning("WhatsApp rejection (%s): %s", resp.status_code, err.get("message"))
+                if isinstance(code, int):
+                    message = f"{message}, code {code}"
             if resp.status_code in (401, 403):
                 # Not this number's fault: the access token expired or was
                 # revoked, or the app lost permission. Every send will fail the

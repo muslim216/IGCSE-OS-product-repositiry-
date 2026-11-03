@@ -121,7 +121,12 @@ async def _status(session: AsyncSession, status: dict) -> None:
         return
     errors = status.get("errors") or [{}]
     code = errors[0].get("code") if isinstance(errors[0], dict) else None
-    reason = f"WhatsApp delivery failed (code {code})"[:300]
+    # A number or nothing: the stored error holds no text of the provider's.
+    reason = (
+        f"WhatsApp delivery failed (code {code})"
+        if isinstance(code, int)
+        else ("WhatsApp delivery failed")
+    )
     log.warning("notification %s: %s", note.id, reason)
     note.status = NotificationStatus.failed
     note.error = reason

@@ -255,6 +255,28 @@ async def test_permanent_error_with_nothing_left_is_failed(monkeypatch, tutor):
         assert (await session.scalar(select(ContactPoint))).suppressed_at is None
 
 
+async def test_a_provider_rejection_text_never_reaches_the_row(monkeypatch, tutor):
+    import httpx
+
+    from app.config import get_settings
+    from app.services.notifications.whatsapp import WhatsAppChannel
+
+    monkeypatch.setattr(get_settings(), "whatsapp_access_token", "tok")
+    monkeypatch.setattr(get_settings(), "whatsapp_phone_number_id", "555")
+    body = {"error": {"code": 100, "message": "MARKER-from-provider"}}
+    channel = WhatsAppChannel(
+        transport=httpx.MockTransport(lambda r: httpx.Response(400, json=body))
+    )
+    patch_channels(monkeypatch, whatsapp=channel)
+    async with async_session() as session:
+        user = await session.get(User, tutor["user"]["id"])
+        note = await _queued(session, user)
+        await send_notification(session, {"notification_id": note.id})
+        assert note.status == NotificationStatus.failed
+        assert "MARKER" not in note.error
+        assert "rejected the message (400), code 100" in note.error
+
+
 async def test_transient_error_is_retried_then_recorded_failed(monkeypatch, tutor):
     patch_channels(
         monkeypatch,
