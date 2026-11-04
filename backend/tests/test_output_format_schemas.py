@@ -72,9 +72,13 @@ def _output_format_models() -> dict[str, type[BaseModel]]:
         module = importlib.import_module(module_name)
         for name in sorted(names):
             model = getattr(module, name)
-            assert isinstance(model, type) and issubclass(model, BaseModel), (
+            not_a_model = (
                 f"{module_name}:{name} is passed as output_format but is not a Pydantic model"
             )
+            # Two asserts, in this order: issubclass raises on a non-class
+            # rather than failing with the message.
+            assert isinstance(model, type), not_a_model
+            assert issubclass(model, BaseModel), not_a_model
             found[f"{module_name}:{name}"] = model
     return found
 
