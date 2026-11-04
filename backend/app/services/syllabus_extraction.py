@@ -18,9 +18,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import release_connection
 from app.models import AiFeature, SubjectLevel, SyllabusUpload, SyllabusUploadStatus, User
+from app.schemas.syllabus import SyllabusDraft
 from app.services import storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.job_errors import DocumentProblem, safe_job_error
+
+
+class ExtractedSubtopic(BaseModel):
+    code: str = Field(description="Sub-point number exactly as printed, e.g. '1.3.2'")
+    title: str = Field(description="Sub-point title; fold any deeper printed points into this text")
+    weight: float = Field(
+        default=1.0,
+        description="Relative importance for readiness weighting; 1.0 unless the syllabus "
+        "clearly emphasises some sections over others",
+    )
 
 
 class ExtractedTopic(BaseModel):
@@ -31,7 +42,12 @@ class ExtractedTopic(BaseModel):
         description="Relative importance for readiness weighting; 1.0 unless the syllabus "
         "clearly emphasises some sections over others",
     )
-    children: list[ExtractedTopic] = Field(default_factory=list)
+    # A fixed depth, not `list[ExtractedTopic]`: Anthropic refuses a schema whose
+    # definitions refer to themselves, so a recursive model failed every syllabus
+    # upload (T-025). Chapter -> topic -> sub-topic is the depth syllabuses print,
+    # and `Topic.parent_id` and apply take it as they always have;
+    # tests/test_output_format_schemas.py keeps every output model acyclic.
+    children: list[ExtractedSubtopic] = Field(default_factory=list)
 
 
 class ExtractedChapter(BaseModel):
@@ -128,4 +144,7 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
     if not any(chapter.topics for chapter in result.chapters):
         raise DocumentProblem("No topics were found in the document")
 
-    upload.draft = result.model_dump()
+    # Through `SyllabusDraft`, so a sub-topic is stored with `children: []` like
+    # every other node: the review page and the apply step read that list on
+    # every node, and `ExtractedSubtopic` has none to dump.
+    upload.draft = SyllabusDraft.model_validate(result.model_dump()).model_dump()
