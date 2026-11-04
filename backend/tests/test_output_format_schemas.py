@@ -33,20 +33,39 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 MIN_MODELS = 9
 
 
+def _output_format_keywords(source: str, filename: str) -> tuple[set[str], list[str]]:
+    """The names passed as `output_format=` in one file, and `file:line` for
+    every `output_format=` whose value is anything but a bare name. Those are
+    reported rather than skipped: `output_format=module.Model` would otherwise
+    leave its model unchecked with nothing to say so."""
+    names: set[str] = set()
+    unreadable: list[str] = []
+    for node in ast.walk(ast.parse(source, filename=filename)):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "output_format":
+                continue
+            if isinstance(keyword.value, ast.Name):
+                names.add(keyword.value.id)
+            else:
+                unreadable.append(f"{filename}:{keyword.value.lineno}")
+    return names, unreadable
+
+
+UNREADABLE: list[str] = []
+
+
 def _output_format_models() -> dict[str, type[BaseModel]]:
     """`module:Name` -> the class, for every `output_format=<Name>` keyword in
     `app/`. Resolved by importing the calling module, so a model imported from
     elsewhere is found under the name the call site uses."""
     found: dict[str, type[BaseModel]] = {}
     for path in sorted(APP_DIR.rglob("*.py")):
-        tree = ast.parse(path.read_text(), filename=str(path))
-        names = {
-            keyword.value.id
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            for keyword in node.keywords
-            if keyword.arg == "output_format" and isinstance(keyword.value, ast.Name)
-        }
+        names, unreadable = _output_format_keywords(
+            path.read_text(), str(path.relative_to(APP_DIR.parent))
+        )
+        UNREADABLE.extend(unreadable)
         if not names:
             continue
         module_name = ".".join(path.relative_to(APP_DIR.parent).with_suffix("").parts)
@@ -115,6 +134,21 @@ MODELS = _output_format_models()
 
 def test_the_search_finds_every_output_format_model():
     assert len(MODELS) >= MIN_MODELS, sorted(MODELS)
+
+
+def test_every_output_format_is_a_name_the_search_can_resolve():
+    assert UNREADABLE == [], (
+        "output_format= must be passed a bare model name so this guard can check it; "
+        f"rewrite these call sites: {', '.join(UNREADABLE)}"
+    )
+
+
+def test_the_search_reports_an_output_format_it_cannot_resolve():
+    """The check above is only worth something if it can fail."""
+    source = "structured_complete(output_format=schemas.Model)\nother(output_format=Model)\n"
+    names, unreadable = _output_format_keywords(source, "snippet.py")
+    assert names == {"Model"}
+    assert unreadable == ["snippet.py:1"]
 
 
 @pytest.mark.parametrize("where", sorted(MODELS))
