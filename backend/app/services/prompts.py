@@ -190,6 +190,9 @@ tutor schedules a run of lessons around. Use the document's own units and their 
 numbering.
 - A **topic** is a markable syllabus point inside a chapter. Nest genuine sub-points beneath \
 their parent topic with `children`; do not use `children` to express chapters.
+- Sub-points go one level deep only: a sub-topic has no children of its own. Where the \
+document prints points below a sub-topic, fold them into the sub-topic's title rather than \
+dropping them.
 
 Rules:
 - Every chapter in the document, in the document's order, and every assessable topic within it.
@@ -412,7 +415,10 @@ PROMPTS: dict[str, PromptTemplate] = {
     # old "give your best estimate" instruction asked for a fabricated number
     # (PROD-2); they are tutor-entered from task 2.4. `level` added (AV-7), and
     # the data-not-instructions posture the other document surfaces carry.
-    "syllabus": PromptTemplate(version="v2", system=SYLLABUS),
+    # v3: sub-points one level deep, deeper ones folded into the sub-topic's
+    # title (T-025). The output schema stopped recursing — the provider refuses
+    # a self-referencing one — so the prompt no longer asks for open nesting.
+    "syllabus": PromptTemplate(version="v3", system=SYLLABUS),
     "reports": PromptTemplate(version="v1", system=REPORTS),
     # v2: consistency is retired (task 5.1, AV-30) — six factors now, not
     # seven, and homework's own completion_rate/assignment_count/
