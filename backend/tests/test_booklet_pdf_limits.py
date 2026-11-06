@@ -10,8 +10,12 @@ The one-at-a-time check locks the workspace's row before it looks. SQLite
 ignores `FOR UPDATE`, so on SQLite these tests prove the rule (a second request
 after the first is refused, and another workspace is not) but not the race
 between two requests at the same instant; that part holds only on Postgres,
-where the lock is real, and is exercised by CI's Postgres run of this file.
+where the lock is real. `test_two_uploads_at_the_same_moment_let_only_one_through`
+sends two at once, and runs in CI's Postgres run of the suite.
 """
+
+import asyncio
+import os
 
 import pytest
 from sqlalchemy import delete, func, select, update
@@ -398,3 +402,18 @@ async def test_a_single_paper_upload_is_not_held_up(client, tutor, subject):  # 
         headers=tutor["headers"],
     )
     assert resp.status_code == 201, resp.text
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
+    reason="SQLite ignores FOR UPDATE; CI's Postgres run of the suite runs this",
+)
+async def test_two_uploads_at_the_same_moment_let_only_one_through(client, tutor, subject):  # noqa: F811
+    """The race the workspace lock is for. Without it both requests check,
+    both find nothing in progress, and both start a read."""
+    first, second = await asyncio.gather(
+        _upload(client, tutor, subject), _upload(client, tutor, subject)
+    )
+    assert sorted([first.status_code, second.status_code]) == [201, 409]
+    async with async_session() as session:
+        assert await session.scalar(select(func.count(Booklet.id))) == 1
