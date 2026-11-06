@@ -47,6 +47,7 @@ from app.services.notifications.triggers import SWEEP_JOB as MESSAGE_TRIGGER_SWE
 from app.services.notifications.triggers import sweep_message_triggers
 from app.services.past_paper_phase import SWEEP_JOB as PAST_PAPER_PHASE_SWEEP_JOB
 from app.services.past_paper_phase import sweep_past_paper_phase
+from app.services.pdf_sandbox import DEADLINE_SECONDS as PDF_SANDBOX_DEADLINE_SECONDS
 from app.services.plan_drafting import PLAN_DRAFT_JOB, draft_plan
 from app.services.plan_reflow import PLAN_REFLOW_JOB, reflow_plan
 from app.services.readiness_v2_ai import compute_readiness_v2
@@ -88,10 +89,16 @@ def register_all() -> None:
     # /health/ready reports the worker as stalled; that is accurate, since the
     # queue behind it is waiting. Read once, here: a deployment sets the AI
     # deadline in its environment, not while running.
+    #
+    # Before those two calls it counts the booklet's pages in the PDF sandbox
+    # (T-027), which has a deadline of its own, so that and a second margin
+    # (for waiting its turn and starting the reader) are added on top.
     register_handler(
         "extract_booklet",
         extract_booklet,
-        timeout_seconds=2 * get_settings().ai_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS,
+        timeout_seconds=2 * get_settings().ai_call_timeout_seconds
+        + PDF_SANDBOX_DEADLINE_SECONDS
+        + 2 * JOB_TIMEOUT_MARGIN_SECONDS,
         on_give_up=booklet_read_given_up,
     )
     # And cuts the booklet into those papers once they have. A job rather than

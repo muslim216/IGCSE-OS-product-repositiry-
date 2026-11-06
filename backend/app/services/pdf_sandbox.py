@@ -106,8 +106,8 @@ class PdfTooComplex(DocumentProblem):
 
     job_retryable = False
 
-    def __init__(self) -> None:
-        super().__init__(TOO_COMPLEX_MESSAGE)
+    def __init__(self, message: str = TOO_COMPLEX_MESSAGE) -> None:
+        super().__init__(message)
 
 
 class PdfSandboxUnavailable(RuntimeError):

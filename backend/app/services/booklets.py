@@ -27,6 +27,10 @@ from app.workers.jobs import enqueue
 
 log = logging.getLogger(__name__)
 
+#: A booklet has two files; when the second is the one refused, the tutor is
+#: told so rather than left to guess which to replace.
+MARK_SCHEME_TOO_COMPLEX = "The mark scheme PDF is too complex to read safely."
+
 
 def _slice_name(booklet_name: str | None, paper: DraftPaper, suffix: str) -> str:
     """The original filename is metadata only (`SEC-16`) — the stored name is
@@ -155,9 +159,12 @@ async def _cut_and_create(
     # holds both files and the paper pieces at once.
     if booklet.mark_scheme_path and with_scheme:
         scheme_data = await storage.read_file(booklet.mark_scheme_path)
-        scheme_cuts = await pdf_sandbox.split(
-            scheme_data, [(s.first_page, s.last_page) for _, s in with_scheme]
-        )
+        try:
+            scheme_cuts = await pdf_sandbox.split(
+                scheme_data, [(s.first_page, s.last_page) for _, s in with_scheme]
+            )
+        except pdf_sandbox.PdfTooComplex as exc:
+            raise pdf_sandbox.PdfTooComplex(MARK_SCHEME_TOO_COMPLEX) from exc
         del scheme_data
         scheme_slots = {
             index: _Slot(scheme_cuts, position) for position, (index, _) in enumerate(with_scheme)

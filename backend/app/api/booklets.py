@@ -342,6 +342,17 @@ def _check_paper_count(draft: BookletDraft) -> None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_MANY_PAPERS)
 
 
+def _approvable_draft(booklet: Booklet) -> BookletDraft:
+    """The stored draft, validated, or a 422 saying what is wrong with it."""
+    try:
+        return BookletDraft.model_validate(booklet.draft)
+    except ValidationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"This paper list cannot be cut as it stands: {_first_problem(exc)}",
+        ) from exc
+
+
 def _first_problem(exc: ValidationError) -> str:
     """The first validation message, without pydantic's framing — the tutor is
     reading this on a screen, not in a stack trace."""
@@ -418,6 +429,9 @@ async def retry_booklet(booklet_id: int, db: DbSession, user: TutorUser) -> Book
         next_status, job = BookletStatus.extracting, "extract_booklet"
     elif booklet.status is BookletStatus.split_failed:
         next_status, job = BookletStatus.applying, "split_booklet"
+        # A cut runs the approved list again, so it meets the cap approve does:
+        # a list that reached this state some other way is not cut past it.
+        _check_paper_count(_approvable_draft(booklet))
     else:
         raise HTTPException(status.HTTP_409_CONFLICT, "There is nothing to retry")
     await _refuse_if_busy(db, user)
@@ -456,13 +470,7 @@ async def approve_booklet(booklet_id: int, db: DbSession, user: TutorUser) -> Bo
     # overlap or backwards range is caught before it is cut. Raised as a 422
     # rather than left to become a 500 — the tutor can fix an overlap by hand,
     # and needs to be told what it is.
-    try:
-        draft = BookletDraft.model_validate(booklet.draft)
-    except ValidationError as exc:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"This paper list cannot be cut as it stands: {_first_problem(exc)}",
-        ) from exc
+    draft = _approvable_draft(booklet)
     # The AI writes the draft directly, so `PUT /draft` is not the only way a
     # long list reaches approval.
     _check_paper_count(draft)

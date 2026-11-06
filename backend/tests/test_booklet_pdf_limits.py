@@ -509,3 +509,45 @@ async def test_the_mark_scheme_is_read_only_after_the_papers_are_cut(  # noqa: F
     ).status_code == 200
     assert await process_one_job() is True
     assert events == ["read paper", "split", "read scheme", "split"]
+
+
+async def test_a_mark_scheme_too_complex_is_named_as_the_mark_scheme(  # noqa: F811
+    monkeypatch, client, tutor, subject
+):
+    """The tutor uploaded two files; the sentence says which one to replace."""
+    resp = await _upload(client, tutor, subject, pages=6, scheme_pages=6)
+    booklet_id = resp.json()["id"]
+    draft = _draft((1, 2), (3, 6))
+    draft["scheme_papers"] = _draft((1, 2), (3, 6))["papers"]
+    await _set(booklet_id, draft=draft, status=BookletStatus.review)
+
+    real = pdf_sandbox.split
+    calls: list[int] = []
+
+    async def _scheme_refused(data, ranges):
+        calls.append(1)
+        if len(calls) == 2:
+            raise PdfTooComplex()
+        return await real(data, ranges)
+
+    monkeypatch.setattr(booklets_service.pdf_sandbox, "split", _scheme_refused)
+    assert (
+        await client.post(f"/api/v1/booklets/{booklet_id}/approve", headers=tutor["headers"])
+    ).status_code == 200
+    assert await process_one_job() is True
+    async with async_session() as session:
+        booklet = await session.get(Booklet, booklet_id)
+        assert booklet.status is BookletStatus.too_complex
+        assert booklet.error == "The mark scheme PDF is too complex to read safely."
+
+
+async def test_retrying_a_failed_cut_rechecks_the_paper_cap(client, tutor, subject):  # noqa: F811
+    """A draft past the cap that reached `split_failed` some other way (written
+    before the cap existed) is not cut on retry."""
+    booklet_id = await _reviewed(client, tutor, subject, (1, 3))
+    await _set(booklet_id, status=BookletStatus.split_failed, error="failed", draft=_many(61))
+
+    resp = await client.post(f"/api/v1/booklets/{booklet_id}/retry", headers=tutor["headers"])
+    assert resp.status_code == 422, resp.text
+    assert "60 papers" in resp.json()["detail"]
+    assert await _jobs() == []
