@@ -85,7 +85,7 @@ def test_the_scan_catches_every_spelling(tmp_path):
         "from app.services.pdf import page_count",
         "import app.services.pdf",
         "import importlib\nimportlib.import_module('pypdf')",
-        "__import__(\"app.services.pdf\")",
+        '__import__("app.services.pdf")',
     ]
     services = tmp_path / "app" / "services"
     services.mkdir(parents=True)

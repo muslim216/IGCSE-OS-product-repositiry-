@@ -171,7 +171,9 @@ def test_a_range_that_does_not_fit_gives_todays_message_after_the_good_ones(run,
 def test_a_page_that_cannot_be_read_names_its_range():
     """A file that parses but fails on one page's content is told apart from a
     file that does not parse at all, as `pdf.extract_pages` tells them apart."""
-    problem = pdf_sandbox._problem(pdf_child.Code.unreadable, index=1, total=6, ranges=[(1, 2), (3, 4)])
+    problem = pdf_sandbox._problem(
+        pdf_child.Code.unreadable, index=1, total=6, ranges=[(1, 2), (3, 4)]
+    )
     assert str(problem) == "Pages 3-4 of this PDF could not be read."
     whole = pdf_sandbox._problem(pdf_child.Code.unreadable, index=-1, total=0, ranges=[(1, 2)])
     assert str(whole) == "This file could not be read as a PDF."
@@ -186,11 +188,7 @@ def test_a_child_held_past_the_deadline_is_killed(run, spawned, monkeypatch, cap
     started = time.monotonic()
 
     with pytest.raises(PdfTooComplex):
-        run(
-            pdf_sandbox._run(
-                pdf_child.Op.count, _pdf(1), [], test_args=("--test-hold", "60")
-            )
-        )
+        run(pdf_sandbox._run(pdf_child.Op.count, _pdf(1), [], test_args=("--test-hold", "60")))
 
     assert time.monotonic() - started < 20
     assert len(spawned) == 1
@@ -253,10 +251,8 @@ def test_the_child_runs_under_its_limits(run, spawned):
                 "Max open files",
             )
         }
-        with open(f"/proc/{pid}/oom_score_adj") as f:
-            oom = f.read().strip()
-        with open(f"/proc/{pid}/environ", "rb") as f:
-            environ = f.read()
+        oom = _proc_file(pid, "oom_score_adj").decode().strip()
+        environ = _proc_file(pid, "environ")
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -271,6 +267,11 @@ def test_the_child_runs_under_its_limits(run, spawned):
     assert oom == "1000"
     for secret in (b"DATABASE_URL", b"JWT_SECRET", b"_API_KEY"):
         assert secret not in environ
+
+
+def _proc_file(pid: int, name: str) -> bytes:
+    with open(f"/proc/{pid}/{name}", "rb") as f:
+        return f.read()
 
 
 def _limit_line(pid: int, name: str) -> str:
@@ -390,9 +391,7 @@ def test_an_error_result_that_carries_bytes_is_refused(run, monkeypatch):
 # --- 6. the child's environment ----------------------------------------------------
 
 
-def test_the_child_gets_a_minimal_environment_and_its_own_directory(
-    run, spawned, monkeypatch
-):
+def test_the_child_gets_a_minimal_environment_and_its_own_directory(run, spawned, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@db/avora")
     monkeypatch.setenv("JWT_SECRET", "a-secret-the-child-must-not-see")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-not-for-the-child")
@@ -502,7 +501,9 @@ def test_the_child_sets_itself_up_before_it_reads_the_file(monkeypatch):
 
 def test_the_child_sets_soft_equal_to_hard(monkeypatch):
     calls: dict[int, tuple[int, int]] = {}
-    monkeypatch.setattr(pdf_child.resource, "setrlimit", lambda res, lim: calls.__setitem__(res, lim))
+    monkeypatch.setattr(
+        pdf_child.resource, "setrlimit", lambda res, lim: calls.__setitem__(res, lim)
+    )
     pdf_child._set_limits()
     r = pdf_child.resource
     assert calls[r.RLIMIT_AS] == (256 * 1024 * 1024, 256 * 1024 * 1024)
@@ -650,7 +651,9 @@ def test_a_large_genuine_booklet_fits_the_limits():
     peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
     # Kilobytes on Linux, bytes on macOS.
     peak_mb = peak / 1024 if sys.platform.startswith("linux") else peak / (1024 * 1024)
-    print(f"\nlarge booklet: {len(data) / 1e6:.1f} MB, child peak RSS {peak_mb:.0f} MB, {elapsed:.1f}s")
+    print(
+        f"\nlarge booklet: {len(data) / 1e6:.1f} MB, child peak RSS {peak_mb:.0f} MB, {elapsed:.1f}s"
+    )
     assert peak_mb < 256
 
 

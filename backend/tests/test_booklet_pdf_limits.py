@@ -140,7 +140,9 @@ async def test_a_too_complex_read_fails_the_booklet_for_good(monkeypatch, client
         assert (await session.get(Booklet, booklet_id)).status is BookletStatus.too_complex
 
 
-async def test_a_plain_unreadable_booklet_still_reaches_review(monkeypatch, fake_ai, client, tutor, subject):  # noqa: F811
+async def test_a_plain_unreadable_booklet_still_reaches_review(
+    monkeypatch, fake_ai, client, tutor, subject
+):  # noqa: F811
     """Today's behaviour, kept: a file the library cannot parse is not hostile,
     and the AI may still read its list. The count is left absent (`PROD-2`)."""
     monkeypatch.setattr(
@@ -174,7 +176,9 @@ async def test_a_plain_unreadable_booklet_still_reaches_review(monkeypatch, fake
         assert booklet.page_count is None
 
 
-async def test_a_real_booklet_read_counts_its_pages_in_the_sandbox(monkeypatch, fake_ai, client, tutor, subject):  # noqa: F811
+async def test_a_real_booklet_read_counts_its_pages_in_the_sandbox(
+    monkeypatch, fake_ai, client, tutor, subject
+):  # noqa: F811
     monkeypatch.setattr(
         extraction_service,
         "structured_complete",

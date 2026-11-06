@@ -6,10 +6,12 @@ download, question extraction, marking — then sees an ordinary single paper an
 needs to know nothing about page ranges. Splitting once at approval is what buys
 that; the alternative was teaching ranges to four separate places.
 
-**These functions block.** pypdf is synchronous and CPU-bound, and the worker
-shares the API's event loop (`BE-13`, `PERF-1`) — one call on the loop stalls
-request serving for every user, not just the tutor who uploaded. An async caller
-must go through `asyncio.to_thread`, or sit inside a job handler that does.
+**Only `services/pdf_child.py` calls these.** pypdf is synchronous and
+CPU-bound, and a crafted file can make it use memory or time without bound. Run
+in the API process, that stalls or kills it for every user, not only the tutor
+who uploaded (`BE-13`, `PERF-1`). So every caller goes through
+`services/pdf_sandbox.py`, which runs them in a separate, limited process, and
+`tests/test_pdf_guards.py` fails if anything else imports this module.
 
 Pure by `BE-4`: bytes in, bytes or an int out. No session, no storage, no
 logging of file contents.
@@ -45,6 +47,11 @@ def _read(data: bytes) -> tuple[PdfReader, int]:
             raise DocumentProblem("This PDF is password-protected, so its pages cannot be read.")
         return reader, len(reader.pages)
     except ValueError:
+        raise
+    # Not "could not be read": running out of memory or stack is the sandbox's
+    # "too complex", which is never retried, where an unreadable file is the
+    # tutor's ordinary problem to fix.
+    except (MemoryError, RecursionError):
         raise
     # Blind on purpose, and not suppressed with a `noqa`: BLE001 does not fire
     # on a handler that re-raises, so one here would be a comment pretending to
@@ -89,6 +96,8 @@ def extract_pages(data: bytes, first_page: int, last_page: int) -> bytes:
             writer.add_page(reader.pages[index])
         out = BytesIO()
         writer.write(out)
+    except (MemoryError, RecursionError):  # too complex, not unreadable, as in `_read`
+        raise
     except Exception as exc:  # blind on purpose, as in `_read`
         log.warning(
             "pages %s-%s of a PDF could not be read: %s: %s",
