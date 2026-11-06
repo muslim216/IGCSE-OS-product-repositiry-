@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import (
     Chapter,
+    Organization,
     Subject,
     SyllabusUpload,
     SyllabusUploadStatus,
@@ -19,6 +20,39 @@ from app.services.plan_reflow import enqueue_reflow_for_subject
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
+
+SYLLABUS_BEING_READ_MESSAGE = "A syllabus is already being read. Try again when it finishes."
+
+
+async def _refuse_while_a_read_is_running(db, organization_id: int) -> None:
+    """409 while any upload in this organization is `extracting`.
+
+    A read may run for 45 minutes on the model's whole answer length (T-028),
+    so a workspace reads one syllabus at a time. The organization row is locked
+    first and held until the caller commits, so two requests arriving together
+    cannot both find nothing in progress and both start a read: the second waits
+    here for the first to commit, then sees its row. That holds on Postgres;
+    SQLite drops `FOR UPDATE`, which is why the test that sends two requests at
+    once runs only on Postgres.
+
+    Called before anything is stored or queued, so a refused request costs no
+    upload allowance and leaves no file behind. The organization comes from the
+    signed-in user (`SEC-7`); an upload row has none of its own, so the check
+    reaches it through the uploading tutor, as `list_syllabus_uploads` does."""
+    await db.execute(
+        select(Organization.id).where(Organization.id == organization_id).with_for_update()
+    )
+    running = await db.scalar(
+        select(SyllabusUpload.id)
+        .join(User, User.id == SyllabusUpload.tutor_id)
+        .where(
+            User.organization_id == organization_id,
+            SyllabusUpload.status == SyllabusUploadStatus.extracting,
+        )
+        .limit(1)
+    )
+    if running is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, SYLLABUS_BEING_READ_MESSAGE)
 
 
 async def _owned_upload(db, user: User, upload_id: int) -> SyllabusUpload:
@@ -56,6 +90,10 @@ async def upload_syllabus(
     title: Annotated[str, Form(min_length=1, max_length=255)],
     file: Annotated[UploadFile, File()],
 ) -> SyllabusUploadDetail:
+    # The lock taken here is held through the save below until the commit. A
+    # save to the local disk is quick; the cost is that this workspace's next
+    # syllabus request waits for it, which is the point.
+    await _refuse_while_a_read_is_running(db, user.organization_id)
     path, name, mime = await storage.save_upload(file, organization_id=user.organization_id)
     upload = SyllabusUpload(
         tutor_id=user.id,
@@ -129,6 +167,9 @@ async def retry_syllabus_extraction(
     upload = await _owned_upload(db, user, upload_id)
     if upload.status != SyllabusUploadStatus.extraction_failed:
         raise HTTPException(status.HTTP_409_CONFLICT, "Only a failed extraction can be retried")
+    # The tenant is the uploading tutor's, which `_owned_upload` has already
+    # held to the caller's own organization.
+    await _refuse_while_a_read_is_running(db, user.organization_id)
     upload.status = SyllabusUploadStatus.extracting
     upload.error = None
     await enqueue(db, "extract_syllabus", {"syllabus_upload_id": upload.id})

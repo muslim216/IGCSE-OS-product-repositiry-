@@ -100,7 +100,7 @@ async def _upload_and_read(client, tutor) -> int:
 
 def test_the_essential_surfaces_are_the_syllabus_and_the_plan():
     assert frozenset({"syllabus", "plan_weighting"}) == ESSENTIAL_SURFACES
-    assert ESSENTIAL_SURFACES <= set(ai_service.SURFACES)
+    assert set(ai_service.SURFACES) >= ESSENTIAL_SURFACES
 
 
 def test_the_ceiling_follows_the_provider_the_surface_is_routed_to(monkeypatch):
@@ -242,9 +242,7 @@ async def test_any_other_call_that_runs_out_its_deadline_keeps_its_retry(
     assert not is_permanent(caught.value)
 
 
-async def test_an_essential_call_keeps_its_retry_for_any_other_failure(
-    monkeypatch, anthropic_key
-):
+async def test_an_essential_call_keeps_its_retry_for_any_other_failure(monkeypatch, anthropic_key):
     """The SDK's own silence timeout is a dropped connection, not our deadline."""
 
     def silent(request):
@@ -394,10 +392,12 @@ async def test_the_platform_cap_blocks_every_workspace_and_says_so_in_an_error_l
 
     with pytest.raises(AIKeyMissingError):
         await _call(org, "syllabus")
-    with caplog.at_level(logging.ERROR, logger="app.services.ai"):
-        # A different workspace, and a different essential surface: one shared cap.
-        with pytest.raises(AIDailyLimitError):
-            await _call(other_org, "plan_weighting")
+    # A different workspace, and a different essential surface: one shared cap.
+    with (
+        caplog.at_level(logging.ERROR, logger="app.services.ai"),
+        pytest.raises(AIDailyLimitError),
+    ):
+        await _call(other_org, "plan_weighting")
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert errors, "reaching the platform cap must log an ERROR"
     message = errors[-1].getMessage()

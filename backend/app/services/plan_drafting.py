@@ -32,6 +32,7 @@ from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import get_settings
 from app.db import async_session, release_connection
 from app.models import (
     AiFeature,
@@ -54,6 +55,7 @@ from app.services.ai import (
     AIDailyLimitError,
     AIKeyMissingError,
     file_block,
+    output_ceiling,
     record_usage,
     require_parsed,
     structured_complete,
@@ -93,6 +95,20 @@ WEIGHTS_FROM_STORED = "stored_chapter_weights"
 WEIGHTS_AI_UNUSABLE = "ai_unusable"
 
 SKIPPED_ACCEPTED_MIDRUN = "plan was accepted or removed during the run"
+
+# The answer is one weight and one short reason (stored at STORED_REASON_CHARS)
+# per chapter, so its length is sized to the chapter count rather than set to
+# the model's whole limit: room enough that a real plan is never cut off, and a
+# runaway answer costs a few thousand tokens, not a hundred thousand.
+PLAN_WEIGHTING_BASE_TOKENS = 4000
+PLAN_WEIGHTING_TOKENS_PER_CHAPTER = 300
+
+
+def plan_weighting_max_tokens(chapter_count: int) -> int:
+    """`max_tokens` for weighting `chapter_count` chapters, never above what the
+    routed provider accepts."""
+    wanted = PLAN_WEIGHTING_BASE_TOKENS + PLAN_WEIGHTING_TOKENS_PER_CHAPTER * chapter_count
+    return min(wanted, output_ceiling("plan_weighting"))
 
 
 class ChapterAdvice(BaseModel):
@@ -233,7 +249,10 @@ async def weigh_chapters(*, group: Group, subject: Subject, chapters: list[Chapt
             surface="plan_weighting",
             content=content,
             output_format=PlanWeightingResult,
-            max_tokens=4000,
+            max_tokens=plan_weighting_max_tokens(len(chapters)),
+            # Essential like the syllabus read (`ai.ESSENTIAL_SURFACES`): a tutor
+            # cannot plan without it, so it gets the long deadline too.
+            timeout_seconds=get_settings().ai_essential_call_timeout_seconds,
         )
     except (AIKeyMissingError, AIDailyLimitError) as exc:
         # `AI-20`, `INF-9`: a missing key degrades this surface and says so, as

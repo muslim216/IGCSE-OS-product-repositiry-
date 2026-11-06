@@ -288,6 +288,17 @@ class Settings(BaseSettings):
     # The worker's own limit on a job follows this number (this plus a margin,
     # workers/jobs.py:job_timeout_seconds), so raising it here is enough.
     ai_call_timeout_seconds: float = 840.0
+    # The cap for the two calls the app cannot move on without: reading a
+    # syllabus and weighting a teaching plan (`ai.ESSENTIAL_SURFACES`, owner
+    # 5 Nov 2026). They ask for the model's whole answer length, and 128,000
+    # tokens does not fit in 840 seconds. 45 minutes. Never below
+    # `ai_call_timeout_seconds` (checked below): an essential call must not
+    # get less time than an ordinary one. Their jobs' time limit is this plus
+    # JOB_TIMEOUT_MARGIN_SECONDS (workers/handlers.py), so the AI deadline
+    # always ends first, and the orphan sweep waits for the longest job limit,
+    # so raising this also slows crash recovery for every job type.
+    # UNMEASURED: nobody has timed a real 128,000-token answer.
+    ai_essential_call_timeout_seconds: float = 2700.0
     # The same cap for short plain-text calls: the stored narrative and the class
     # brief, a few hundred tokens each. Much lower because the class brief runs
     # inside a web request that holds a database session for the whole wait; two
@@ -517,6 +528,17 @@ class Settings(BaseSettings):
     #: cannot spend the tutor's.
     daily_marking_calls_per_workspace: int = 500
     daily_ai_calls_per_workspace: int = 500
+    #: The essential surfaces (`ai.ESSENTIAL_SURFACES`) each have their own
+    #: allowance instead of the general one, so a day of other AI work can never
+    #: stop a tutor reading their syllabus or drafting their plan. Sized so a
+    #: real tutor never meets them: they are abuse guards, not usage limits.
+    daily_syllabus_ai_calls_per_workspace: int = 10
+    daily_plan_ai_calls_per_workspace: int = 30
+    #: Every workspace together, per day, for both essential surfaces. The
+    #: per-workspace figures above do not bound the bill while sign-up is open,
+    #: because each sign-up is a new workspace; this does. Reaching it logs an
+    #: ERROR naming it, and the fix is to raise it.
+    daily_essential_ai_calls_platform: int = 300
     daily_uploads_per_workspace: int = 200
     daily_uploads_per_student: int = 50
     daily_messages_per_workspace: int = 300
@@ -612,6 +634,15 @@ class Settings(BaseSettings):
             )
         if self.ai_max_retries < 0:
             raise ValueError("AI_MAX_RETRIES must be 0 or more")
+        # Checked on its own so the message names it. Below the normal deadline
+        # would give the longest calls the least time, the opposite of why it
+        # exists.
+        if self.ai_essential_call_timeout_seconds <= 0:
+            raise ValueError("AI_ESSENTIAL_CALL_TIMEOUT_SECONDS must be above 0")
+        if self.ai_essential_call_timeout_seconds < self.ai_call_timeout_seconds:
+            raise ValueError(
+                "AI_ESSENTIAL_CALL_TIMEOUT_SECONDS must not be below AI_CALL_TIMEOUT_SECONDS"
+            )
         return self
 
     @model_validator(mode="after")

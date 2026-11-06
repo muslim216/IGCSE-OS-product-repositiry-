@@ -55,7 +55,10 @@ async def _register(client, email: str) -> dict:
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()
-    return {"user": data["user"], "headers": {"Authorization": f"Bearer {data['tokens']['access_token']}"}}
+    return {
+        "user": data["user"],
+        "headers": {"Authorization": f"Bearer {data['tokens']['access_token']}"},
+    }
 
 
 @pytest.fixture
@@ -171,23 +174,25 @@ async def test_the_workspace_is_locked_before_the_check(client, tutor, reads_fai
             resp = await _post(client, tutor)
             assert resp.status_code == 201, resp.text
         else:
-            resp = await client.post(
-                f"{API}/{failed.json()['id']}/retry", headers=tutor["headers"]
-            )
+            resp = await client.post(f"{API}/{failed.json()['id']}/retry", headers=tutor["headers"])
             assert resp.status_code == 200, resp.text
     finally:
         event.remove(Session, "do_orm_execute", _record)
 
     compiled = [str(s.compile(dialect=postgresql.dialect())) for s in seen]
     lock_at = next(
-        (i for i, sql in enumerate(compiled) if "FROM organizations" in sql and "FOR UPDATE" in sql),
+        (
+            i
+            for i, sql in enumerate(compiled)
+            if "FROM organizations" in sql and "FOR UPDATE" in sql
+        ),
         None,
     )
     check_at = next(
         (
             i
             for i, sql in enumerate(compiled)
-            if "FROM syllabus_uploads" in sql and "syllabus_uploads.status" in sql
+            if "FROM syllabus_uploads" in sql and "syllabus_uploads.status = " in sql
         ),
         None,
     )
