@@ -637,6 +637,10 @@ class Settings(BaseSettings):
         # Checked on its own so the message names it. Below the normal deadline
         # would give the longest calls the least time, the opposite of why it
         # exists.
+        # NaN compares false to everything, so it would pass both checks
+        # below; infinity would give an essential call no deadline at all.
+        if not math.isfinite(self.ai_essential_call_timeout_seconds):
+            raise ValueError("AI_ESSENTIAL_CALL_TIMEOUT_SECONDS must be a finite number")
         if self.ai_essential_call_timeout_seconds <= 0:
             raise ValueError("AI_ESSENTIAL_CALL_TIMEOUT_SECONDS must be above 0")
         if self.ai_essential_call_timeout_seconds < self.ai_call_timeout_seconds:

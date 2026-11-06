@@ -328,7 +328,12 @@ def output_ceiling(surface: str) -> int:
     For the essential surfaces (`ESSENTIAL_SURFACES`), whose answer must never
     be what makes the job fail. A provider needs some maximum, so "no limit" is
     this. Read from the routing at call time, so moving a surface to another
-    provider can never send a request above that provider's limit."""
+    provider can never send a request above that provider's limit.
+
+    The figure is the provider's, not the model's. A per-surface model override
+    (`AI_SYLLABUS_MODEL`, `AI_PLAN_WEIGHTING_MODEL`) naming a model with a lower
+    output limit than this needs an entry of its own here first, or every call
+    on that surface asks for more than the model gives and is refused."""
     provider, _model = resolve_surface(surface)
     return _OUTPUT_CEILINGS[provider]
 

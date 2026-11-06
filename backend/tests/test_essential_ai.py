@@ -7,6 +7,7 @@ other AI use can never block them. Everything else (homework, marking, reports)
 keeps its limits. No test here reaches a real provider (`QA-8`).
 """
 
+import asyncio
 import logging
 
 import pytest
@@ -114,6 +115,8 @@ def test_the_ceiling_follows_the_provider_the_surface_is_routed_to(monkeypatch):
 async def test_a_syllabus_read_asks_for_the_routed_ceiling_and_the_long_deadline(
     client, tutor, monkeypatch
 ):
+    # Set, not assumed: a deployment's environment could route it elsewhere.
+    monkeypatch.setattr(get_settings(), "ai_syllabus_provider", "anthropic", raising=False)
     seen: dict = {}
     monkeypatch.setattr(
         "app.services.syllabus_extraction.structured_complete",
@@ -201,8 +204,6 @@ async def test_a_structured_call_honours_its_own_timeout(monkeypatch, trickling_
     # The normal limit is long; only the one the caller passed may stop this.
     # Bounded from outside, so a call that ignored it fails here in seconds
     # (a bare TimeoutError, not ours) instead of waiting out the hour.
-    import asyncio
-
     monkeypatch.setattr(get_settings(), "ai_call_timeout_seconds", 3600.0, raising=False)
     async with asyncio.timeout(5):
         with pytest.raises(AITimeoutError, match="did not answer in time"):
@@ -261,8 +262,6 @@ async def test_an_essential_call_keeps_its_retry_for_any_other_failure(monkeypat
 
 
 async def test_a_gemini_essential_call_past_its_deadline_is_not_retried(monkeypatch):
-    import asyncio
-
     class _Models:
         async def generate_content(self, **kwargs):
             await asyncio.sleep(3600)
@@ -275,8 +274,11 @@ async def test_a_gemini_essential_call_past_its_deadline_is_not_retried(monkeypa
 
     monkeypatch.setattr(get_settings(), "ai_syllabus_provider", "gemini", raising=False)
     monkeypatch.setattr(ai_service, "get_gemini_client", lambda: _Gemini())
-    with pytest.raises(AITimeoutError) as caught:
-        await _structured("syllabus", timeout_seconds=0.05)
+    # Bounded from outside, as the Anthropic test is, so a call that ignored
+    # its deadline fails here in seconds instead of sleeping out the hour.
+    async with asyncio.timeout(5):
+        with pytest.raises(AITimeoutError) as caught:
+            await _structured("syllabus", timeout_seconds=0.05)
     assert caught.value.job_retryable is False
 
 
@@ -304,12 +306,25 @@ def test_the_essential_deadline_defaults_to_45_minutes():
 
 @pytest.mark.parametrize("bad", [0, -1])
 def test_an_essential_deadline_of_zero_or_less_is_refused(bad):
-    with pytest.raises(ValidationError, match="AI_ESSENTIAL_CALL_TIMEOUT_SECONDS"):
+    with pytest.raises(ValidationError, match="AI_ESSENTIAL_CALL_TIMEOUT_SECONDS must be above 0"):
+        Settings(ai_essential_call_timeout_seconds=bad)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_an_essential_deadline_that_is_not_a_finite_number_is_refused(bad):
+    # NaN compares false to everything, so it passes both checks below unless
+    # it is named; infinity would give a call no deadline at all.
+    with pytest.raises(
+        ValidationError, match="AI_ESSENTIAL_CALL_TIMEOUT_SECONDS must be a finite number"
+    ):
         Settings(ai_essential_call_timeout_seconds=bad)
 
 
 def test_an_essential_deadline_below_the_normal_one_is_refused():
-    with pytest.raises(ValidationError, match="AI_ESSENTIAL_CALL_TIMEOUT_SECONDS"):
+    with pytest.raises(
+        ValidationError,
+        match="AI_ESSENTIAL_CALL_TIMEOUT_SECONDS must not be below AI_CALL_TIMEOUT_SECONDS",
+    ):
         Settings(ai_call_timeout_seconds=840, ai_essential_call_timeout_seconds=839)
     # Equal is allowed: it is never shorter than an ordinary call.
     assert Settings(ai_call_timeout_seconds=840, ai_essential_call_timeout_seconds=840)
@@ -422,6 +437,16 @@ async def test_a_workspace_refused_its_own_allowance_does_not_spend_the_platform
     assert essential_platform_daily_limiter.local._hits == {}
 
 
+@pytest.mark.usefixtures("no_ai_key")
+async def test_a_platform_refusal_does_not_spend_the_workspace_s_own_allowance(monkeypatch, tutor):
+    _allow(monkeypatch, syllabus_daily_limiter, 5)
+    _allow(monkeypatch, essential_platform_daily_limiter, 0)
+    org = await _org(tutor)
+    with pytest.raises(AIDailyLimitError):
+        await _call(org, "syllabus")
+    assert syllabus_daily_limiter.local._hits == {}
+
+
 async def test_the_platform_cap_is_keyed_globally_not_per_workspace():
     key = essential_platform_daily_limiter.key("platform")
     assert ":global:" in key
@@ -475,13 +500,52 @@ async def test_plan_weighting_never_asks_above_the_ceiling(monkeypatch):
 
     monkeypatch.setattr(plan_drafting, "structured_complete", _stop)
     monkeypatch.setattr(plan_drafting, "_guidance_block", _no_guidance)
-    monkeypatch.setattr(get_settings(), "ai_plan_weighting_provider", "gemini", raising=False)
-    # 4,000 + 300 x 300 = 94,000, above Gemini's 65,536.
+    # A provider whose ceiling is below the plan's own cap.
+    monkeypatch.setattr(plan_drafting, "output_ceiling", lambda surface: 20_000)
     with pytest.raises(RuntimeError, match="stop here"):
         await plan_drafting.weigh_chapters(
             group=_Group(), subject=object(), chapters=[_chapter(i) for i in range(300)]
         )
-    assert seen["max_tokens"] == 65_536
+    assert seen["max_tokens"] == 20_000
+
+
+async def test_plan_weighting_never_asks_above_32000(monkeypatch):
+    """Room for about 93 chapters, more than any real syllabus, and it keeps a
+    day of plan drafts inside the workspace's cost figure."""
+    from app.services import plan_drafting
+
+    seen: dict = {}
+
+    async def _stop(**kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(plan_drafting, "structured_complete", _stop)
+    monkeypatch.setattr(plan_drafting, "_guidance_block", _no_guidance)
+    monkeypatch.setattr(get_settings(), "ai_plan_weighting_provider", "anthropic", raising=False)
+    # 4,000 + 300 x 300 = 94,000: under Anthropic's 128,000, over the cap.
+    with pytest.raises(RuntimeError, match="stop here"):
+        await plan_drafting.weigh_chapters(
+            group=_Group(), subject=object(), chapters=[_chapter(i) for i in range(300)]
+        )
+    assert seen["max_tokens"] == 32_000
+
+
+async def test_a_spent_allowance_is_explained_in_one_sentence_each(monkeypatch):
+    """The limit message ends in a full stop; the reason must not read ".."."""
+    from app.services import plan_drafting
+
+    async def _refuse(**kwargs):
+        raise AIDailyLimitError(ai_service._DAILY_LIMIT_MESSAGE)
+
+    monkeypatch.setattr(plan_drafting, "structured_complete", _refuse)
+    monkeypatch.setattr(plan_drafting, "_guidance_block", _no_guidance)
+    result = await plan_drafting.weigh_chapters(
+        group=_Group(), subject=object(), chapters=[_chapter(i) for i in range(2)]
+    )
+    assert ".." not in result.degraded_reason
+    assert result.degraded_reason.startswith(ai_service._DAILY_LIMIT_MESSAGE)
+    assert "Chapter time was weighted from the weights stored" in result.degraded_reason
 
 
 class _Group:
@@ -493,7 +557,9 @@ class _Group:
 def _chapter(i: int):
     from app.models import Chapter
 
-    return Chapter(id=i + 1, subject_id=1, code=f"C{i}", title=f"Chapter {i}", position=i)
+    return Chapter(
+        id=i + 1, subject_id=1, code=f"C{i}", title=f"Chapter {i}", position=i, weight=1.0
+    )
 
 
 async def _no_guidance(subject):
