@@ -342,7 +342,10 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
           <div role="alert" className="rounded-lg bg-risk-100 p-4 text-sm">
             <p className="font-medium text-risk-600">We couldn't read this syllabus.</p>
             {upload.error && AI_LIMIT_MESSAGES.has(upload.error) ? (
-              <p className="mt-1 text-ink-700">{upload.error}</p>
+              <>
+                <p className="mt-1 text-ink-700">{upload.error}</p>
+                <p className="mt-1 text-ink-700">You can also fix the draft below by hand.</p>
+              </>
             ) : (
               <p className="mt-1 text-ink-700">
                 Try again, or upload a clearer copy of the PDF. You can also fix the draft below by

@@ -480,10 +480,9 @@ async def test_plan_weighting_asks_for_4000_plus_300_per_chapter(monkeypatch):
 
     monkeypatch.setattr(plan_drafting, "structured_complete", _stop)
     monkeypatch.setattr(plan_drafting, "_guidance_block", _no_guidance)
+    group, subject, chapters = _Group(), object(), [_chapter(i) for i in range(7)]
     with pytest.raises(RuntimeError, match="stop here"):
-        await plan_drafting.weigh_chapters(
-            group=_Group(), subject=object(), chapters=[_chapter(i) for i in range(7)]
-        )
+        await plan_drafting.weigh_chapters(group=group, subject=subject, chapters=chapters)
     assert seen["surface"] == "plan_weighting"
     assert seen["max_tokens"] == 4000 + 300 * 7
     assert seen["timeout_seconds"] == get_settings().ai_essential_call_timeout_seconds
@@ -502,10 +501,9 @@ async def test_plan_weighting_never_asks_above_the_ceiling(monkeypatch):
     monkeypatch.setattr(plan_drafting, "_guidance_block", _no_guidance)
     # A provider whose ceiling is below the plan's own cap.
     monkeypatch.setattr(plan_drafting, "output_ceiling", lambda surface: 20_000)
+    group, subject, chapters = _Group(), object(), [_chapter(i) for i in range(300)]
     with pytest.raises(RuntimeError, match="stop here"):
-        await plan_drafting.weigh_chapters(
-            group=_Group(), subject=object(), chapters=[_chapter(i) for i in range(300)]
-        )
+        await plan_drafting.weigh_chapters(group=group, subject=subject, chapters=chapters)
     assert seen["max_tokens"] == 20_000
 
 
@@ -524,10 +522,9 @@ async def test_plan_weighting_never_asks_above_32000(monkeypatch):
     monkeypatch.setattr(plan_drafting, "_guidance_block", _no_guidance)
     monkeypatch.setattr(get_settings(), "ai_plan_weighting_provider", "anthropic", raising=False)
     # 4,000 + 300 x 300 = 94,000: under Anthropic's 128,000, over the cap.
+    group, subject, chapters = _Group(), object(), [_chapter(i) for i in range(300)]
     with pytest.raises(RuntimeError, match="stop here"):
-        await plan_drafting.weigh_chapters(
-            group=_Group(), subject=object(), chapters=[_chapter(i) for i in range(300)]
-        )
+        await plan_drafting.weigh_chapters(group=group, subject=subject, chapters=chapters)
     assert seen["max_tokens"] == 32_000
 
 
