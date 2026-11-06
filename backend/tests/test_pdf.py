@@ -123,3 +123,30 @@ def test_a_page_that_fails_while_being_copied_is_refused(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="could not be read"):
         extract_pages(data, 1, 2)
+
+
+@pytest.mark.parametrize("exc", [MemoryError, RecursionError])
+def test_running_out_of_memory_or_stack_is_not_called_unreadable(monkeypatch, exc) -> None:
+    """T-027. A file that exhausts memory or the stack is not "unreadable": the
+    sandbox reports it as too complex, which is never retried, where an
+    unreadable file is shown to the tutor as an ordinary problem with it."""
+    data = _pdf(3)
+
+    def _exhaust(*args, **kwargs):
+        raise exc()
+
+    monkeypatch.setattr("app.services.pdf.PdfReader", _exhaust)
+    with pytest.raises(exc):
+        page_count(data)
+
+
+@pytest.mark.parametrize("exc", [MemoryError, RecursionError])
+def test_running_out_while_copying_a_page_is_not_called_unreadable(monkeypatch, exc) -> None:
+    data = _pdf(3)
+
+    def _exhaust(*args, **kwargs):
+        raise exc()
+
+    monkeypatch.setattr("app.services.pdf.PdfWriter.add_page", _exhaust)
+    with pytest.raises(exc):
+        extract_pages(data, 1, 2)
