@@ -1,24 +1,26 @@
 """Cutting an approved booklet into the past papers it holds.
 
 This runs as a job, not in the approve request, because splitting a PDF is
-CPU-bound and the worker shares the API's event loop (`BE-13`, `PERF-1`). Every
-pypdf call therefore goes through `asyncio.to_thread`, which is what
-`services/pdf.py`'s docstring requires of its callers.
+CPU-bound work (`BE-13`, `PERF-1`). The cutting itself happens in the PDF
+sandbox (`services/pdf_sandbox.py`), a separate limited process, because it
+parses the tutor's file: one child per file, cutting every range at once,
+rather than one per paper.
 
 Splitting happens **once**, here. Each paper comes out as its own file, so
 everything downstream — download, question extraction, marking — sees an
 ordinary single paper and knows nothing about page ranges.
 """
 
-import asyncio
 import logging
+from dataclasses import dataclass
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import release_connection
 from app.models import Booklet, BookletStatus, PastPaper, WorkKind
 from app.schemas.booklet import BookletDraft, DraftPaper
-from app.services import pdf, storage
+from app.services import pdf_sandbox, storage
 from app.services.job_errors import safe_job_error
 from app.services.work import create_work
 from app.workers.jobs import enqueue
@@ -34,14 +36,29 @@ def _slice_name(booklet_name: str | None, paper: DraftPaper, suffix: str) -> str
     return f"{stem} — {paper.paper_number} {paper.session_label}{suffix}.pdf"
 
 
-async def _cut(
-    data: bytes, paper: DraftPaper, *, organization_id: int, name: str
-) -> tuple[str, str, str]:
-    """One page range, stored as its own PDF. Blocking work off the loop."""
-    piece = await asyncio.to_thread(pdf.extract_pages, data, paper.first_page, paper.last_page)
+@dataclass(frozen=True)
+class _Slot:
+    """Where one paper's piece is in the result of its file's split."""
+
+    cuts: pdf_sandbox.Split
+    position: int
+
+    def piece(self) -> bytes:
+        """The piece, or the reason it could not be cut. The sandbox stops at
+        the first range it cannot cut, so every range after that one has no
+        piece, and the paper waiting for it fails with the same reason."""
+        if self.position < len(self.cuts.pieces):
+            return self.cuts.pieces[self.position]
+        if self.cuts.failure is None:
+            raise RuntimeError("the split returned fewer pieces than it was asked for")
+        raise self.cuts.failure
+
+
+async def _store(slot: _Slot, *, organization_id: int, name: str) -> tuple[str, str, str]:
+    """One cut piece, stored as its own PDF."""
     # Cut from a booklet whose upload already counted against the allowance.
     return await storage.save_bytes(
-        piece, "application/pdf", name, organization_id=organization_id, counted=False
+        slot.piece(), "application/pdf", name, organization_id=organization_id, counted=False
     )
 
 
@@ -74,32 +91,21 @@ async def split_booklet(session: AsyncSession, payload: dict) -> None:
             await session.scalars(select(PastPaper).where(PastPaper.booklet_id == booklet.id))
         ).all()
     }
+    # Positional, not matched by name: the tutor has just reviewed both lists
+    # and a mismatch was shown to them before they approved, so the nth scheme
+    # entry is the scheme for the nth paper. Guessing a pairing by title would
+    # attach the wrong scheme silently, and a wrong scheme is worse than none —
+    # it is what a mark auto-finalizes against (`AI-11`).
+    schemes = draft.scheme_papers or []
+    pending = [
+        (index, drafted, schemes[index - 1] if index <= len(schemes) else None)
+        for index, drafted in enumerate(draft.papers, start=1)
+        if index not in existing
+    ]
 
     try:
-        data = await storage.read_file(booklet.file_path)
-        scheme_data = (
-            await storage.read_file(booklet.mark_scheme_path)
-            if booklet.mark_scheme_path and draft.scheme_papers
-            else None
-        )
-        # Positional, not matched by name: the tutor has just reviewed both
-        # lists and a mismatch was shown to them before they approved, so the
-        # nth scheme entry is the scheme for the nth paper. Guessing a pairing
-        # by title would attach the wrong scheme silently, and a wrong scheme is
-        # worse than none — it is what a mark auto-finalizes against (`AI-11`).
-        schemes = draft.scheme_papers or []
-        for index, drafted in enumerate(draft.papers, start=1):
-            if index in existing:
-                continue
-            await _create_paper(
-                session,
-                booklet,
-                drafted,
-                index=index,
-                data=data,
-                scheme_data=scheme_data,
-                scheme=schemes[index - 1] if index <= len(schemes) else None,
-            )
+        if pending:
+            await _cut_and_create(session, booklet, pending)
     except Exception as exc:
         # The session may be unusable — a failed flush leaves it needing a
         # rollback before it can be read from again, and without this the write
@@ -108,7 +114,13 @@ async def split_booklet(session: AsyncSession, payload: dict) -> None:
         await session.rollback()
         stalled = await session.get(Booklet, payload["booklet_id"])
         if stalled is not None:
-            stalled.status = BookletStatus.split_failed
+            # Too complex is final: the job is not retried, and the routes
+            # refuse to queue the same file again.
+            stalled.status = (
+                BookletStatus.too_complex
+                if isinstance(exc, pdf_sandbox.PdfTooComplex)
+                else BookletStatus.split_failed
+            )
             stalled.error = safe_job_error(exc)
             await session.commit()
         raise
@@ -116,6 +128,52 @@ async def split_booklet(session: AsyncSession, payload: dict) -> None:
     booklet.status = BookletStatus.applied
     booklet.error = None
     await session.commit()
+
+
+async def _cut_and_create(
+    session: AsyncSession,
+    booklet: Booklet,
+    pending: list[tuple[int, DraftPaper, DraftPaper | None]],
+) -> None:
+    """Cut every paper still to create, one sandbox call per file, then create
+    them in order.
+
+    A range that cannot be cut stops the papers from that one on, exactly as
+    when each was cut on its own: the papers before it are created and
+    committed, so the re-run resumes there (`BE-6`)."""
+    assert booklet.file_path is not None
+    data = await storage.read_file(booklet.file_path)
+    with_scheme = [(index, scheme) for index, _, scheme in pending if scheme is not None]
+    scheme_data = (
+        await storage.read_file(booklet.mark_scheme_path)
+        if booklet.mark_scheme_path and with_scheme
+        else None
+    )
+    # The cut can wait behind another file for the heavy-work lock, and then
+    # take up to its deadline, so the connection goes back to the pool first
+    # (`CAP-6`).
+    await release_connection(session)
+    paper_cuts = await pdf_sandbox.split(data, [(p.first_page, p.last_page) for _, p, _ in pending])
+    del data
+    scheme_slots: dict[int, _Slot] = {}
+    if scheme_data is not None:
+        scheme_cuts = await pdf_sandbox.split(
+            scheme_data, [(s.first_page, s.last_page) for _, s in with_scheme]
+        )
+        del scheme_data
+        scheme_slots = {
+            index: _Slot(scheme_cuts, position) for position, (index, _) in enumerate(with_scheme)
+        }
+
+    for position, (index, drafted, _scheme) in enumerate(pending):
+        await _create_paper(
+            session,
+            booklet,
+            drafted,
+            index=index,
+            paper_slot=_Slot(paper_cuts, position),
+            scheme_slot=scheme_slots.get(index),
+        )
 
 
 async def split_given_up(session: AsyncSession, payload: dict, error: str) -> None:
@@ -136,32 +194,29 @@ async def _create_paper(
     drafted: DraftPaper,
     *,
     index: int,
-    data: bytes,
-    scheme_data: bytes | None,
-    scheme: DraftPaper | None,
+    paper_slot: _Slot,
+    scheme_slot: _Slot | None,
 ) -> None:
     """One paper of the booklet: cut, stored, recorded and queued for its
     question list. Lifted out of the loop so the loop reads as what it is —
     "for each paper the tutor approved that does not exist yet"."""
-    # Tracked because the two cuts below land on disk before the row that points
-    # at them exists. The scheme's page range comes from a second AI pass the
-    # tutor never corrected, so the scheme cut failing while the paper cut
+    # Tracked because the two pieces below land on disk before the row that
+    # points at them exists. The scheme's page range comes from a second AI pass
+    # the tutor never corrected, so the scheme cut failing while the paper cut
     # succeeded is the ordinary case, not an exotic one — and without this it
     # leaves an unreferenced file behind on every retry.
     cut: list[str] = []
     try:
-        paper_path, paper_name, paper_mime = await _cut(
-            data,
-            drafted,
+        paper_path, paper_name, paper_mime = await _store(
+            paper_slot,
             organization_id=booklet.organization_id,
             name=_slice_name(booklet.file_name, drafted, ""),
         )
         cut.append(paper_path)
         ms_path = ms_name = ms_mime = None
-        if scheme_data is not None and scheme is not None:
-            ms_path, ms_name, ms_mime = await _cut(
-                scheme_data,
-                scheme,
+        if scheme_slot is not None:
+            ms_path, ms_name, ms_mime = await _store(
+                scheme_slot,
                 organization_id=booklet.organization_id,
                 name=_slice_name(booklet.file_name, drafted, " mark scheme"),
             )
