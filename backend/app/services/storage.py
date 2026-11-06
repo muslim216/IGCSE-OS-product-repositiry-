@@ -312,12 +312,36 @@ class StorageBackend(Protocol):
     ) -> str | None: ...
 
 
+def secure_upload_root() -> None:
+    """Create the upload root if it is missing, and close it to everyone but
+    its owner.
+
+    Stored files are written world-readable (the default umask), and the PDF
+    child runs as its own account (`services/pdf_child.py`). A directory that
+    account cannot enter keeps it out of every file under it, including the
+    ones written before this existed, without touching each file. Runs when
+    the local backend is first built, which is before any PDF child can run:
+    a child only ever reads a file that came through this backend.
+
+    Not fatal: a root the API cannot chmod (owned by another user) leaves the
+    site working and says so as an ERROR, rather than stopping every upload."""
+    root = Path(get_settings().upload_dir)
+    try:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root.chmod(0o700)
+    except OSError:
+        log.exception("could not close the upload root %s to other accounts", root)
+
+
 class LocalBackend:
     """Files under `UPLOAD_DIR`. The development and test backend.
 
     Mints no signed URLs: there is no separate origin to redirect to, so callers
     fall back to proxying, which is what they do for sensitive files anyway.
     """
+
+    def __init__(self) -> None:
+        secure_upload_root()
 
     def _path(self, key: str) -> Path:
         root = Path(get_settings().upload_dir)
