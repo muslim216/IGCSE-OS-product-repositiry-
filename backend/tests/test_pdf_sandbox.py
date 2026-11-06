@@ -661,3 +661,37 @@ def test_the_sandbox_signals_are_named_in_the_log():
     assert pdf_sandbox._signal_name(-signal.SIGXCPU) == "SIGXCPU"
     assert pdf_sandbox._limit_for_signal(signal.SIGXCPU) == "cpu_soft"
     assert pdf_sandbox._limit_for_signal(signal.SIGKILL) == "cpu_hard_or_oom_killer"
+
+
+def _serve_in_process(monkeypatch, op, ranges, data) -> tuple:
+    """Run the child's main in this process, set-up steps stubbed, and return
+    the result header it wrote."""
+    monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: None)
+    monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: None)
+    monkeypatch.setattr(pdf_child, "_set_limits", lambda: None)
+    out = BytesIO()
+    request = pdf_child.encode_request(op, ranges, data)
+    assert pdf_child.main([], stdin=BytesIO(request), stdout=out) == 0
+    return pdf_child.RESULT_HEAD.unpack_from(out.getvalue(), len(pdf_child.READY))
+
+
+@pytest.mark.parametrize("exc", [TypeError("boom"), KeyError("/Root"), AttributeError("x")])
+def test_any_other_failure_while_counting_is_unreadable_not_too_complex(monkeypatch, exc):
+    """Only running out of memory or stack is "too complex", which is final. A
+    library bug on a corrupt file is the tutor's ordinary unreadable file."""
+
+    def _boom(data, _exc=exc):
+        raise _exc
+
+    monkeypatch.setattr(pdf, "page_count", _boom)
+    head = _serve_in_process(monkeypatch, pdf_child.Op.count, [], b"%PDF-1.4")
+    assert head[2] == pdf_child.Code.unreadable
+    assert head[4] == -1
+
+
+def test_the_child_tells_encrypted_by_type_not_by_cause():
+    from app.services.pdf import PdfEncrypted
+
+    assert pdf_child._file_code(PdfEncrypted("locked")) is pdf_child.Code.encrypted
+    # A refusal with no chained cause is still only unreadable.
+    assert pdf_child._file_code(DocumentProblem("no cause")) is pdf_child.Code.unreadable

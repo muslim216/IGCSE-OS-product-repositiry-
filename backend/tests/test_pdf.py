@@ -150,3 +150,33 @@ def test_running_out_while_copying_a_page_is_not_called_unreadable(monkeypatch, 
     monkeypatch.setattr("app.services.pdf.PdfWriter.add_page", _exhaust)
     with pytest.raises(exc):
         extract_pages(data, 1, 2)
+
+
+def test_a_plain_value_error_from_the_library_is_unreadable(monkeypatch) -> None:
+    """pypdf raises a bare ValueError for some corrupt files (one fuzzed file
+    gave "invalid literal for int() with base 10: b'a456'"). It is an ordinary
+    unreadable file, in our words, not something that escapes as itself."""
+    from app.services.job_errors import DocumentProblem
+
+    data = _pdf(1)
+
+    def _corrupt(*args, **kwargs):
+        raise ValueError("invalid literal for int() with base 10: b'a456'")
+
+    monkeypatch.setattr("app.services.pdf.PdfReader", _corrupt)
+    with pytest.raises(DocumentProblem) as caught:
+        page_count(data)
+    assert str(caught.value) == "This file could not be read as a PDF."
+    assert isinstance(caught.value.__cause__, ValueError)
+
+
+def test_an_encrypted_pdf_has_its_own_type() -> None:
+    from app.services.pdf import PdfEncrypted
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=110, height=200)
+    writer.encrypt("hunter2")
+    out = BytesIO()
+    writer.write(out)
+    with pytest.raises(PdfEncrypted, match="password-protected"):
+        page_count(out.getvalue())

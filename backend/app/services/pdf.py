@@ -32,6 +32,11 @@ from app.services.job_errors import DocumentProblem
 log = logging.getLogger(__name__)
 
 
+class PdfEncrypted(DocumentProblem):
+    """The PDF is password-protected. Its own type so that the sandbox's child
+    can report it as such without reading the sentence."""
+
+
 def _read(data: bytes) -> tuple[PdfReader, int]:
     """The reader and its page count, or `ValueError` explaining why not.
 
@@ -44,9 +49,12 @@ def _read(data: bytes) -> tuple[PdfReader, int]:
     try:
         reader = PdfReader(BytesIO(data))
         if reader.is_encrypted:
-            raise DocumentProblem("This PDF is password-protected, so its pages cannot be read.")
+            raise PdfEncrypted("This PDF is password-protected, so its pages cannot be read.")
         return reader, len(reader.pages)
-    except ValueError:
+    # Only our own refusals pass through as they are. pypdf also raises plain
+    # `ValueError`s of its own on a corrupt file ("invalid literal for int()"),
+    # which are unreadable like any other library error below.
+    except DocumentProblem:
         raise
     # Not "could not be read": running out of memory or stack is the sandbox's
     # "too complex", which is never retried, where an unreadable file is the

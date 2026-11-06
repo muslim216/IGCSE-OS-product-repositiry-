@@ -202,11 +202,10 @@ def _write_result(
 
 
 def _file_code(exc: Exception) -> Code:
-    """Encrypted or unreadable, without reading the message: `pdf._read`
-    raises its encrypted refusal directly, and chains every unreadable one to
-    the library's own error. `tests/test_pdf_sandbox.py` checks both still
-    come out with today's wording."""
-    return Code.unreadable if exc.__cause__ is not None else Code.encrypted
+    """Encrypted or unreadable, by type, never by the message."""
+    from app.services.pdf import PdfEncrypted
+
+    return Code.encrypted if isinstance(exc, PdfEncrypted) else Code.unreadable
 
 
 def _serve(op: Op, ranges: list[tuple[int, int]], data: bytes, stdout: BinaryIO) -> None:
@@ -217,6 +216,13 @@ def _serve(op: Op, ranges: list[tuple[int, int]], data: bytes, stdout: BinaryIO)
         total = pdf.page_count(data)
     except DocumentProblem as exc:
         _write_result(stdout, _file_code(exc))
+        return
+    except (MemoryError, RecursionError):
+        raise  # too complex, answered in `main`
+    # Anything else the library throws on a corrupt file is an unreadable
+    # file, the tutor's ordinary problem, never the final "too complex".
+    except Exception:  # noqa: BLE001 — a corrupt file is not a server fault
+        _write_result(stdout, Code.unreadable)
         return
     if op is Op.count:
         _write_result(stdout, Code.ok, total=total)
@@ -232,7 +238,9 @@ def _serve(op: Op, ranges: list[tuple[int, int]], data: bytes, stdout: BinaryIO)
             return
         try:
             pieces.append(pdf.extract_pages(data, first, last))
-        except DocumentProblem:
+        except (MemoryError, RecursionError):
+            raise
+        except Exception:  # noqa: BLE001 — as above
             _write_result(stdout, Code.unreadable, index=index, total=total, pieces=pieces)
             return
         # Each cut parses the file afresh, and the library's objects refer to
