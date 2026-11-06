@@ -199,9 +199,14 @@ async def _structured(surface: str, **kwargs):
 
 async def test_a_structured_call_honours_its_own_timeout(monkeypatch, trickling_provider):
     # The normal limit is long; only the one the caller passed may stop this.
+    # Bounded from outside, so a call that ignored it fails here in seconds
+    # (a bare TimeoutError, not ours) instead of waiting out the hour.
+    import asyncio
+
     monkeypatch.setattr(get_settings(), "ai_call_timeout_seconds", 3600.0, raising=False)
-    with pytest.raises(AITimeoutError, match="did not answer in time"):
-        await _structured("readiness", timeout_seconds=0.1)
+    async with asyncio.timeout(5):
+        with pytest.raises(AITimeoutError, match="did not answer in time"):
+            await _structured("readiness", timeout_seconds=0.1)
 
 
 async def test_without_a_timeout_a_structured_call_keeps_the_normal_deadline(
