@@ -18,9 +18,11 @@ from sqlalchemy import and_, false, func, or_, select
 from app.api.deps import CurrentUser, DbSession, TutorUser
 from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.api.past_papers import _enrolled_scope
-from app.models import Booklet, BookletStatus, PastPaper, Subject, User, UserRole
+from app.models import Booklet, BookletStatus, Organization, PastPaper, Subject, User, UserRole
 from app.schemas.booklet import BookletDetail, BookletDraft, BookletOut
 from app.services import storage
+from app.services.pdf_sandbox import TOO_COMPLEX_MESSAGE
+from app.services.rate_limit import spend_daily_allowance, upload_daily_limiter
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/booklets", tags=["past-papers"])
@@ -29,6 +31,27 @@ router = APIRouter(prefix="/booklets", tags=["past-papers"])
 #: and a booklet that does not exist must be indistinguishable (`API-7`), and
 #: three separately-typed strings are three chances for them to drift apart.
 NOT_FOUND = "Booklet not found"
+
+#: The most papers one booklet may hold. Each paper is a cut and then a
+#: question-list read of its own, so the list a tutor approves decides how much
+#: work one upload can start. Real booklets hold a year or two of sessions,
+#: well under this.
+MAX_BOOKLET_PAPERS = 60
+TOO_MANY_PAPERS = (
+    f"A booklet can hold at most {MAX_BOOKLET_PAPERS} papers. "
+    "Split it into smaller booklets and upload those."
+)
+#: Reading or cutting a booklet is the heaviest work an upload can start, so
+#: one workspace has at most one booklet at that stage at a time.
+BUSY = "A booklet is already being read. Try again when it finishes."
+#: A file the PDF sandbox refused stays refused: the same bytes would hit the
+#: same limit, so trying again only spends the instance's time.
+TOO_COMPLEX = (
+    f"{TOO_COMPLEX_MESSAGE} To use it, save it as a new PDF or in smaller parts "
+    "and upload it again."
+)
+#: The statuses during which a booklet's file is being read or cut.
+_IN_PROGRESS = (BookletStatus.extracting, BookletStatus.applying)
 
 
 async def _visible_booklet(db, user: User, booklet_id: int, *, for_update: bool = False) -> Booklet:
@@ -129,6 +152,10 @@ async def upload_booklet(
             "A booklet must be a PDF so it can be split into its papers. "
             "For a single paper or a photo, add it as one past paper instead.",
         )
+    # Before anything is stored or counted, so a refusal costs nothing. The
+    # lock is held until the new booklet is committed as `extracting`.
+    await _lock_workspace(db, user)
+    await _refuse_if_busy(db, user)
 
     # Same guard as `upload_past_paper`: the files are on disk before any row
     # exists, so every failure after that point owns their cleanup or leaves a
@@ -237,6 +264,49 @@ async def booklet_mark_scheme(booklet_id: int, db: DbSession, user: TutorUser) -
     )
 
 
+async def _lock_workspace(db, user: User) -> None:
+    """Hold the workspace's row until this request commits, so two requests
+    checking `_refuse_if_busy` at the same instant run one after the other and
+    the second sees the first's booklet. Always taken before any booklet row,
+    in every route here, so the two locks are never taken in opposite orders.
+
+    On SQLite `FOR UPDATE` is ignored and the suite cannot show the race; on
+    Postgres, where it runs, the lock is real."""
+    await db.execute(
+        select(Organization.id).where(Organization.id == user.organization_id).with_for_update()
+    )
+
+
+async def _refuse_if_busy(db, user: User) -> None:
+    """At most one booklet per workspace being read or cut. Scoped to the
+    caller's own workspace (`SEC-7`): another tenant's booklets never hold
+    this one up, and the refusal says nothing about them."""
+    busy = await db.scalar(
+        select(Booklet.id)
+        .where(
+            Booklet.organization_id == user.organization_id,
+            Booklet.status.in_(_IN_PROGRESS),
+        )
+        .limit(1)
+    )
+    if busy is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, BUSY)
+
+
+async def _spend_upload_allowance(user: User) -> None:
+    """Approving and retrying start a read or a cut of a stored file, which is
+    the same work an upload starts, so they spend the same daily allowance.
+    Called last, once every other check has passed, so a refused request costs
+    nothing."""
+    if not await spend_daily_allowance(upload_daily_limiter, user.organization_id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, storage.DAILY_UPLOAD_LIMIT_MESSAGE)
+
+
+def _check_paper_count(draft: BookletDraft) -> None:
+    if len(draft.papers) > MAX_BOOKLET_PAPERS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, TOO_MANY_PAPERS)
+
+
 def _first_problem(exc: ValidationError) -> str:
     """The first validation message, without pydantic's framing — the tutor is
     reading this on a screen, not in a stack trace."""
@@ -252,7 +322,12 @@ async def _editable(db, booklet: Booklet) -> None:
     paper created nothing, and the tutor must be able to fix the range that
     broke it — refusing there is a dead end with no way out but re-uploading.
     Once any paper exists the list is keyed by position and is frozen.
+
+    A file found too complex is frozen too: an edit moves the booklet back to
+    review, and approving from there would queue the same file again.
     """
+    if booklet.status is BookletStatus.too_complex:
+        raise HTTPException(status.HTTP_409_CONFLICT, TOO_COMPLEX)
     if booklet.status in (BookletStatus.applying, BookletStatus.applied):
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This booklet's papers have already been created"
@@ -278,6 +353,7 @@ async def edit_draft(
     """
     booklet = await _visible_booklet(db, user, booklet_id)
     await _editable(db, booklet)
+    _check_paper_count(body)
     booklet.draft = body.model_dump()
     # An edited draft is a reviewable one: correcting the list by hand is
     # exactly how a tutor recovers from a failed read, so it clears the failure
@@ -299,15 +375,19 @@ async def retry_booklet(booklet_id: int, db: DbSession, user: TutorUser) -> Book
     the papers already cut keep their old indexes, so the entries at those
     positions are silently never created.
     """
+    await _lock_workspace(db, user)
     booklet = await _visible_booklet(db, user, booklet_id)
+    if booklet.status is BookletStatus.too_complex:
+        raise HTTPException(status.HTTP_409_CONFLICT, TOO_COMPLEX)
     if booklet.status is BookletStatus.extraction_failed:
-        booklet.status = BookletStatus.extracting
-        job = "extract_booklet"
+        next_status, job = BookletStatus.extracting, "extract_booklet"
     elif booklet.status is BookletStatus.split_failed:
-        booklet.status = BookletStatus.applying
-        job = "split_booklet"
+        next_status, job = BookletStatus.applying, "split_booklet"
     else:
         raise HTTPException(status.HTTP_409_CONFLICT, "There is nothing to retry")
+    await _refuse_if_busy(db, user)
+    await _spend_upload_allowance(user)
+    booklet.status = next_status
     booklet.error = None
     await enqueue(db, job, {"booklet_id": booklet.id})
     await db.commit()
@@ -329,6 +409,7 @@ async def approve_booklet(booklet_id: int, db: DbSession, user: TutorUser) -> Bo
     # refused by `_editable`. The split job is idempotent anyway, but two jobs
     # racing on the same index collide on the unique key and one fails the
     # booklet for no reason.
+    await _lock_workspace(db, user)
     booklet = await _visible_booklet(db, user, booklet_id, for_update=True)
     await _editable(db, booklet)
     if not booklet.draft:
@@ -347,6 +428,9 @@ async def approve_booklet(booklet_id: int, db: DbSession, user: TutorUser) -> Bo
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             f"This paper list cannot be cut as it stands: {_first_problem(exc)}",
         ) from exc
+    # The AI writes the draft directly, so `PUT /draft` is not the only way a
+    # long list reaches approval.
+    _check_paper_count(draft)
     # And that every range fits the document. Caught here, the tutor edits the
     # list and tries again; caught inside the split job it is a failed cut, and
     # a half-cut booklet's list can no longer be edited. `page_count` is absent
@@ -360,6 +444,8 @@ async def approve_booklet(booklet_id: int, db: DbSession, user: TutorUser) -> Bo
                 f"'{over[0].title}' runs to page {over[0].last_page}, but this booklet has "
                 f"{booklet.page_count} pages. Correct the list and approve again.",
             )
+    await _refuse_if_busy(db, user)
+    await _spend_upload_allowance(user)
     booklet.status = BookletStatus.applying
     booklet.error = None
     await enqueue(db, "split_booklet", {"booklet_id": booklet.id})
