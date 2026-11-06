@@ -134,11 +134,41 @@ test("a booklet too complex to read says so in plain words, with no retry", asyn
   ]);
   renderPage();
   expect(await screen.findByText(/Couldn't read this PDF safely/)).toBeVisible();
+  // Shown as a failure, not in the neutral colour of a booklet still working.
+  expect(screen.getByText(/Couldn't read this PDF safely/)).toHaveClass("text-risk-600");
   // The stored sentence is ours, written by the server, so it is shown as is.
   expect(screen.getByText("This PDF is too complex to read safely.")).toBeVisible();
   // Never the raw status, and no retry: the same file would fail the same way.
   expect(screen.queryByText("Too complex")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+});
+
+test("the editor closes once the booklet leaves review", async () => {
+  // Approving moves the booklet to "applying"; Save and Approve must not stay
+  // on screen for a list the server will no longer take.
+  let status = "review";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/approve")) status = "applying";
+      if (/\/booklets\/\d+/.test(url)) {
+        return new Response(JSON.stringify({ ...booklet, status, draft }), { status: 200 });
+      }
+      if (url.includes("/booklets")) {
+        return new Response(JSON.stringify([{ ...booklet, status }]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }),
+  );
+  renderPage();
+  await openReview();
+  fireEvent.click(screen.getByRole("button", { name: /Approve and cut the papers/ }));
+  expect(await screen.findByText(/Cutting the papers out now/)).toBeVisible();
+  await waitFor(() => expect(screen.queryByRole("table")).not.toBeInTheDocument());
+  expect(
+    screen.queryByRole("button", { name: /Approve and cut the papers/ }),
+  ).not.toBeInTheDocument();
 });
 
 test("the review table shows the papers the AI found", async () => {

@@ -502,8 +502,11 @@ export default function BookletsPage() {
                         )}
                       </div>
                     </div>
-                    <Reveal open={openId === b.id} className="pt-3">
-                      {openId === b.id && (
+                    {/* Only while the list is still the tutor's to correct: once
+                        approved (or refused as too complex) the server takes no
+                        edit or approval, so Save and Approve must not show. */}
+                    <Reveal open={openId === b.id && b.status === "review"} className="pt-3">
+                      {openId === b.id && b.status === "review" && (
                         <>
                           {detail.isLoading ? (
                             <SectionSkeleton rows={4} label="Loading the papers" />
