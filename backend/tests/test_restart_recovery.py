@@ -282,7 +282,14 @@ def test_the_window_covers_the_longest_job_and_comes_back_in_minutes(monkeypatch
     monkeypatch.setattr(jobs, "_give_ups", {})
     register_all()
 
-    booklet = 2 * get_settings().ai_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS
+    from app.services.pdf_sandbox import DEADLINE_SECONDS
+
+    # Two AI calls plus the booklet's page count in the PDF sandbox (T-027).
+    booklet = (
+        2 * get_settings().ai_call_timeout_seconds
+        + DEADLINE_SECONDS
+        + 2 * JOB_TIMEOUT_MARGIN_SECONDS
+    )
     assert max(jobs._timeouts.values()) == booklet
     assert orphan_reclaim_seconds() == booklet + GIVE_UP_TIMEOUT_SECONDS + ORPHAN_GRACE_SECONDS
     assert orphan_reclaim_seconds() <= 40 * 60
