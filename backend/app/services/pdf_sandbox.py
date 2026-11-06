@@ -235,7 +235,9 @@ async def _exchange_with_child(
     finally:
         await asyncio.to_thread(shutil.rmtree, cwd, True)
 
-    return _outcome(proc.returncode, bytes(received), refused, ranges)
+    # The buffer itself, not a copy of it: it can hold twice the largest
+    # upload, and this is the API process.
+    return _outcome(proc.returncode, received, refused, ranges)
 
 
 async def _talk(
@@ -282,7 +284,7 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
 
 def _outcome(
     returncode: int | None,
-    received: bytes,
+    received: bytearray,
     refused: str | None,
     ranges: list[tuple[int, int]],
 ) -> tuple[list[bytes], DocumentProblem | None, int]:
@@ -301,7 +303,7 @@ def _outcome(
         _log(reason, returncode)
         raise PdfTooComplex()
     try:
-        code, detail, index, total, pieces = _parse(received[len(READY) :], len(ranges))
+        code, detail, index, total, pieces = _parse(memoryview(received)[len(READY) :], len(ranges))
     except _Refused as exc:
         _log(exc.reason, returncode)
         raise PdfTooComplex() from None
@@ -313,7 +315,7 @@ def _outcome(
     return pieces, _problem(code, index=index, total=total, ranges=ranges), total
 
 
-def _parse(body: bytes, n_ranges: int) -> tuple[Code, Detail, int, int, list[bytes]]:
+def _parse(body: memoryview, n_ranges: int) -> tuple[Code, Detail, int, int, list[bytes]]:
     """The child's result, checked field by field. Anything the child would not
     have written is refused, never repaired."""
     if len(body) < RESULT_HEAD.size:
@@ -349,7 +351,7 @@ def _parse(body: bytes, n_ranges: int) -> tuple[Code, Detail, int, int, list[byt
         raise _Refused("bad_framing")
     pieces = []
     for length in lengths:
-        pieces.append(body[offset : offset + length])
+        pieces.append(bytes(body[offset : offset + length]))
         offset += length
     return code, detail, index, total, pieces
 
