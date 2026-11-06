@@ -846,3 +846,49 @@ def test_a_child_that_has_exited_is_not_signalled(run, monkeypatch):
     monkeypatch.setattr(pdf_sandbox.os, "killpg", lambda pgid, sig: calls.append(pgid))
     assert run(pdf_sandbox.page_count(_pdf(1))) == 1
     assert calls == []
+
+
+def _as_root(monkeypatch) -> None:
+    monkeypatch.setattr(pdf_sandbox.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        pdf_sandbox.pwd, "getpwnam", lambda name: SimpleNamespace(pw_uid=4242, pw_gid=4343)
+    )
+
+
+def test_a_root_parent_will_not_start_a_child_while_the_uploads_are_open(
+    run, spawned, monkeypatch, tmp_path, caplog
+):
+    """If the upload folder could not be closed (`storage.secure_upload_root`),
+    the sandbox account could read every stored file. Refused, retryably, and
+    loudly, rather than run."""
+    from app.config import get_settings
+
+    root = tmp_path / "uploads"
+    root.mkdir()
+    root.chmod(0o755)
+    monkeypatch.setattr(get_settings(), "upload_dir", str(root))
+    monkeypatch.setattr(get_settings(), "storage_backend", "local")
+    _as_root(monkeypatch)
+    caplog.set_level(logging.ERROR, logger="app.services.pdf_sandbox")
+
+    with pytest.raises(PdfSandboxUnavailable) as caught:
+        run(pdf_sandbox.page_count(_pdf(1)))
+    assert not is_permanent(caught.value)
+    assert spawned == []
+    assert "upload" in caplog.text
+
+    root.chmod(0o700)
+    argv = pdf_sandbox._child_argv(())
+    assert argv[argv.index("--uid") + 1] == "4242"
+
+
+def test_a_root_parent_with_object_storage_does_not_check_a_local_folder(monkeypatch, tmp_path):
+    from app.config import get_settings
+
+    root = tmp_path / "unused"
+    root.mkdir()
+    root.chmod(0o755)
+    monkeypatch.setattr(get_settings(), "upload_dir", str(root))
+    monkeypatch.setattr(get_settings(), "storage_backend", "s3")
+    _as_root(monkeypatch)
+    assert "--uid" in pdf_sandbox._child_argv(())

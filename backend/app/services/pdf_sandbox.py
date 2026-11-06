@@ -41,11 +41,14 @@ import os
 import pwd
 import shutil
 import signal
+import stat
 import sys
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
+from app.config import get_settings
 from app.services import heavy_work
 from app.services.job_errors import DocumentProblem
 from app.services.pdf_child import (
@@ -159,12 +162,35 @@ def _child_argv(test_args: Sequence[str]) -> list[str]:
         if account.pw_uid == 0 or account.pw_gid == 0:
             log.error("pdf sandbox: the %s account is root", SANDBOX_USER)
             raise PdfSandboxUnavailable("sandbox account is root")
+        _refuse_while_uploads_are_open()
         argv += ["--uid", str(account.pw_uid), "--gid", str(account.pw_gid)]
     else:
         _say_same_user_once()
     if test_args:
         argv += ["--test-mode", "1"]
     return [*argv, *test_args]
+
+
+def _refuse_while_uploads_are_open() -> None:
+    """The sandbox account is kept out of the stored files only by the upload
+    folder being closed to everyone but its owner (`storage.secure_upload_root`).
+    If that did not take, a child could read every tenant's uploads, so none is
+    started: retried, and an ERROR for whoever reads the logs. Local storage
+    only; with object storage there is no folder of uploads to read."""
+    settings = get_settings()
+    if settings.storage_backend != "local":
+        return
+    try:
+        mode = stat.S_IMODE(Path(settings.upload_dir).stat().st_mode)
+    except FileNotFoundError:
+        return  # nothing stored yet, so nothing to read
+    if mode & 0o077:
+        log.error(
+            "pdf sandbox: the upload folder is open to other accounts (mode %o); "
+            "not starting the PDF reader until it is 0700",
+            mode,
+        )
+        raise PdfSandboxUnavailable("the upload folder is open to other accounts")
 
 
 def _say_same_user_once() -> None:
