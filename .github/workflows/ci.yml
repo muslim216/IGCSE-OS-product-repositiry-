@@ -269,6 +269,20 @@ jobs:
       - name: pytest on Postgres
         run: python -m pytest -q
 
+      # The one-booklet-at-a-time check holds when two uploads arrive together
+      # only because it locks the workspace row, which SQLite ignores, so its
+      # race test skips everywhere but here. A skip here would be a green tick
+      # for a test that never ran; same guard as the PDF-limit tests.
+      - name: Booklet race test must actually run
+        run: |
+          set -euo pipefail
+          python -m pytest "tests/test_booklet_pdf_limits.py::test_two_uploads_at_the_same_moment_let_only_one_through" -v -ra \
+            | tee /tmp/booklet-race.log
+          if grep -qE "skipped|no tests ran" /tmp/booklet-race.log; then
+            echo "::error::the booklet race test skipped or was not collected — it must run on Postgres"
+            exit 1
+          fi
+
   migrations:
     name: Migrations up/down/up (Postgres)
     runs-on: ubuntu-latest

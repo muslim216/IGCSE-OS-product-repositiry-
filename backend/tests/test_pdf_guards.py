@@ -2,9 +2,11 @@
 
 Two guards, because each misses what the other catches. The static one reads
 every module's source, so it fails on an import nobody exercises yet. The
-runtime one starts a fresh interpreter, imports the whole app and reads and
-splits a booklet, so it fails on an import made indirectly, by a dependency or
-at call time, that no source scan would see. It has to be a fresh interpreter:
+runtime one starts a fresh interpreter, imports the whole app and every job
+handler, then reads and splits a booklet through the real job handlers
+(`extract_booklet` and `split_booklet`, with the AI faked), so it fails on an
+import made indirectly, by a dependency or at call time, that no source scan
+would see. It has to be a fresh interpreter:
 this test process imports the library itself to build its fixtures.
 """
 
@@ -107,19 +109,74 @@ import asyncio, json, sys
 sys.path.insert(0, sys.argv[1])
 import app.main  # noqa: F401  the whole app, every router and service
 import app.workers.handlers  # noqa: F401  and every job handler
-from app.services import booklets, extraction, pdf_sandbox  # noqa: F401
+from sqlalchemy import select
+
+from app.db import async_session, engine
+from app.models import Base, Booklet, BookletStatus, PastPaper
+from app.services import booklets, extraction, storage
+from app.services.ai import AiProvider, AiResponse
+from app.services.extraction import BookletExtractionResult, ExtractedPaper
+from tests.factories import make_subject, org_id
 
 data = open(sys.argv[2], "rb").read()
 
-async def go():
-    count = await pdf_sandbox.page_count(data)
-    result = await pdf_sandbox.split(data, [(1, 1), (2, count)])
-    return count, len(result.pieces)
 
-count, pieces = asyncio.run(go())
+async def _fake_ai(**kwargs):
+    papers = [
+        ExtractedPaper(title=f"Paper {n}", session_label="November 2026",
+                       paper_number=f"Paper {n}", first_page=2 * n - 1, last_page=2 * n)
+        for n in (1, 2)
+    ]
+    return AiResponse(provider=AiProvider.anthropic, model="probe", prompt_version="probe",
+                      input_tokens=1, output_tokens=1,
+                      parsed=BookletExtractionResult(papers=papers))
+
+
+# The calling module's name, as the suite patches it (`QA-7`); no provider is
+# ever called (`QA-8`).
+extraction.structured_complete = _fake_ai
+
+
+async def go():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with async_session() as session:
+        oid = await org_id(session)
+        subject = await make_subject(session, organization_id=oid)
+        path, name, mime = await storage.save_bytes(
+            data, "application/pdf", "booklet.pdf", organization_id=oid
+        )
+        booklet = Booklet(organization_id=oid, subject_id=subject.id, file_path=path,
+                          file_name=name, file_mime=mime, status=BookletStatus.extracting)
+        session.add(booklet)
+        await session.commit()
+        booklet_id = booklet.id
+
+    # The real booklet read, as its job runs it: the page count goes through
+    # the sandbox.
+    async with async_session() as session:
+        await extraction.extract_booklet(session, {"booklet_id": booklet_id})
+        await session.commit()
+    async with async_session() as session:
+        booklet = await session.get(Booklet, booklet_id)
+        assert booklet.status is BookletStatus.review, booklet.error
+        count = booklet.page_count
+        booklet.status = BookletStatus.applying
+        await session.commit()
+
+    # And the real cut, as its job runs it.
+    async with async_session() as session:
+        await booklets.split_booklet(session, {"booklet_id": booklet_id})
+    async with async_session() as session:
+        papers = (await session.scalars(
+            select(PastPaper).where(PastPaper.booklet_id == booklet_id))).all()
+    return count, len(papers)
+
+
+count, papers = asyncio.run(go())
 print(json.dumps({
     "count": count,
-    "pieces": pieces,
+    "papers": papers,
     "loaded": sorted(m for m in sys.modules if m == "pypdf" or m.startswith("pypdf.")
                      or m == "app.services.pdf"),
 }))
@@ -146,5 +203,5 @@ def test_the_api_process_never_loads_the_pdf_library(tmp_path):
     assert done.returncode == 0, done.stderr.decode()[-2000:]
     report = json.loads(done.stdout.decode().strip().splitlines()[-1])
     assert report["count"] == 4
-    assert report["pieces"] == 2
+    assert report["papers"] == 2
     assert report["loaded"] == []

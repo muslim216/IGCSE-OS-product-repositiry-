@@ -437,3 +437,38 @@ async def published_assignment(client, tutor, group, classified, subject, monkey
     assert detail.json()["status"] == "published"
     assert len(detail.json()["questions"]) == 2
     return detail.json()
+
+
+#: How the PDF sandbox starts its child (`services/pdf_sandbox.py`): an isolated
+#: interpreter, which finds `app` only through the installed package, never the
+#: working directory. If that install points somewhere else (a stale editable
+#: install from another checkout), every child runs that code, not this tree's,
+#: and the booklet and sandbox tests fail or, worse, pass against the wrong code.
+_ISOLATED_FIND_APP = (
+    "import importlib.util as u; s = u.find_spec('app'); "
+    "print(s.submodule_search_locations[0] if s and s.submodule_search_locations else '')"
+)
+
+
+def pytest_sessionstart(session):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    here = Path(__file__).resolve().parent.parent / "app"
+    done = subprocess.run(
+        [sys.executable, "-I", "-c", _ISOLATED_FIND_APP],
+        capture_output=True,
+        text=True,
+        cwd=tempfile.gettempdir(),
+        timeout=60,
+        check=False,
+    )
+    found = done.stdout.strip()
+    if not found or Path(found).resolve() != here.resolve():
+        raise pytest.UsageError(
+            "An isolated interpreter (`python -I`, how the PDF sandbox starts its child) "
+            f"imports `app` from {found or 'nowhere'}, not from {here}. Install this "
+            "checkout into the environment running the tests, from backend/: "
+            "pip install --no-deps --no-build-isolation -e ."
+        )
