@@ -282,10 +282,15 @@ def test_the_window_covers_the_longest_job_and_comes_back_in_minutes(monkeypatch
     monkeypatch.setattr(jobs, "_give_ups", {})
     register_all()
 
+    # The longest since T-028: a syllabus read or a plan draft, allowed the
+    # essential AI deadline. That moved the window from about 34 minutes to
+    # about 51, for every job type, which the design accepted.
+    essential = get_settings().ai_essential_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS
     booklet = 2 * get_settings().ai_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS
-    assert max(jobs._timeouts.values()) == booklet
-    assert orphan_reclaim_seconds() == booklet + GIVE_UP_TIMEOUT_SECONDS + ORPHAN_GRACE_SECONDS
-    assert orphan_reclaim_seconds() <= 40 * 60
+    assert essential > booklet
+    assert max(jobs._timeouts.values()) == essential
+    assert orphan_reclaim_seconds() == essential + GIVE_UP_TIMEOUT_SECONDS + ORPHAN_GRACE_SECONDS
+    assert orphan_reclaim_seconds() <= 52 * 60
 
 
 def test_raising_the_ai_deadline_widens_the_window(monkeypatch):
