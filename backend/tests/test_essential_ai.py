@@ -564,3 +564,15 @@ def _chapter(i: int):
 
 async def _no_guidance(subject):
     return None, None
+
+
+def test_the_syllabus_page_knows_both_limit_messages_word_for_word():
+    """The page shows these instead of "upload a clearer copy" by matching the
+    stored error exactly, so a reworded message here must be reworded there."""
+    from pathlib import Path
+
+    page = (
+        Path(__file__).resolve().parents[2] / "frontend/src/tutor/SyllabusUploadPage.tsx"
+    ).read_text()
+    assert ai_service._DAILY_LIMIT_MESSAGE in page
+    assert ai_service._PLATFORM_LIMIT_MESSAGE in page
