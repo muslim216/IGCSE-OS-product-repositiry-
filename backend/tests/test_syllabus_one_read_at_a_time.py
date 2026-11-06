@@ -69,10 +69,27 @@ def reads_do_nothing(monkeypatch):
     monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", _fake)
 
 
+class _Unreadable(ValueError):
+    #: A failure a retry cannot fix, so the job ends `failed` at once and
+    #: nothing is left queued behind the upload.
+    job_retryable = False
+
+
 @pytest.fixture
 def reads_fail(monkeypatch):
     async def _fail(session, upload):
-        raise ValueError("unreadable")
+        raise _Unreadable("unreadable")
+
+    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", _fail)
+
+
+@pytest.fixture
+def reads_fail_then_retry(monkeypatch):
+    """A failure the worker retries after its backoff: the upload shows
+    `extraction_failed` while its job waits `pending` to run again."""
+
+    async def _fail(session, upload):
+        raise ValueError("the provider had a problem")
 
     monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", _fail)
 
@@ -153,6 +170,75 @@ async def test_another_workspace_s_read_does_not_block_a_retry_here(client, tuto
     assert retry.status_code == 200, retry.text
 
 
+async def _status_of(client, tutor, upload_id: int) -> str:
+    resp = await client.get(f"{API}/{upload_id}", headers=tutor["headers"])
+    return resp.json()["status"]
+
+
+async def test_an_upload_stuck_extracting_with_no_live_job_does_not_block(client, tutor):
+    """A read whose job is over (its give-up step never ran, say) is not being
+    read. Blocking on the status alone would lock the workspace out for good."""
+    from sqlalchemy import update
+
+    from app.db import async_session
+    from app.models import Job, JobStatus
+
+    stuck = await _post(client, tutor)
+    assert stuck.status_code == 201
+    async with async_session() as session:
+        await session.execute(update(Job).values(status=JobStatus.failed))
+        await session.commit()
+    assert await _status_of(client, tutor, stuck.json()["id"]) == "extracting"
+
+    second = await _post(client, tutor, title="Physics")
+    assert second.status_code == 201, second.text
+
+
+async def test_a_read_waiting_for_its_retry_still_blocks_an_upload(
+    client, tutor, reads_fail_then_retry
+):
+    first = await _post(client, tutor)
+    assert await process_one_job() is True
+    # Shown as failed, but its job is queued to run again after the backoff.
+    assert await _status_of(client, tutor, first.json()["id"]) == "extraction_failed"
+
+    second = await _post(client, tutor, title="Physics")
+    assert second.status_code == 409, second.text
+    assert second.json()["detail"] == SYLLABUS_BEING_READ_MESSAGE
+
+
+async def test_a_read_waiting_for_its_retry_refuses_a_manual_retry(
+    client, tutor, reads_fail_then_retry
+):
+    """Otherwise the tutor's retry queues a second job for the same upload
+    beside the one already waiting."""
+    from sqlalchemy import func, select
+
+    from app.db import async_session
+    from app.models import Job
+
+    first = await _post(client, tutor)
+    assert await process_one_job() is True
+    assert await _status_of(client, tutor, first.json()["id"]) == "extraction_failed"
+
+    retry = await client.post(f"{API}/{first.json()['id']}/retry", headers=tutor["headers"])
+    assert retry.status_code == 409, retry.text
+    async with async_session() as session:
+        assert await session.scalar(select(func.count(Job.id))) == 1
+
+
+async def test_another_workspace_s_queued_retry_does_not_block_this_one(
+    client, tutor, reads_fail_then_retry
+):
+    """Negative tenancy case, for a live job rather than a status."""
+    other = await _register(client, "other@example.com")
+    assert (await _post(client, other)).status_code == 201
+    assert await process_one_job() is True
+
+    mine = await _post(client, tutor)
+    assert mine.status_code == 201, mine.text
+
+
 @pytest.mark.parametrize("route", ["upload", "retry"])
 async def test_the_workspace_is_locked_before_the_check(client, tutor, reads_fail, route):
     """What SQLite can prove about the race: the route asks for a row lock on the
@@ -184,7 +270,7 @@ async def test_the_workspace_is_locked_before_the_check(client, tutor, reads_fai
         (
             i
             for i, sql in enumerate(compiled)
-            if "FROM organizations" in sql and "FOR UPDATE" in sql
+            if "FROM organizations" in sql and "FOR NO KEY UPDATE" in sql
         ),
         None,
     )
@@ -192,12 +278,12 @@ async def test_the_workspace_is_locked_before_the_check(client, tutor, reads_fai
         (
             i
             for i, sql in enumerate(compiled)
-            if "FROM syllabus_uploads" in sql and "syllabus_uploads.status = " in sql
+            if "FROM jobs" in sql and "jobs.status IN" in sql
         ),
         None,
     )
-    assert lock_at is not None, "the organization row must be locked FOR UPDATE"
-    assert check_at is not None, "the route must look for a read in progress"
+    assert lock_at is not None, "the organization row must be locked FOR NO KEY UPDATE"
+    assert check_at is not None, "the route must look for a live read job"
     assert lock_at < check_at
 
 

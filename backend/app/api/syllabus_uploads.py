@@ -2,10 +2,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import (
     Chapter,
+    Job,
+    JobStatus,
     Organization,
     Subject,
     SyllabusUpload,
@@ -22,33 +25,60 @@ from app.workers.jobs import enqueue
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
 
 SYLLABUS_BEING_READ_MESSAGE = "A syllabus is already being read. Try again when it finishes."
+EXTRACT_SYLLABUS_JOB = "extract_syllabus"
 
 
-async def _refuse_while_a_read_is_running(db, organization_id: int) -> None:
-    """409 while any upload in this organization is `extracting`.
+async def _refuse_while_a_read_is_running(db: AsyncSession, organization_id: int) -> None:
+    """409 while a read job for any upload in this organization is still live.
 
     A read may run for 45 minutes on the model's whole answer length (T-028),
-    so a workspace reads one syllabus at a time. The organization row is locked
-    first and held until the caller commits, so two requests arriving together
-    cannot both find nothing in progress and both start a read: the second waits
-    here for the first to commit, then sees its row. That holds on Postgres;
-    SQLite drops `FOR UPDATE`, which is why the test that sends two requests at
-    once runs only on Postgres.
+    so a workspace reads one syllabus at a time.
+
+    Live means an `extract_syllabus` job that is `pending` or `running`, not an
+    upload whose status says `extracting`. The two differ both ways. An upload
+    whose job is over but whose give-up step never ran stays `extracting` for
+    good, and blocking on that would lock the workspace out with nothing the
+    tutor could do. And a read that failed in a way the worker retries shows
+    `extraction_failed` while its job waits out the backoff; a retry then would
+    queue a second job for the same upload beside it.
+
+    The organization row is locked first and held until the caller commits, so
+    two requests arriving together cannot both find nothing live and both start
+    a read: the second waits here for the first to commit, then sees its job.
+    FOR NO KEY UPDATE rather than FOR UPDATE, which is enough to make two of
+    these wait for each other but does not hold up inserts into tables that
+    point at the organization. That holds on Postgres; SQLite drops the clause,
+    which is why the test that sends two requests at once runs only on Postgres.
 
     Called before anything is stored or queued, so a refused request costs no
     upload allowance and leaves no file behind. The organization comes from the
     signed-in user (`SEC-7`); an upload row has none of its own, so the check
     reaches it through the uploading tutor, as `list_syllabus_uploads` does."""
     await db.execute(
-        select(Organization.id).where(Organization.id == organization_id).with_for_update()
+        select(Organization.id)
+        .where(Organization.id == organization_id)
+        .with_for_update(key_share=True)
     )
+    # Payloads are read here, not compared in SQL: Postgres has no equality
+    # operator for `json`, and the live read jobs are a handful of rows.
+    payloads = await db.scalars(
+        select(Job.payload).where(
+            Job.type == EXTRACT_SYLLABUS_JOB,
+            Job.status.in_((JobStatus.pending, JobStatus.running)),
+        )
+    )
+    live_ids = {
+        upload_id
+        for payload in payloads
+        if isinstance(payload, dict)
+        and isinstance(upload_id := payload.get("syllabus_upload_id"), int)
+    }
+    if not live_ids:
+        return
     running = await db.scalar(
         select(SyllabusUpload.id)
         .join(User, User.id == SyllabusUpload.tutor_id)
-        .where(
-            User.organization_id == organization_id,
-            SyllabusUpload.status == SyllabusUploadStatus.extracting,
-        )
+        .where(User.organization_id == organization_id, SyllabusUpload.id.in_(live_ids))
         .limit(1)
     )
     if running is not None:
@@ -92,7 +122,9 @@ async def upload_syllabus(
 ) -> SyllabusUploadDetail:
     # The lock taken here is held through the save below until the commit. A
     # save to the local disk is quick; the cost is that this workspace's next
-    # syllabus request waits for it, which is the point.
+    # syllabus request waits for it, which is the point. Look at this again
+    # when STORAGE_BACKEND=s3: the save becomes a network call, and the lock
+    # (and a pooled connection) is then held for as long as it takes.
     await _refuse_while_a_read_is_running(db, user.organization_id)
     path, name, mime = await storage.save_upload(file, organization_id=user.organization_id)
     upload = SyllabusUpload(
@@ -105,7 +137,7 @@ async def upload_syllabus(
     )
     db.add(upload)
     await db.flush()
-    await enqueue(db, "extract_syllabus", {"syllabus_upload_id": upload.id})
+    await enqueue(db, EXTRACT_SYLLABUS_JOB, {"syllabus_upload_id": upload.id})
     await db.commit()
     return _detail(upload)
 
@@ -172,7 +204,7 @@ async def retry_syllabus_extraction(
     await _refuse_while_a_read_is_running(db, user.organization_id)
     upload.status = SyllabusUploadStatus.extracting
     upload.error = None
-    await enqueue(db, "extract_syllabus", {"syllabus_upload_id": upload.id})
+    await enqueue(db, EXTRACT_SYLLABUS_JOB, {"syllabus_upload_id": upload.id})
     await db.commit()
     return _detail(upload)
 
