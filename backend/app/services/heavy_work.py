@@ -25,7 +25,9 @@ import contextlib
 import weakref
 from collections.abc import AsyncIterator, Callable
 
-HEAVY_WORK_BUSY_MESSAGE = "The server is busy reading another file. Try again in a moment."
+#: Starts as it does because the frontend passes a 503 through to the person
+#: only when it begins "Avora is busy" (`frontend/src/lib/errors.ts`).
+HEAVY_WORK_BUSY_MESSAGE = "Avora is busy reading another file. Try again in a moment."
 
 
 class HeavyWorkBusy(RuntimeError):

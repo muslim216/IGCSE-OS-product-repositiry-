@@ -135,15 +135,33 @@ def _to_jpeg(data: bytes) -> bytes:
         return buffer.getvalue()
 
 
-async def _normalize(data: bytes, mime: str) -> tuple[bytes, str]:
+async def _hold_for_photo(mime: str) -> Callable[[], None] | None:
+    """The heavy-work lock, if `mime` is a photo that will be decoded, else
+    None. Taken before the caller spends any allowance, so a busy refusal
+    costs no upload. Raises `HeavyWorkBusy` after `HEIC_LOCK_WAIT_SECONDS`."""
+    if MIME_ALIASES.get(mime, mime) not in CONVERT_TO_JPEG:
+        return None
+    return await heavy_work.acquire(wait=HEIC_LOCK_WAIT_SECONDS)
+
+
+async def _normalize(
+    data: bytes, mime: str, *, held: Callable[[], None] | None = None
+) -> tuple[bytes, str]:
     """Resolve mime aliases and transcode HEIC to JPEG.
+
+    `held` is the heavy-work lock from `_hold_for_photo`, if the caller took
+    it; this then owns it and gives it back in every case. Without it, a photo
+    takes the lock here.
 
     Raises ValueError when a claimed HEIC photo can't actually be decoded.
     """
     mime = MIME_ALIASES.get(mime, mime)
+    if mime not in CONVERT_TO_JPEG and held is not None:
+        held()
     if mime in CONVERT_TO_JPEG:
         # Outside the `try` below: busy is not "this photo couldn't be read".
-        release = await heavy_work.acquire(wait=HEIC_LOCK_WAIT_SECONDS)
+        release = held if held is not None else await _hold_for_photo(mime)
+        assert release is not None
         try:
             data = await _decode_then_release(data, release)
         except ImageTooLargeError:
@@ -621,32 +639,43 @@ async def save_upload(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "Only PDF, JPEG, PNG, WebP and iPhone (HEIC) files are accepted",
         )
-    # A student's own cap first, so one student spending theirs leaves the
-    # workspace's allowance for everyone else (`student_id`, from the routes a
-    # student hands work in through).
-    if student_id is not None and not await spend_daily_allowance(
-        student_upload_daily_limiter, organization_id, key=student_id
-    ):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
-    if not await spend_daily_allowance(upload_daily_limiter, organization_id):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
-    # At most one byte past the cap, so an oversized file is refused having
-    # read 20 MB of it rather than all of it (`SEC-17`).
-    data = await file.read(MAX_FILE_BYTES + 1)
-    if len(data) > MAX_FILE_BYTES:
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Files must be 20 MB or smaller")
+    # A photo is decoded under the heavy-work lock, asked for before either
+    # allowance below is spent, so "busy, try again" costs the student nothing.
     try:
-        data, mime = await _normalize(data, mime)
+        release = await _hold_for_photo(mime)
     except HeavyWorkBusy as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             str(exc),
             headers={"Retry-After": str(round(HEIC_LOCK_WAIT_SECONDS))},
         ) from None
-    except ImageTooLargeError as exc:
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from None
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
+    try:
+        # A student's own cap first, so one student spending theirs leaves the
+        # workspace's allowance for everyone else (`student_id`, from the routes
+        # a student hands work in through).
+        if student_id is not None and not await spend_daily_allowance(
+            student_upload_daily_limiter, organization_id, key=student_id
+        ):
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
+        if not await spend_daily_allowance(upload_daily_limiter, organization_id):
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
+        # At most one byte past the cap, so an oversized file is refused having
+        # read 20 MB of it rather than all of it (`SEC-17`).
+        data = await file.read(MAX_FILE_BYTES + 1)
+        if len(data) > MAX_FILE_BYTES:
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Files must be 20 MB or smaller")
+        # From here `_normalize` owns the lock and gives it back itself, after
+        # the decode thread ends (`_decode_then_release`).
+        held, release = release, None
+        try:
+            data, mime = await _normalize(data, mime, held=held)
+        except ImageTooLargeError as exc:
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
+    finally:
+        if release is not None:
+            release()
     if not content_matches_mime(data, mime):
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,

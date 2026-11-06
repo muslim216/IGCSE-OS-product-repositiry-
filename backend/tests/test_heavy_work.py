@@ -47,7 +47,37 @@ async def test_a_photo_upload_while_busy_is_a_503_with_a_retry_hint(
         release()
     assert resp.status_code == 503, resp.text
     assert "try again" in resp.json()["detail"].lower()
+    # The frontend shows a 503's own sentence only when it starts this way
+    # (`frontend/src/lib/errors.ts`); anything else becomes "something went
+    # wrong on our side", which is not what a busy moment is.
+    assert resp.json()["detail"].startswith("Avora is busy")
     assert resp.headers.get("retry-after")
+
+
+async def test_a_busy_refusal_spends_no_upload_allowance(
+    client, student, published_assignment, monkeypatch
+):
+    """The lock is asked for before either daily allowance is spent, so a
+    student told to try again in a moment has not used a place by it."""
+    from app.services.rate_limit import student_upload_daily_limiter, upload_daily_limiter
+    from tests.test_daily_workspace_limits import _allow
+
+    monkeypatch.setattr(storage, "HEIC_LOCK_WAIT_SECONDS", 0.2)
+    _allow(monkeypatch, upload_daily_limiter, 1)
+    _allow(monkeypatch, student_upload_daily_limiter, 1)
+    url = f"/api/v1/assignments/{published_assignment['id']}/submissions"
+    files = [("files", ("page1.heic", _heic(50, 50), "image/heic"))]
+
+    release = await heavy_work.acquire()
+    try:
+        busy = await client.post(url, files=files, headers=student["headers"])
+    finally:
+        release()
+    assert busy.status_code == 503, busy.text
+
+    later = await client.post(url, files=files, headers=student["headers"])
+    assert later.status_code != 429, later.text
+    assert later.status_code < 300, later.text
 
 
 async def test_a_job_saving_a_photo_while_busy_is_retried_not_refused(monkeypatch):
