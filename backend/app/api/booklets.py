@@ -18,7 +18,17 @@ from sqlalchemy import and_, false, func, or_, select
 from app.api.deps import CurrentUser, DbSession, TutorUser
 from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.api.past_papers import _enrolled_scope
-from app.models import Booklet, BookletStatus, Organization, PastPaper, Subject, User, UserRole
+from app.models import (
+    Booklet,
+    BookletStatus,
+    Job,
+    JobStatus,
+    Organization,
+    PastPaper,
+    Subject,
+    User,
+    UserRole,
+)
 from app.schemas.booklet import BookletDetail, BookletDraft, BookletOut
 from app.services import storage
 from app.services.pdf_sandbox import TOO_COMPLEX_MESSAGE
@@ -50,8 +60,8 @@ TOO_COMPLEX = (
     f"{TOO_COMPLEX_MESSAGE} To use it, save it as a new PDF or in smaller parts "
     "and upload it again."
 )
-#: The statuses during which a booklet's file is being read or cut.
-_IN_PROGRESS = (BookletStatus.extracting, BookletStatus.applying)
+#: The jobs that read or cut a booklet's file.
+_PDF_JOBS = ("extract_booklet", "split_booklet")
 
 
 async def _visible_booklet(db, user: User, booklet_id: int, *, for_update: bool = False) -> Booklet:
@@ -267,26 +277,51 @@ async def booklet_mark_scheme(booklet_id: int, db: DbSession, user: TutorUser) -
 async def _lock_workspace(db, user: User) -> None:
     """Hold the workspace's row until this request commits, so two requests
     checking `_refuse_if_busy` at the same instant run one after the other and
-    the second sees the first's booklet. Always taken before any booklet row,
-    in every route here, so the two locks are never taken in opposite orders.
+    the second sees the first's job. Always taken before any booklet row, in
+    every route here, so the two locks are never taken in opposite orders.
 
-    On SQLite `FOR UPDATE` is ignored and the suite cannot show the race; on
-    Postgres, where it runs, the lock is real."""
+    FOR NO KEY UPDATE rather than FOR UPDATE: enough to make two of these wait
+    for each other, without holding up inserts into tables that point at the
+    organization. SQLite drops the clause and the suite cannot show the race;
+    on Postgres, where it runs, the lock is real."""
     await db.execute(
-        select(Organization.id).where(Organization.id == user.organization_id).with_for_update()
+        select(Organization.id)
+        .where(Organization.id == user.organization_id)
+        .with_for_update(key_share=True)
     )
 
 
 async def _refuse_if_busy(db, user: User) -> None:
-    """At most one booklet per workspace being read or cut. Scoped to the
-    caller's own workspace (`SEC-7`): another tenant's booklets never hold
-    this one up, and the refusal says nothing about them."""
+    """At most one booklet per workspace being read or cut.
+
+    Live means a read or cut job that is `pending` or `running`, not a
+    booklet whose status says `extracting` or `applying`. The two differ both
+    ways. A booklet whose job is over but whose give-up step never ran stays
+    in progress for good, and blocking on that would lock the workspace out
+    with nothing the tutor could do. And a read the worker will retry shows
+    `extraction_failed` while its job waits out the backoff; a retry then
+    would queue a second job beside it.
+
+    Scoped to the caller's own workspace (`SEC-7`): another tenant's jobs never
+    hold this one up, and the refusal says nothing about them."""
+    # Payloads are read here, not compared in SQL: Postgres has no equality
+    # operator for `json`, and the live booklet jobs are a handful of rows.
+    payloads = await db.scalars(
+        select(Job.payload).where(
+            Job.type.in_(_PDF_JOBS),
+            Job.status.in_((JobStatus.pending, JobStatus.running)),
+        )
+    )
+    live_ids = {
+        booklet_id
+        for payload in payloads
+        if isinstance(payload, dict) and isinstance(booklet_id := payload.get("booklet_id"), int)
+    }
+    if not live_ids:
+        return
     busy = await db.scalar(
         select(Booklet.id)
-        .where(
-            Booklet.organization_id == user.organization_id,
-            Booklet.status.in_(_IN_PROGRESS),
-        )
+        .where(Booklet.id.in_(live_ids), Booklet.organization_id == user.organization_id)
         .limit(1)
     )
     if busy is not None:

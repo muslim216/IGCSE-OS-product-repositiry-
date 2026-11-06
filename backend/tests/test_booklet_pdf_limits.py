@@ -321,6 +321,12 @@ async def test_a_second_upload_waits_for_the_first_read(client, tutor, subject):
         assert await session.scalar(select(func.count(Booklet.id))) == 1
 
 
+async def _live_job(booklet_id: int, job_type: str, status: JobStatus = JobStatus.pending):
+    async with async_session() as session:
+        session.add(Job(type=job_type, payload={"booklet_id": booklet_id}, status=status))
+        await session.commit()
+
+
 async def test_a_busy_refusal_spends_nothing(monkeypatch, client, tutor, subject):  # noqa: F811
     assert (await _upload(client, tutor, subject)).status_code == 201
     _allow(monkeypatch, upload_daily_limiter, 1)
@@ -328,54 +334,106 @@ async def test_a_busy_refusal_spends_nothing(monkeypatch, client, tutor, subject
     # The place is still there for the upload after the read finishes.
     async with async_session() as session:
         await session.execute(update(Booklet).values(status=BookletStatus.review))
+        await session.execute(update(Job).values(status=JobStatus.done))
         await session.commit()
     assert (await _upload(client, tutor, subject)).status_code == 201
 
 
-@pytest.mark.parametrize("busy_status", [BookletStatus.extracting, BookletStatus.applying])
-async def test_approve_and_retry_wait_for_another_booklet(client, tutor, subject, busy_status):  # noqa: F811
+@pytest.mark.parametrize(
+    "job_type,job_status",
+    [
+        ("extract_booklet", JobStatus.pending),
+        ("extract_booklet", JobStatus.running),
+        ("split_booklet", JobStatus.pending),
+        ("split_booklet", JobStatus.running),
+    ],
+)
+async def test_a_live_job_holds_up_upload_approve_and_retry(  # noqa: F811
+    client, tutor, subject, job_type, job_status
+):
     waiting = await _reviewed(client, tutor, subject, (1, 3))
     failed = await _reviewed(client, tutor, subject, (1, 3))
     await _set(failed, status=BookletStatus.extraction_failed, error="failed")
     other = await _reviewed(client, tutor, subject, (1, 3))
-    await _set(other, status=busy_status)
+    await _live_job(other, job_type, job_status)
 
+    upload = await _upload(client, tutor, subject)
+    assert upload.status_code == 409, upload.text
+    assert upload.json()["detail"] == BUSY
     approve = await client.post(f"/api/v1/booklets/{waiting}/approve", headers=tutor["headers"])
     assert approve.status_code == 409, approve.text
     assert approve.json()["detail"] == BUSY
     retry = await client.post(f"/api/v1/booklets/{failed}/retry", headers=tutor["headers"])
     assert retry.status_code == 409, retry.text
     assert retry.json()["detail"] == BUSY
-    assert await _jobs() == []
+    assert len(await _jobs()) == 1
 
 
-async def test_another_workspaces_booklet_does_not_block_this_one(client, tutor, subject):  # noqa: F811
+async def test_a_booklet_stuck_in_progress_with_no_live_job_does_not_block(client, tutor, subject):  # noqa: F811
+    """A booklet left `extracting` or `applying` after its job ended (its
+    give-up step never ran) must not lock the workspace for good."""
+    for status in (BookletStatus.extracting, BookletStatus.applying):
+        stuck = await _reviewed(client, tutor, subject, (1, 3))
+        await _set(stuck, status=status)
+        await _live_job(stuck, "extract_booklet", JobStatus.failed)
+        await _live_job(stuck, "split_booklet", JobStatus.done)
+    assert (await _upload(client, tutor, subject)).status_code == 201
+
+
+async def test_a_retry_waiting_out_its_backoff_blocks_a_second_retry(client, tutor, subject):  # noqa: F811
+    """A read the worker will retry shows `extraction_failed` while its job is
+    still pending. Retrying then would queue a second job beside it."""
+    booklet_id = await _reviewed(client, tutor, subject, (1, 3))
+    await _set(booklet_id, status=BookletStatus.extraction_failed, error="failed")
+    await _live_job(booklet_id, "extract_booklet", JobStatus.pending)
+
+    retry = await client.post(f"/api/v1/booklets/{booklet_id}/retry", headers=tutor["headers"])
+    assert retry.status_code == 409, retry.text
+    assert retry.json()["detail"] == BUSY
+    upload = await _upload(client, tutor, subject)
+    assert upload.status_code == 409, upload.text
+    assert len(await _jobs()) == 1
+
+
+async def test_another_workspaces_live_jobs_do_not_block_this_one(client, tutor, subject):  # noqa: F811
     """The negative tenancy case (`QA-12`): the rule is per workspace."""
     async with async_session() as session:
         foreign = await other_org_subject(session)
-        session.add(
-            Booklet(
-                organization_id=foreign.organization_id,
-                subject_id=foreign.id,
-                status=BookletStatus.extracting,
-            )
+        reading = Booklet(
+            organization_id=foreign.organization_id,
+            subject_id=foreign.id,
+            status=BookletStatus.extracting,
         )
-        session.add(
-            Booklet(
-                organization_id=foreign.organization_id,
-                subject_id=foreign.id,
-                status=BookletStatus.applying,
-            )
+        cutting = Booklet(
+            organization_id=foreign.organization_id,
+            subject_id=foreign.id,
+            status=BookletStatus.applying,
         )
+        session.add_all([reading, cutting])
         await session.commit()
+        reading_id, cutting_id = reading.id, cutting.id
+    await _live_job(reading_id, "extract_booklet", JobStatus.running)
+    await _live_job(cutting_id, "split_booklet", JobStatus.pending)
 
     resp = await _upload(client, tutor, subject)
     assert resp.status_code == 201, resp.text
     await _set(resp.json()["id"], status=BookletStatus.review, draft=_draft((1, 3)))
+    await _live_job(reading_id, "extract_booklet", JobStatus.running)
+    await _live_job(cutting_id, "split_booklet", JobStatus.pending)
     approve = await client.post(
         f"/api/v1/booklets/{resp.json()['id']}/approve", headers=tutor["headers"]
     )
     assert approve.status_code == 200, approve.text
+
+
+async def test_a_job_with_an_unexpected_payload_is_ignored(client, tutor, subject):  # noqa: F811
+    async with async_session() as session:
+        session.add(
+            Job(type="extract_booklet", payload={"booklet_id": "7"}, status=JobStatus.pending)
+        )
+        session.add(Job(type="split_booklet", payload={}, status=JobStatus.pending))
+        await session.commit()
+    assert (await _upload(client, tutor, subject)).status_code == 201
 
 
 async def test_a_finished_or_failed_booklet_does_not_block(client, tutor, subject):  # noqa: F811
