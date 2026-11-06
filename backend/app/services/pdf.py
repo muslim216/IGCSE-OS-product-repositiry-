@@ -23,6 +23,7 @@ upload rather than treating it as impossible.
 """
 
 import logging
+from collections.abc import Iterator, Sequence
 from io import BytesIO
 
 from pypdf import PdfReader, PdfWriter
@@ -86,6 +87,29 @@ def extract_pages(data: bytes, first_page: int, last_page: int) -> bytes:
     nearest valid slice would hand a student someone else's questions.
     """
     reader, total = _read(data)
+    return _cut(reader, total, first_page, last_page)
+
+
+def extract_ranges(data: bytes, ranges: Sequence[tuple[int, int]]) -> tuple[int, Iterator[bytes]]:
+    """The page count, and each range of `data` as its own PDF, in order.
+
+    One parse for the whole file, where `extract_pages` parses once per call:
+    a booklet of sixty papers is then one parse, not sixty, which on a large
+    file is the difference between a few seconds of CPU and the child's whole
+    allowance. Each piece is built as `extract_pages` builds it, byte for byte.
+
+    The pieces are produced one at a time, so a caller can stop at the first
+    range that fails; each raises what `extract_pages` would for it."""
+    reader, total = _read(data)
+
+    def _pieces() -> Iterator[bytes]:
+        for first_page, last_page in ranges:
+            yield _cut(reader, total, first_page, last_page)
+
+    return total, _pieces()
+
+
+def _cut(reader: PdfReader, total: int, first_page: int, last_page: int) -> bytes:
     if first_page < 1:
         raise DocumentProblem(f"Pages start at 1, but the range starts at {first_page}.")
     if last_page < first_page:

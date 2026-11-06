@@ -18,6 +18,7 @@ import signal
 import sys
 import time
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -626,35 +627,82 @@ def _large_booklet(pages: int = 300, target_bytes: int = 19 * 1024 * 1024) -> by
     return out.getvalue()
 
 
-def test_a_large_genuine_booklet_fits_the_limits():
-    """The limit is meant to refuse hostile files, not real ones. On Linux this
-    runs under the real 256 MB address-space limit; the peak is printed so it
-    can be compared with that limit."""
-    import resource
+#: Run in a fresh interpreter whose only children are sandbox children, so
+#: `RUSAGE_CHILDREN` is that one child's peak and CPU time, not the largest of
+#: everything this test process has ever started.
+_MEASURE = r"""
+import asyncio, json, resource, sys
+sys.path.insert(0, sys.argv[1])
+from app.services import pdf_sandbox
 
-    data = _large_booklet()
-    assert len(data) <= storage.MAX_FILE_BYTES
-    ranges = [(i, i + 9) for i in range(1, 301, 10)]
+data = open(sys.argv[2], "rb").read()
+ranges = json.loads(sys.argv[4])
 
-    async def _scenario():
-        count = await pdf_sandbox.page_count(data)
-        result = await pdf_sandbox.split(data, ranges)
-        return count, result
+async def go():
+    if sys.argv[3] == "count":
+        return await pdf_sandbox.page_count(data)
+    result = await pdf_sandbox.split(data, [tuple(r) for r in ranges])
+    assert result.failure is None, str(result.failure)
+    return len(result.pieces)
 
-    started = time.monotonic()
-    with asyncio.Runner() as runner:
-        count, result = runner.run(_scenario())
-    elapsed = time.monotonic() - started
-    assert count == 300
-    assert result.failure is None
-    assert len(result.pieces) == 30
-    peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-    # Kilobytes on Linux, bytes on macOS.
-    peak_mb = peak / 1024 if sys.platform.startswith("linux") else peak / (1024 * 1024)
-    print(
-        f"\nlarge booklet: {len(data) / 1e6:.1f} MB, child peak RSS {peak_mb:.0f} MB, {elapsed:.1f}s"
+result = asyncio.run(go())
+usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+print(json.dumps({"result": result, "maxrss": usage.ru_maxrss,
+                  "cpu": usage.ru_utime + usage.ru_stime}))
+"""
+
+
+def _measure(tmp_path, data: bytes, op: str, ranges: list) -> dict:
+    import json
+    import subprocess
+
+    booklet = tmp_path / f"{op}.pdf"
+    booklet.write_bytes(data)
+    backend = str(Path(__file__).resolve().parent.parent)
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "JWT_SECRET": "test-secret-key-0123456789-abcdefghijklmnop",
+        "UPLOAD_DIR": str(tmp_path / "uploads"),
+    }
+    done = subprocess.run(
+        [sys.executable, "-I", "-c", _MEASURE, backend, str(booklet), op, json.dumps(ranges)],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        timeout=300,
+        check=False,
     )
-    assert peak_mb < 256
+    assert done.returncode == 0, done.stderr.decode()[-2000:]
+    report = json.loads(done.stdout.decode().strip().splitlines()[-1])
+    # Kilobytes on Linux, bytes on macOS.
+    divisor = 1024 if sys.platform.startswith("linux") else 1024 * 1024
+    report["peak_mb"] = report["maxrss"] / divisor
+    return report
+
+
+@pytest.mark.parametrize(
+    "op,ranges",
+    [
+        pytest.param("count", [], id="count"),
+        # Sixty papers, the most a booklet may hold: the case where re-parsing
+        # per paper would have spent the CPU allowance.
+        pytest.param("split", [[i, i + 4] for i in range(1, 301, 5)], id="split-60-papers"),
+        pytest.param("split", [[1, 300]], id="split-one-range"),
+    ],
+)
+def test_a_large_genuine_booklet_fits_the_limits(tmp_path, op, ranges):
+    """The limits are meant to refuse hostile files, not real ones. On Linux
+    this runs under the real 256 MB address-space limit and 60 s of CPU; the
+    child's peak and CPU are printed so they can be compared with those."""
+    report = _measure(tmp_path, _large_booklet(), op, ranges)
+    assert report["result"] == (300 if op == "count" else len(ranges))
+    print(
+        f"\nlarge booklet {op} x{len(ranges)}: peak {report['peak_mb']:.0f} MB, cpu {report['cpu']:.1f} s"
+    )
+    assert report["peak_mb"] < 256
+    # Well inside the 60 s soft limit, so a slow instance still has room.
+    assert report["cpu"] < 20
 
 
 def test_the_sandbox_signals_are_named_in_the_log():

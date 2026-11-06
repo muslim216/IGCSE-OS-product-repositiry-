@@ -212,8 +212,12 @@ def _serve(op: Op, ranges: list[tuple[int, int]], data: bytes, stdout: BinaryIO)
     from app.services import pdf  # here, under the limits, never at import
     from app.services.job_errors import DocumentProblem
 
+    # One parse of the file for every range (`pdf.extract_ranges`).
     try:
-        total = pdf.page_count(data)
+        if op is Op.count:
+            total = pdf.page_count(data)
+        else:
+            total, cuts = pdf.extract_ranges(data, ranges)
     except DocumentProblem as exc:
         _write_result(stdout, _file_code(exc))
         return
@@ -237,17 +241,17 @@ def _serve(op: Op, ranges: list[tuple[int, int]], data: bytes, stdout: BinaryIO)
             _write_result(stdout, Code.range_invalid, index=index, total=total, pieces=pieces)
             return
         try:
-            pieces.append(pdf.extract_pages(data, first, last))
+            pieces.append(next(cuts))
         except (MemoryError, RecursionError):
             raise
         except Exception:  # noqa: BLE001 — as above
             _write_result(stdout, Code.unreadable, index=index, total=total, pieces=pieces)
             return
-        # Each cut parses the file afresh, and the library's objects refer to
-        # one another, so a finished parse is freed only by the cycle
-        # collector. Left to its own schedule it lagged several parses behind:
-        # a 20 MB, 30-paper booklet peaked at 338 MB this way, and at about
-        # the size of one parse with this.
+        # Each cut builds a writer whose objects refer to one another, so a
+        # finished one is freed only by the cycle collector. Left to its own
+        # schedule it lagged several cuts behind: a 20 MB, 30-paper booklet
+        # peaked at 338 MB (macOS RSS) that way, and near one cut's size with
+        # this.
         gc.collect()
     _write_result(stdout, Code.ok, total=total, pieces=pieces)
 

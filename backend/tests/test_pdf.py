@@ -180,3 +180,37 @@ def test_an_encrypted_pdf_has_its_own_type() -> None:
     writer.write(out)
     with pytest.raises(PdfEncrypted, match="password-protected"):
         page_count(out.getvalue())
+
+
+def test_extract_ranges_parses_once_and_matches_extract_pages(monkeypatch) -> None:
+    """T-027. One parse for every range of a file: re-parsing a 20 MB booklet
+    once per paper could spend the child's whole CPU allowance on 60 papers."""
+    from app.services import pdf
+    from app.services.pdf import extract_ranges
+
+    data = _pdf(6)
+    ranges = [(1, 2), (3, 6), (2, 4)]
+    expected = [extract_pages(data, first, last) for first, last in ranges]
+
+    parses = []
+    real = pdf.PdfReader
+
+    def _counting(*args, **kwargs):
+        parses.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pdf, "PdfReader", _counting)
+    total, pieces = extract_ranges(data, ranges)
+    assert total == 6
+    assert list(pieces) == expected
+    assert len(parses) == 1
+
+
+def test_extract_ranges_refuses_a_bad_range_with_todays_message() -> None:
+    from app.services.pdf import extract_ranges
+
+    data = _pdf(3)
+    _total, pieces = extract_ranges(data, [(1, 1), (2, 9)])
+    assert next(pieces) == extract_pages(data, 1, 1)
+    with pytest.raises(ValueError, match="runs past the last page"):
+        next(pieces)
