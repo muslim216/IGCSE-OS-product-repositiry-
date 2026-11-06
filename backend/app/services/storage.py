@@ -24,7 +24,7 @@ import io
 import logging
 import secrets
 import shutil
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -36,6 +36,8 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.services import heavy_work
+from app.services.heavy_work import HeavyWorkBusy
 from app.services.rate_limit import (
     spend_daily_allowance,
     student_upload_daily_limiter,
@@ -77,6 +79,12 @@ MAX_IMAGE_PIXELS = 25_000_000
 #: would add up past it. Not the loop's shared pool, which file reads and
 #: writes also need.
 _DECODE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="image-decode")
+
+#: How long a photo waits for the heavy-work lock (`services/heavy_work.py`),
+#: which a PDF read may be holding for up to its deadline. The photo arrives in
+#: a student's request, so it does not queue behind a booklet: after this it is
+#: refused as busy, and the student tries again in a moment.
+HEIC_LOCK_WAIT_SECONDS = 5.0
 
 
 class ImageTooLargeError(ValueError):
@@ -134,8 +142,10 @@ async def _normalize(data: bytes, mime: str) -> tuple[bytes, str]:
     """
     mime = MIME_ALIASES.get(mime, mime)
     if mime in CONVERT_TO_JPEG:
+        # Outside the `try` below: busy is not "this photo couldn't be read".
+        release = await heavy_work.acquire(wait=HEIC_LOCK_WAIT_SECONDS)
         try:
-            data = await asyncio.get_running_loop().run_in_executor(_DECODE_POOL, _to_jpeg, data)
+            data = await _decode_then_release(data, release)
         except ImageTooLargeError:
             raise
         except Exception:  # noqa: BLE001 — a corrupt photo is not a server fault
@@ -149,6 +159,32 @@ async def _normalize(data: bytes, mime: str) -> tuple[bytes, str]:
             ) from None
         mime = "image/jpeg"
     return data, mime
+
+
+async def _decode_then_release(data: bytes, release: Callable[[], None]) -> bytes:
+    """Decode on `_DECODE_POOL`, giving the heavy-work lock back when the
+    decode ends, not when the caller stops waiting.
+
+    A thread cannot be stopped. If a request were cancelled mid-decode (the
+    student closed the page) and the lock went with it, a PDF child could
+    start while the photo was still at its peak, which is the overlap the lock
+    exists to prevent. So the release rides on the decode's own future, and
+    the caller awaits it through `shield`."""
+    try:
+        future = asyncio.get_running_loop().run_in_executor(_DECODE_POOL, _to_jpeg, data)
+    except BaseException:
+        release()
+        raise
+
+    def _done(finished: asyncio.Future) -> None:
+        release()
+        # Read here so a decode nobody is waiting for any more does not log
+        # its failure as an exception that was never retrieved.
+        if not finished.cancelled():
+            finished.exception()
+
+    future.add_done_callback(_done)
+    return await asyncio.shield(future)
 
 
 def _looks_like_webp(data: bytes) -> bool:
@@ -577,6 +613,12 @@ async def save_upload(
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Files must be 20 MB or smaller")
     try:
         data, mime = await _normalize(data, mime)
+    except HeavyWorkBusy as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            str(exc),
+            headers={"Retry-After": str(round(HEIC_LOCK_WAIT_SECONDS))},
+        ) from None
     except ImageTooLargeError as exc:
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from None
     except ValueError as exc:
