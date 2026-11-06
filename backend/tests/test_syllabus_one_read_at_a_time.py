@@ -275,11 +275,7 @@ async def test_the_workspace_is_locked_before_the_check(client, tutor, reads_fai
         None,
     )
     check_at = next(
-        (
-            i
-            for i, sql in enumerate(compiled)
-            if "FROM jobs" in sql and "jobs.status IN" in sql
-        ),
+        (i for i, sql in enumerate(compiled) if "FROM jobs" in sql and "jobs.status IN" in sql),
         None,
     )
     assert lock_at is not None, "the organization row must be locked FOR NO KEY UPDATE"
