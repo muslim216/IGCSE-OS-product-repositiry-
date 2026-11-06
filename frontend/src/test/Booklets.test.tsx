@@ -124,6 +124,23 @@ test("a booklet the AI could not read shows why, and offers to try again", async
   );
 });
 
+test("a booklet too complex to read says so in plain words, with no retry", async () => {
+  mockFetch([
+    {
+      ...booklet,
+      status: "too_complex",
+      error: "This PDF is too complex to read safely.",
+    },
+  ]);
+  renderPage();
+  expect(await screen.findByText(/Couldn't read this PDF safely/)).toBeVisible();
+  // The stored sentence is ours, written by the server, so it is shown as is.
+  expect(screen.getByText("This PDF is too complex to read safely.")).toBeVisible();
+  // Never the raw status, and no retry: the same file would fail the same way.
+  expect(screen.queryByText("Too complex")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+});
+
 test("the review table shows the papers the AI found", async () => {
   mockFetch([booklet], { ...booklet, draft });
   renderPage();
