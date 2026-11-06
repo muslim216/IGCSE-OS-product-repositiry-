@@ -78,6 +78,17 @@ OPEN_FILES = 16
 
 OOM_SCORE_ADJ = "/proc/self/oom_score_adj"
 
+#: Exit statuses the parent reads as its own failure, retried, never as the
+#: file's: setting up failed before `READY`, or the request it was sent did
+#: not parse. Any other non-zero exit after `READY` is the file's.
+EXIT_SETUP = 2
+EXIT_BAD_REQUEST = 3
+
+#: The only options the child takes, unless `--test-mode 1` comes first among
+#: them, which only the tests' private `_run` passes.
+_OPTIONS = {"uid", "gid"}
+_TEST_OPTIONS = {"test-mode", "test-hold", "test-allocate-mb"}
+
 
 class Op(enum.IntEnum):
     count = 1
@@ -162,9 +173,15 @@ def _read_exact(stream: BinaryIO, n: int) -> bytes:
     return b"".join(chunks)
 
 
+def request_head(op: Op, ranges: Sequence[tuple[int, int]], length: int) -> bytes:
+    """Everything of a request but the file, which the parent writes after it
+    as it is rather than joined on, so it never holds a second copy."""
+    head = REQUEST_HEAD.pack(REQUEST_MAGIC, VERSION, int(op), len(ranges), length)
+    return head + b"".join(RANGE.pack(first, last) for first, last in ranges)
+
+
 def encode_request(op: Op, ranges: Sequence[tuple[int, int]], data: bytes) -> bytes:
-    head = REQUEST_HEAD.pack(REQUEST_MAGIC, VERSION, int(op), len(ranges), len(data))
-    return head + b"".join(RANGE.pack(first, last) for first, last in ranges) + data
+    return request_head(op, ranges, len(data)) + data
 
 
 def _read_request(stream: BinaryIO) -> tuple[Op, list[tuple[int, int]], bytes]:
@@ -264,7 +281,17 @@ def _options(argv: Sequence[str]) -> dict[str, str]:
         if not name.startswith("--") or not args:
             raise SetupFailed("bad arguments")
         options[name[2:]] = args.pop(0)
+    allowed = _OPTIONS | (_TEST_OPTIONS if options.get("test-mode") == "1" else set())
+    if set(options) - allowed:
+        raise SetupFailed("unexpected arguments")
     return options
+
+
+def _load_library() -> None:
+    """Import the PDF library under the limits, but before `READY`: a library
+    that will not import is a broken image, which is ours and retried, not the
+    file's."""
+    from app.services import pdf  # noqa: F401
 
 
 def main(
@@ -281,12 +308,17 @@ def main(
         uid, gid = options.get("uid"), options.get("gid")
         _drop_privileges(int(uid) if uid else None, int(gid) if gid else None)
         _set_limits()
-    except (SetupFailed, OSError, ValueError):
-        return 2  # before READY: the parent treats this as its own failure
+        _load_library()
+    except (SetupFailed, OSError, ValueError, ImportError):
+        return EXIT_SETUP  # before READY: the parent treats this as its own failure
     stdout.write(READY)
     stdout.flush()
 
-    op, ranges, data = _read_request(stdin)
+    try:
+        op, ranges, data = _read_request(stdin)
+    except (SetupFailed, struct.error, ValueError):
+        # The parent's request, not the file, so its own exit status.
+        return EXIT_BAD_REQUEST
     # Test-only hooks. The sandbox passes these only from tests, through its
     # private `_run`; the public `page_count` and `split` never do.
     if "test-allocate-mb" in options:

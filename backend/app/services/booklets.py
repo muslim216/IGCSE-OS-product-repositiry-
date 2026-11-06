@@ -144,11 +144,6 @@ async def _cut_and_create(
     assert booklet.file_path is not None
     data = await storage.read_file(booklet.file_path)
     with_scheme = [(index, scheme) for index, _, scheme in pending if scheme is not None]
-    scheme_data = (
-        await storage.read_file(booklet.mark_scheme_path)
-        if booklet.mark_scheme_path and with_scheme
-        else None
-    )
     # The cut can wait behind another file for the heavy-work lock, and then
     # take up to its deadline, so the connection goes back to the pool first
     # (`CAP-6`).
@@ -156,7 +151,10 @@ async def _cut_and_create(
     paper_cuts = await pdf_sandbox.split(data, [(p.first_page, p.last_page) for _, p, _ in pending])
     del data
     scheme_slots: dict[int, _Slot] = {}
-    if scheme_data is not None:
+    # Read only now, after the paper file is let go, so this process never
+    # holds both files and the paper pieces at once.
+    if booklet.mark_scheme_path and with_scheme:
+        scheme_data = await storage.read_file(booklet.mark_scheme_path)
         scheme_cuts = await pdf_sandbox.split(
             scheme_data, [(s.first_page, s.last_page) for _, s in with_scheme]
         )

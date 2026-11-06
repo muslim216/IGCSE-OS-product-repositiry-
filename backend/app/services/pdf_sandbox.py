@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from app.services import heavy_work
 from app.services.job_errors import DocumentProblem
 from app.services.pdf_child import (
+    EXIT_BAD_REQUEST,
     MAX_RANGES,
     PIECE_LENGTH,
     READY,
@@ -58,7 +59,7 @@ from app.services.pdf_child import (
     Code,
     Detail,
     Op,
-    encode_request,
+    request_head,
 )
 from app.services.storage import MAX_FILE_BYTES
 
@@ -90,7 +91,7 @@ _CHILD_ENV = {
     "PYTHONHASHSEED": "random",
 }
 
-_said_same_user = [False]
+_said_same_user = False
 
 
 class PdfTooComplex(DocumentProblem):
@@ -161,22 +162,27 @@ def _child_argv(test_args: Sequence[str]) -> list[str]:
         argv += ["--uid", str(account.pw_uid), "--gid", str(account.pw_gid)]
     else:
         _say_same_user_once()
+    if test_args:
+        argv += ["--test-mode", "1"]
     return [*argv, *test_args]
 
 
 def _say_same_user_once() -> None:
     """Local runs, CI, and the API once T-009 gives it an account of its own:
     the child cannot change user, so it says so, once per process."""
-    if not _said_same_user[0]:
-        _said_same_user[0] = True
+    global _said_same_user
+    if not _said_same_user:
+        _said_same_user = True
         log.info("pdf sandbox: the API is not root, so the child runs as the same user")
 
 
 def _output_cap(n_ranges: int) -> int:
-    """The most the parent reads from one child. Ranges may overlap, but a
-    booklet's slices sum to roughly its own size, so twice the largest upload
-    is room for every genuine split."""
-    return len(READY) + RESULT_HEAD.size + PIECE_LENGTH.size * n_ranges + 2 * MAX_FILE_BYTES
+    """The most piece bytes the parent accepts from one child. Ranges may
+    overlap, but a booklet's slices sum to roughly its own size, so twice the
+    largest upload is room for every genuine split. Checked against the
+    lengths the child announces, before any piece is read."""
+    del n_ranges  # the same for every split; kept so a test can narrow it
+    return 2 * MAX_FILE_BYTES
 
 
 class _Refused(Exception):
@@ -187,20 +193,28 @@ class _Refused(Exception):
         self.reason = reason
 
 
+class _Result:
+    """What has been read from the child so far. Filled in place, so that
+    after a deadline the caller can still tell whether it ever got ready."""
+
+    def __init__(self) -> None:
+        self.ready = False
+        self.parsed: tuple[Code, Detail, int, int, list[bytes]] | None = None
+
+
 async def _run(
     op: Op, data: bytes, ranges: list[tuple[int, int]], *, test_args: Sequence[str] = ()
 ) -> tuple[list[bytes], DocumentProblem | None, int]:
     """One child, start to finish. `test_args` turns on the child's test-only
     hooks; nothing but the tests passes it."""
     argv = _child_argv(test_args)
+    head = request_head(op, ranges, len(data))
     async with heavy_work.held():
-        # Encoded once in line, so a call waiting for the lock does not hold a
-        # second copy of the file while it waits.
-        return await _exchange_with_child(argv, encode_request(op, ranges, data), ranges)
+        return await _exchange_with_child(argv, head, data, ranges)
 
 
 async def _exchange_with_child(
-    argv: list[str], request: bytes, ranges: list[tuple[int, int]]
+    argv: list[str], head: bytes, data: bytes, ranges: list[tuple[int, int]]
 ) -> tuple[list[bytes], DocumentProblem | None, int]:
     cwd = await asyncio.to_thread(tempfile.mkdtemp, prefix="pdf-sandbox-")
     try:
@@ -220,11 +234,11 @@ async def _exchange_with_child(
             log.error("pdf sandbox: could not start the child (errno %s)", exc.errno)
             raise PdfSandboxUnavailable("could not start the child") from exc
 
-        received = bytearray()
+        result = _Result()
         refused: str | None = None
         try:
             async with asyncio.timeout(DEADLINE_SECONDS):
-                await _talk(proc, request, received, _output_cap(len(ranges)))
+                await _talk(proc, head, data, result, len(ranges))
                 await proc.wait()
         except TimeoutError:
             refused = "deadline"
@@ -235,33 +249,72 @@ async def _exchange_with_child(
     finally:
         await asyncio.to_thread(shutil.rmtree, cwd, True)
 
-    # The buffer itself, not a copy of it: it can hold twice the largest
-    # upload, and this is the API process.
-    return _outcome(proc.returncode, received, refused, ranges)
+    return _outcome(proc.returncode, result, refused, ranges)
 
 
 async def _talk(
-    proc: asyncio.subprocess.Process, request: bytes, received: bytearray, cap: int
+    proc: asyncio.subprocess.Process, head: bytes, data: bytes, result: _Result, n_ranges: int
 ) -> None:
     """Write the request and read the result concurrently, so a child that
     answers before it has read everything cannot deadlock against a parent
-    still writing. `received` is filled in place, so the caller can tell after
-    a deadline whether the child ever said it was ready."""
+    still writing."""
     assert proc.stdin is not None and proc.stdout is not None
-    feeder = asyncio.ensure_future(_feed(proc.stdin, request))
+    feeder = asyncio.ensure_future(_feed(proc.stdin, head, data))
     try:
-        while chunk := await proc.stdout.read(1 << 16):
-            received += chunk
-            if len(received) > cap:
-                raise _Refused("output_cap")
+        await _receive(proc.stdout, result, n_ranges)
         await feeder
     finally:
         feeder.cancel()
 
 
-async def _feed(stdin: asyncio.StreamWriter, request: bytes) -> None:
+async def _exactly(stream: asyncio.StreamReader, n: int) -> bytes:
     try:
-        stdin.write(request)
+        return await stream.readexactly(n)
+    except asyncio.IncompleteReadError:
+        raise _Refused("bad_framing") from None
+
+
+async def _receive(stream: asyncio.StreamReader, result: _Result, n_ranges: int) -> None:
+    """The child's result, read as it arrives and checked field by field: the
+    ready byte, the header, every piece's length, then the pieces. Nothing is
+    buffered whole and copied, and the announced lengths are held to the cap
+    before a single piece is read. Anything the child would not have written
+    is refused, never repaired."""
+    if await stream.read(len(READY)) != READY:
+        return  # exited (or wrote nonsense) before it was ready: see `_outcome`
+    result.ready = True
+    head = await _exactly(stream, RESULT_HEAD.size)
+    magic, version, raw_code, raw_detail, index, total, n_pieces = RESULT_HEAD.unpack(head)
+    if magic != RESULT_MAGIC or version != VERSION:
+        raise _Refused("bad_framing")
+    try:
+        code, detail = Code(raw_code), Detail(raw_detail)
+    except ValueError:
+        raise _Refused("bad_framing") from None
+    # How many pieces each outcome carries, exactly: all of them on success,
+    # those before the failing range on a range failure, none otherwise.
+    if code is Code.ok:
+        expected, valid_index = n_ranges, index == -1
+    elif code in (Code.range_invalid, Code.unreadable) and index >= 0:
+        expected, valid_index = index, index < n_ranges
+    else:
+        expected, valid_index = 0, index == -1
+    if n_pieces != expected or not valid_index:
+        raise _Refused("bad_framing")
+    raw = await _exactly(stream, PIECE_LENGTH.size * n_pieces)
+    lengths = [PIECE_LENGTH.unpack_from(raw, i * PIECE_LENGTH.size)[0] for i in range(n_pieces)]
+    if sum(lengths) > _output_cap(n_ranges):
+        raise _Refused("output_cap")
+    pieces = [await _exactly(stream, length) for length in lengths]
+    if await stream.read(1):
+        raise _Refused("bad_framing")  # more than it said
+    result.parsed = (code, detail, index, total, pieces)
+
+
+async def _feed(stdin: asyncio.StreamWriter, head: bytes, data: bytes) -> None:
+    try:
+        stdin.write(head)
+        stdin.write(data)
         await stdin.drain()
     except (BrokenPipeError, ConnectionResetError):
         pass  # the child stopped reading; how it ended says why
@@ -273,9 +326,11 @@ async def _feed(stdin: asyncio.StreamWriter, request: bytes) -> None:
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     """Kill the whole group, then wait for the child, shielded so that a
     cancellation arriving now cannot leave it unreaped. The group, not the
-    pid, so that anything the child started goes too."""
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(proc.pid, signal.SIGKILL)
+    pid, so that anything the child started goes too. Not once the child
+    has exited and been reaped: its id may already be someone else's."""
+    if proc.returncode is None:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(proc.pid, signal.SIGKILL)
     try:
         await asyncio.shield(asyncio.wait_for(proc.wait(), timeout=REAP_SECONDS))
     except TimeoutError:
@@ -284,16 +339,21 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
 
 def _outcome(
     returncode: int | None,
-    received: bytearray,
+    result: _Result,
     refused: str | None,
     ranges: list[tuple[int, int]],
 ) -> tuple[list[bytes], DocumentProblem | None, int]:
-    ready = received.startswith(READY)
-    if not ready:
+    if not result.ready:
         # Nothing of the file was read before READY, so whatever stopped the
         # child here (a missing account, a broken image) is ours.
         _log("not_ready", returncode, refused=refused)
         raise PdfSandboxUnavailable("the child did not start")
+    if returncode == EXIT_BAD_REQUEST:
+        # The child could not read what this side sent it: ours, retried. First,
+        # because its early exit also leaves the result short, which would
+        # otherwise read as bad framing.
+        _log("bad_request", returncode)
+        raise PdfSandboxUnavailable("the child could not read its request")
     if refused is not None:
         # Named after itself, not after the SIGKILL the parent sent to end it.
         _log(refused, returncode, limit=refused)
@@ -302,58 +362,16 @@ def _outcome(
         reason = "signal" if returncode is not None and returncode < 0 else "exit_status"
         _log(reason, returncode)
         raise PdfTooComplex()
-    try:
-        code, detail, index, total, pieces = _parse(memoryview(received)[len(READY) :], len(ranges))
-    except _Refused as exc:
-        _log(exc.reason, returncode)
-        raise PdfTooComplex() from None
+    if result.parsed is None:
+        _log("bad_framing", returncode)
+        raise PdfTooComplex()
+    code, detail, index, total, pieces = result.parsed
     if code is Code.too_complex:
         _log("too_complex", returncode, limit=detail.name)
         raise PdfTooComplex()
     if code is Code.ok:
         return pieces, None, total
     return pieces, _problem(code, index=index, total=total, ranges=ranges), total
-
-
-def _parse(body: memoryview, n_ranges: int) -> tuple[Code, Detail, int, int, list[bytes]]:
-    """The child's result, checked field by field. Anything the child would not
-    have written is refused, never repaired."""
-    if len(body) < RESULT_HEAD.size:
-        raise _Refused("bad_framing")
-    magic, version, raw_code, raw_detail, index, total, n_pieces = RESULT_HEAD.unpack_from(body)
-    if magic != RESULT_MAGIC or version != VERSION:
-        raise _Refused("bad_framing")
-    try:
-        code, detail = Code(raw_code), Detail(raw_detail)
-    except ValueError:
-        raise _Refused("bad_framing") from None
-    # How many pieces each outcome carries, exactly: all of them on success,
-    # those before the failing range on a range failure, none otherwise.
-    if code is Code.ok:
-        expected = n_ranges
-        valid_index = index == -1
-    elif code in (Code.range_invalid, Code.unreadable) and index >= 0:
-        expected = index
-        valid_index = index < n_ranges
-    else:
-        expected = 0
-        valid_index = index == -1
-    if n_pieces != expected or not valid_index:
-        raise _Refused("bad_framing")
-    offset = RESULT_HEAD.size
-    if len(body) < offset + PIECE_LENGTH.size * n_pieces:
-        raise _Refused("bad_framing")
-    lengths = [
-        PIECE_LENGTH.unpack_from(body, offset + i * PIECE_LENGTH.size)[0] for i in range(n_pieces)
-    ]
-    offset += PIECE_LENGTH.size * n_pieces
-    if offset + sum(lengths) != len(body):
-        raise _Refused("bad_framing")
-    pieces = []
-    for length in lengths:
-        pieces.append(bytes(body[offset : offset + length]))
-        offset += length
-    return code, detail, index, total, pieces
 
 
 def _problem(

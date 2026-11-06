@@ -475,3 +475,37 @@ async def test_two_uploads_at_the_same_moment_let_only_one_through(client, tutor
     assert sorted([first.status_code, second.status_code]) == [201, 409]
     async with async_session() as session:
         assert await session.scalar(select(func.count(Booklet.id))) == 1
+
+
+async def test_the_mark_scheme_is_read_only_after_the_papers_are_cut(  # noqa: F811
+    monkeypatch, client, tutor, subject
+):
+    """So the API process never holds both files and the paper pieces at once."""
+    resp = await _upload(client, tutor, subject, pages=6, scheme_pages=6)
+    booklet_id = resp.json()["id"]
+    draft = _draft((1, 2), (3, 6))
+    draft["scheme_papers"] = _draft((1, 2), (3, 6))["papers"]
+    await _set(booklet_id, draft=draft, status=BookletStatus.review)
+    async with async_session() as session:
+        booklet = await session.get(Booklet, booklet_id)
+        paper_path, scheme_path = booklet.file_path, booklet.mark_scheme_path
+
+    events: list[str] = []
+    real_read = booklets_service.storage.read_file
+    real_split = pdf_sandbox.split
+
+    async def _read(path):
+        events.append({paper_path: "read paper", scheme_path: "read scheme"}.get(path, path))
+        return await real_read(path)
+
+    async def _split(data, ranges):
+        events.append("split")
+        return await real_split(data, ranges)
+
+    monkeypatch.setattr(booklets_service.storage, "read_file", _read)
+    monkeypatch.setattr(booklets_service.pdf_sandbox, "split", _split)
+    assert (
+        await client.post(f"/api/v1/booklets/{booklet_id}/approve", headers=tutor["headers"])
+    ).status_code == 200
+    assert await process_one_job() is True
+    assert events == ["read paper", "split", "read scheme", "split"]

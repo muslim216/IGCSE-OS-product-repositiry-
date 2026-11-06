@@ -322,7 +322,8 @@ _READY = pdf_child.READY
         ),
         pytest.param(
             pdf_child.RESULT_HEAD.pack(pdf_child.RESULT_MAGIC, pdf_child.VERSION, 0, 0, -1, 1, 1)
-            + pdf_child.PIECE_LENGTH.pack(10**9),
+            + pdf_child.PIECE_LENGTH.pack(1000)
+            + b"abc",
             id="piece-longer-than-the-output",
         ),
         pytest.param(
@@ -480,6 +481,7 @@ def test_the_child_sets_itself_up_before_it_reads_the_file(monkeypatch):
     monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: steps.append("oom"))
     monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: steps.append("drop"))
     monkeypatch.setattr(pdf_child, "_set_limits", lambda: steps.append("limits"))
+    monkeypatch.setattr(pdf_child, "_load_library", lambda: steps.append("library"))
 
     request = pdf_child.encode_request(pdf_child.Op.count, [], _pdf(2))
 
@@ -496,7 +498,7 @@ def test_the_child_sets_itself_up_before_it_reads_the_file(monkeypatch):
 
     out = _Stdout()
     assert pdf_child.main([], stdin=_Stdin(request), stdout=out) == 0
-    assert steps[:5] == ["oom", "drop", "limits", "ready", "read"]
+    assert steps[:6] == ["oom", "drop", "limits", "library", "ready", "read"]
     assert out.getvalue().startswith(pdf_child.READY)
 
 
@@ -743,3 +745,104 @@ def test_the_child_tells_encrypted_by_type_not_by_cause():
     assert pdf_child._file_code(PdfEncrypted("locked")) is pdf_child.Code.encrypted
     # A refusal with no chained cause is still only unreadable.
     assert pdf_child._file_code(DocumentProblem("no cause")) is pdf_child.Code.unreadable
+
+
+# --- who is blamed, and the parent's memory ------------------------------------
+
+
+def _stub_setup(monkeypatch) -> None:
+    monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: None)
+    monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: None)
+    monkeypatch.setattr(pdf_child, "_set_limits", lambda: None)
+
+
+def test_a_library_that_will_not_import_stops_the_child_before_ready(monkeypatch):
+    """A broken image is ours: the parent retries it, and it never reaches the
+    final "too complex"."""
+    _stub_setup(monkeypatch)
+
+    def _broken():
+        raise ImportError("no module named pypdf")
+
+    monkeypatch.setattr(pdf_child, "_load_library", _broken)
+    out = BytesIO()
+    request = pdf_child.encode_request(pdf_child.Op.count, [], _pdf(1))
+    assert pdf_child.main([], stdin=BytesIO(request), stdout=out) == pdf_child.EXIT_SETUP
+    assert out.getvalue() == b""
+
+
+def test_a_malformed_request_has_its_own_exit_code(monkeypatch):
+    _stub_setup(monkeypatch)
+    out = BytesIO()
+    assert (
+        pdf_child.main([], stdin=BytesIO(b"not a request at all"), stdout=out)
+        == pdf_child.EXIT_BAD_REQUEST
+    )
+    assert out.getvalue() == pdf_child.READY
+
+
+def test_the_parent_retries_a_child_that_could_not_read_its_request(run, monkeypatch):
+    _fake_child(
+        monkeypatch,
+        "import sys; sys.stdout.buffer.write(b'R'); sys.stdout.flush(); "
+        f"sys.exit({pdf_child.EXIT_BAD_REQUEST})",
+    )
+    with pytest.raises(PdfSandboxUnavailable) as caught:
+        run(pdf_sandbox.page_count(_pdf(1)))
+    assert not is_permanent(caught.value)
+
+
+def test_the_child_takes_only_its_account_unless_in_test_mode():
+    assert pdf_child._options(["--uid", "5", "--gid", "6"]) == {"uid": "5", "gid": "6"}
+    with pytest.raises(pdf_child.SetupFailed):
+        pdf_child._options(["--test-hold", "1"])
+    with pytest.raises(pdf_child.SetupFailed):
+        pdf_child._options(["--anything", "1"])
+    assert pdf_child._options(["--test-mode", "1", "--test-hold", "1"])["test-hold"] == "1"
+    argv = pdf_sandbox._child_argv(("--test-hold", "1"))
+    assert argv[argv.index("--test-mode") + 1] == "1"
+    assert "--test-mode" not in pdf_sandbox._child_argv(())
+
+
+def test_a_header_claiming_too_much_is_refused_before_it_is_read(run, monkeypatch, caplog):
+    """The result is read as it arrives, and the lengths come first, so a
+    child that announces more than the cap is stopped at once, not after the
+    parent has buffered it or waited out the deadline."""
+    monkeypatch.setattr(pdf_sandbox, "DEADLINE_SECONDS", 30.0)
+    head = pdf_child.RESULT_HEAD.pack(pdf_child.RESULT_MAGIC, pdf_child.VERSION, 0, 0, -1, 1, 1)
+    payload = _READY + head + pdf_child.PIECE_LENGTH.pack(10**12)
+    _fake_child(
+        monkeypatch,
+        "import sys, time; sys.stdin.buffer.read(); "
+        f"sys.stdout.buffer.write({payload!r}); sys.stdout.flush(); time.sleep(60)",
+    )
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    started = time.monotonic()
+    with pytest.raises(PdfTooComplex):
+        run(pdf_sandbox.split(_pdf(1), [(1, 1)]))
+    assert time.monotonic() - started < 10
+    assert "output_cap" in caplog.text
+
+
+def test_the_file_is_written_to_the_child_as_it_is_not_copied(run, monkeypatch):
+    """The request header and the file go down the pipe as two writes, so the
+    parent never builds a second copy of a 20 MB upload to send it."""
+    written: list[object] = []
+    real = asyncio.StreamWriter.write
+
+    def _spy(self, data):
+        written.append(data)
+        return real(self, data)
+
+    monkeypatch.setattr(asyncio.StreamWriter, "write", _spy)
+    data = _pdf(2)
+    assert run(pdf_sandbox.page_count(data)) == 2
+    assert any(chunk is data for chunk in written)
+
+
+def test_a_child_that_has_exited_is_not_signalled(run, monkeypatch):
+    """Its group is gone with it, and its id may already belong to another."""
+    calls: list[int] = []
+    monkeypatch.setattr(pdf_sandbox.os, "killpg", lambda pgid, sig: calls.append(pgid))
+    assert run(pdf_sandbox.page_count(_pdf(1))) == 1
+    assert calls == []
