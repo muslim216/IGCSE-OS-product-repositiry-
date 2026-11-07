@@ -64,7 +64,8 @@ DEFAULT_BOUNDARIES: dict[str, list[dict]] = {
 # "to" are made a plain hyphen and case is folded. The lookarounds keep a scale
 # from being found inside a longer number or word ("19-10" is not "9-1").
 _SCALE_FORMS: dict[str, re.Pattern[str]] = {
-    "9-1": re.compile(r"(?<![0-9])9\s*-\s*1(?![0-9])"),
+    # Either way round: some boards write the scale lowest grade first.
+    "9-1": re.compile(r"(?<![0-9])(?:9\s*-\s*1|1\s*-\s*9)(?![0-9])"),
     "A*-E": re.compile(r"(?<![a-z0-9])a\s*\*\s*-\s*e(?![a-z0-9])"),
 }
 _DASHES = re.compile(r"[‐-―−]|\bto\b")
