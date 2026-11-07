@@ -175,7 +175,7 @@ def _read_exact(stream: BinaryIO, n: int) -> bytes:
 
 def request_head(op: Op, ranges: Sequence[tuple[int, int]], length: int) -> bytes:
     """Everything of a request but the file, which the parent writes after it
-    as it is rather than joined on, so it never holds a second copy."""
+    as it is, so this side never joins the two into a new bytes object."""
     head = REQUEST_HEAD.pack(REQUEST_MAGIC, VERSION, int(op), len(ranges), length)
     return head + b"".join(RANGE.pack(first, last) for first, last in ranges)
 
@@ -316,7 +316,7 @@ def main(
 
     try:
         op, ranges, data = _read_request(stdin)
-    except (SetupFailed, struct.error, ValueError):
+    except (SetupFailed, struct.error, ValueError, OSError):
         # The parent's request, not the file, so its own exit status.
         return EXIT_BAD_REQUEST
     # Test-only hooks. The sandbox passes these only from tests, through its

@@ -256,8 +256,10 @@ async def _exchange_with_child(
                 cwd=cwd,
             )
         except OSError as exc:
-            # EAGAIN, ENOMEM: the instance could not start a process. Ours.
-            log.error("pdf sandbox: could not start the child (errno %s)", exc.errno)
+            # EAGAIN, ENOMEM: the instance could not start a process. Ours. The
+            # traceback is the spawn's own: it holds no file content and no
+            # child output, so it is safe to log in full.
+            log.exception("pdf sandbox: could not start the child (errno %s)", exc.errno)
             raise PdfSandboxUnavailable("could not start the child") from exc
 
         result = _Result()
@@ -270,12 +272,18 @@ async def _exchange_with_child(
             refused = "deadline"
         except _Refused as exc:
             refused = exc.reason
+            if refused == "bad_framing":
+                # A result cut short is most often a child that died while
+                # writing it. Let it finish dying first, so the log can say how
+                # (a memory limit, a signal) rather than blame the framing.
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(proc.wait(), timeout=1.0)
         finally:
-            await _kill_and_reap(proc)
+            killed = await _kill_and_reap(proc)
     finally:
         await asyncio.to_thread(shutil.rmtree, cwd, True)
 
-    return _outcome(proc.returncode, result, refused, ranges)
+    return _outcome(proc.returncode, result, refused, ranges, killed=killed)
 
 
 async def _talk(
@@ -338,6 +346,9 @@ async def _receive(stream: asyncio.StreamReader, result: _Result, n_ranges: int)
 
 
 async def _feed(stdin: asyncio.StreamWriter, head: bytes, data: bytes) -> None:
+    """The header, then the file as it is: never joined into one new bytes
+    object. The pipe's transport may still buffer whatever part of the file
+    the child has not read yet, until `drain` returns."""
     try:
         stdin.write(head)
         stdin.write(data)
@@ -349,18 +360,24 @@ async def _feed(stdin: asyncio.StreamWriter, head: bytes, data: bytes) -> None:
             stdin.close()
 
 
-async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
+async def _kill_and_reap(proc: asyncio.subprocess.Process) -> bool:
     """Kill the whole group, then wait for the child, shielded so that a
     cancellation arriving now cannot leave it unreaped. The group, not the
     pid, so that anything the child started goes too. Not once the child
-    has exited and been reaped: its id may already be someone else's."""
+    has exited and been reaped: its id may already be someone else's.
+
+    Returns whether this side sent the kill, so the log does not mistake its
+    own SIGKILL for a limit the child hit."""
+    killed = False
     if proc.returncode is None:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(proc.pid, signal.SIGKILL)
+            killed = True
     try:
         await asyncio.shield(asyncio.wait_for(proc.wait(), timeout=REAP_SECONDS))
     except TimeoutError:
         log.error("pdf sandbox: child %s was not reaped within %ss", proc.pid, REAP_SECONDS)
+    return killed
 
 
 def _outcome(
@@ -368,6 +385,8 @@ def _outcome(
     result: _Result,
     refused: str | None,
     ranges: list[tuple[int, int]],
+    *,
+    killed: bool = False,
 ) -> tuple[list[bytes], DocumentProblem | None, int]:
     if not result.ready:
         # Nothing of the file was read before READY, so whatever stopped the
@@ -380,6 +399,11 @@ def _outcome(
         # otherwise read as bad framing.
         _log("bad_request", returncode)
         raise PdfSandboxUnavailable("the child could not read its request")
+    if refused == "bad_framing" and not killed and returncode not in (0, None):
+        # It ended itself, mid-write: say how, with the framing as the context.
+        reason = "signal" if returncode < 0 else "exit_status"
+        _log(reason, returncode, refused=refused)
+        raise PdfTooComplex()
     if refused is not None:
         # Named after itself, not after the SIGKILL the parent sent to end it.
         _log(refused, returncode, limit=refused)

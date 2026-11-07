@@ -904,3 +904,34 @@ def test_a_root_parent_with_object_storage_does_not_check_a_local_folder(monkeyp
     monkeypatch.setattr(get_settings(), "storage_backend", "s3")
     _as_root(monkeypatch)
     assert "--uid" in pdf_sandbox._child_argv(())
+
+
+def test_a_child_killed_mid_write_is_logged_by_how_it_died(run, monkeypatch, caplog):
+    """Its result is cut short, which on its own reads as bad framing. The log
+    names the signal that ended it, so a child killed for memory while writing
+    is labelled as that, not as a malformed result."""
+    partial = _READY + pdf_child.RESULT_MAGIC
+    _fake_child(
+        monkeypatch,
+        "import os, signal, sys; sys.stdin.buffer.read(); "
+        f"sys.stdout.buffer.write({partial!r}); sys.stdout.flush(); "
+        "os.kill(os.getpid(), signal.SIGTERM)",
+    )
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.split(_pdf(1), [(1, 1)])
+    with pytest.raises(PdfTooComplex):
+        run(pending)
+    assert "reason=signal" in caplog.text
+    assert "SIGTERM" in caplog.text
+    assert "after=bad_framing" in caplog.text
+
+
+def test_a_request_the_child_cannot_read_from_its_pipe_exits_retryably(monkeypatch):
+    _stub_setup(monkeypatch)
+
+    class _Broken(BytesIO):
+        def read(self, *args):
+            raise OSError("the pipe went away")
+
+    out = BytesIO()
+    assert pdf_child.main([], stdin=_Broken(), stdout=out) == pdf_child.EXIT_BAD_REQUEST
