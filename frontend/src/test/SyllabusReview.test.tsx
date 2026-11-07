@@ -98,6 +98,7 @@ afterEach(() => vi.unstubAllGlobals());
 test("the draft renders as chapters holding their own topics", async () => {
   stub();
   await openDraft();
+  fireEvent.click(screen.getByRole("button", { name: "Open all" }));
 
   expect(screen.getByDisplayValue("Principles of chemistry")).toBeTruthy();
   expect(screen.getByDisplayValue("Inorganic chemistry")).toBeTruthy();
@@ -108,6 +109,7 @@ test("the draft renders as chapters holding their own topics", async () => {
 test("editing a topic keeps it in its chapter", async () => {
   const puts = stub();
   await openDraft();
+  fireEvent.click(screen.getByRole("button", { name: /Show topics in Inorganic chemistry/ }));
 
   fireEvent.change(screen.getByDisplayValue("Acids and bases"), {
     target: { value: "Acids, bases and salts" },
@@ -139,6 +141,7 @@ test("a second edit does not drop the first", async () => {
   // Two fields edited back to back. Each PUT sends the whole draft, so if it is
   // built from data that has not caught up, the second silently reverts the
   // first (CodeRabbit).
+  fireEvent.click(screen.getByRole("button", { name: /Show topics in Principles of chemistry/ }));
   fireEvent.change(screen.getByDisplayValue("Principles of chemistry"), {
     target: { value: "Principles" },
   });
@@ -240,4 +243,79 @@ test("a read in progress says it can take a while and the tutor can leave", asyn
   const status = await screen.findByText(/reading the syllabus/);
   expect(status.textContent).toMatch(/up to 45 minutes/);
   expect(status.textContent).toMatch(/leave this page/);
+});
+
+/* T-032: the review opens as a summary and the tutor asks for detail. */
+
+test("chapters start folded, each with its counts", async () => {
+  stub();
+  await openDraft();
+
+  expect(screen.getByText("2 topics · 1 sub-point")).toBeInTheDocument();
+  expect(screen.getByText("1 topic")).toBeInTheDocument();
+  expect(screen.getByDisplayValue("Principles of chemistry")).toBeInTheDocument();
+  expect(screen.queryByDisplayValue("States of matter")).not.toBeInTheDocument();
+  expect(screen.queryByDisplayValue("Acids and bases")).not.toBeInTheDocument();
+});
+
+test("opening a chapter shows topics, and a topic's toggle shows its sub-points", async () => {
+  stub();
+  await openDraft();
+
+  fireEvent.click(screen.getByRole("button", { name: /Show topics in Principles of chemistry/ }));
+  expect(screen.getByDisplayValue("States of matter")).toBeInTheDocument();
+  expect(screen.getByDisplayValue("Atoms")).toBeInTheDocument();
+  expect(screen.queryByDisplayValue("Isotopes")).not.toBeInTheDocument();
+  expect(screen.queryByDisplayValue("Acids and bases")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /Show sub-points of Atoms/ }));
+  expect(screen.getByDisplayValue("Isotopes")).toBeInTheDocument();
+});
+
+test("Open all shows everything and Fold all hides it again", async () => {
+  stub();
+  await openDraft();
+
+  fireEvent.click(screen.getByRole("button", { name: "Open all" }));
+  for (const t of ["States of matter", "Atoms", "Isotopes", "Acids and bases"])
+    expect(screen.getByDisplayValue(t)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Fold all" }));
+  for (const t of ["States of matter", "Atoms", "Isotopes", "Acids and bases"])
+    expect(screen.queryByDisplayValue(t)).not.toBeInTheDocument();
+});
+
+test("weights are hidden, a weight other than 1 shows a badge, and Show weights reveals inputs", async () => {
+  const heavy = structuredClone(DRAFT);
+  heavy.chapters[1].topics[0].weight = 2;
+  stub("review", heavy);
+  await openDraft();
+
+  fireEvent.click(screen.getByRole("button", { name: /Show topics in Inorganic chemistry/ }));
+  expect(screen.getByText("Weight 2")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Topic weight")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /Show weights/ }));
+  expect((screen.getByLabelText("Topic weight") as HTMLInputElement).value).toBe("2");
+});
+
+test("toggles carry aria-expanded and change it without moving focus off an input", async () => {
+  stub();
+  await openDraft();
+
+  const toggle = screen.getByRole("button", { name: /Show topics in Principles of chemistry/ });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const title = screen.getByDisplayValue("Principles of chemistry");
+  title.focus();
+  fireEvent.click(toggle);
+  expect(
+    screen.getByRole("button", { name: /Hide topics in Principles of chemistry/ }),
+  ).toHaveAttribute("aria-expanded", "true");
+  // The same input node survives, so typing in it is not interrupted.
+  expect(screen.getByDisplayValue("Principles of chemistry")).toBe(title);
+
+  const all = screen.getByRole("button", { name: "Open all" });
+  expect(all).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(all);
+  expect(screen.getByRole("button", { name: "Fold all" })).toHaveAttribute("aria-expanded", "true");
 });
