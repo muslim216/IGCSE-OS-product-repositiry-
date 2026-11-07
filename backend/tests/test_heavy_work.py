@@ -19,10 +19,11 @@ from tests.test_storage import _heic
 
 async def test_a_photo_waits_briefly_for_the_lock_then_says_busy(monkeypatch):
     monkeypatch.setattr(storage, "HEIC_LOCK_WAIT_SECONDS", 0.2)
+    photo = _heic(50, 50)
     release = await heavy_work.acquire()
     try:
         with pytest.raises(HeavyWorkBusy) as caught:
-            await storage._normalize(_heic(50, 50), "image/heic")
+            await storage._normalize(photo, "image/heic")
     finally:
         release()
     # Retryable, and in our own words.
@@ -84,10 +85,11 @@ async def test_a_job_saving_a_photo_while_busy_is_retried_not_refused(monkeypatc
     """`save_bytes` callers catch ValueError as "this file was refused"; busy is
     not that, so it must not be one."""
     monkeypatch.setattr(storage, "HEIC_LOCK_WAIT_SECONDS", 0.2)
+    photo = _heic(50, 50)
     release = await heavy_work.acquire()
     try:
         with pytest.raises(HeavyWorkBusy) as caught:
-            await storage.save_bytes(_heic(50, 50), "image/heic", "a.heic", organization_id=1)
+            await storage.save_bytes(photo, "image/heic", "a.heic", organization_id=1)
     finally:
         release()
     assert not isinstance(caught.value, ValueError)

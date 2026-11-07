@@ -137,8 +137,9 @@ def test_a_broken_pdf_gives_todays_message(run):
     data = b"%PDF-1.4 not really a pdf"
     expected = _message(lambda: pdf.page_count(data))
 
+    pending = pdf_sandbox.page_count(data)
     with pytest.raises(DocumentProblem) as caught:
-        run(pdf_sandbox.page_count(data))
+        run(pending)
     assert str(caught.value) == expected == "This file could not be read as a PDF."
     assert not isinstance(caught.value, PdfTooComplex)
 
@@ -151,8 +152,9 @@ def test_an_encrypted_pdf_gives_todays_message(run):
     data = _encrypted_pdf()
     expected = _message(lambda: pdf.page_count(data))
 
+    pending = pdf_sandbox.page_count(data)
     with pytest.raises(DocumentProblem) as caught:
-        run(pdf_sandbox.page_count(data))
+        run(pending)
     assert str(caught.value) == expected
     assert "password-protected" in expected
 
@@ -188,8 +190,9 @@ def test_a_child_held_past_the_deadline_is_killed(run, spawned, monkeypatch, cap
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
     started = time.monotonic()
 
+    pending = pdf_sandbox._run(pdf_child.Op.count, _pdf(1), [], test_args=("--test-hold", "60"))
     with pytest.raises(PdfTooComplex):
-        run(pdf_sandbox._run(pdf_child.Op.count, _pdf(1), [], test_args=("--test-hold", "60")))
+        run(pending)
 
     assert time.monotonic() - started < 20
     assert len(spawned) == 1
@@ -219,12 +222,11 @@ def test_the_deadline_starts_once_the_lock_is_held(run, spawned, monkeypatch):
 
 @linux_only
 def test_an_allocation_past_the_limit_is_refused_and_the_parent_survives(run, spawned):
+    pending = pdf_sandbox._run(
+        pdf_child.Op.count, _pdf(1), [], test_args=("--test-allocate-mb", "400")
+    )
     with pytest.raises(PdfTooComplex):
-        run(
-            pdf_sandbox._run(
-                pdf_child.Op.count, _pdf(1), [], test_args=("--test-allocate-mb", "400")
-            )
-        )
+        run(pending)
     assert _gone(spawned[0].pid)
     # And the parent carries on reading files.
     assert run(pdf_sandbox.page_count(_pdf(2))) == 2
@@ -289,8 +291,9 @@ def _limit_line(pid: int, name: str) -> str:
 def test_output_over_the_cap_is_refused(run, monkeypatch, caplog):
     monkeypatch.setattr(pdf_sandbox, "_output_cap", lambda n_ranges: 256)
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.split(_pdf(6), [(1, 6)])
     with pytest.raises(PdfTooComplex):
-        run(pdf_sandbox.split(_pdf(6), [(1, 6)]))
+        run(pending)
     # Its own name in the log, so a genuine booklet whose ranges overlap is
     # told apart from a hostile one.
     assert "output_cap" in caplog.text
@@ -350,8 +353,9 @@ def test_bad_framing_is_refused(run, monkeypatch, caplog, body):
         f"import sys; sys.stdin.buffer.read(); sys.stdout.buffer.write({payload!r})",
     )
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.split(_pdf(1), [(1, 1)])
     with pytest.raises(PdfTooComplex):
-        run(pdf_sandbox.split(_pdf(1), [(1, 1)]))
+        run(pending)
     assert "bad_framing" in caplog.text
 
 
@@ -362,8 +366,9 @@ def test_a_child_killed_by_a_signal_is_too_complex(run, monkeypatch, caplog):
         "os.kill(os.getpid(), signal.SIGTERM)",
     )
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.page_count(_pdf(1))
     with pytest.raises(PdfTooComplex):
-        run(pdf_sandbox.page_count(_pdf(1)))
+        run(pending)
     assert "SIGTERM" in caplog.text
 
 
@@ -371,8 +376,9 @@ def test_a_child_that_never_gets_ready_is_our_failure_and_retryable(run, monkeyp
     """Nothing of the file has been read before the child says it is ready, so
     a child that dies first is a broken image or deploy, not a hostile file."""
     _fake_child(monkeypatch, "import sys; sys.exit(3)")
+    pending = pdf_sandbox.page_count(_pdf(1))
     with pytest.raises(PdfSandboxUnavailable) as caught:
-        run(pdf_sandbox.page_count(_pdf(1)))
+        run(pending)
     assert not is_permanent(caught.value)
 
 
@@ -386,8 +392,9 @@ def test_an_error_result_that_carries_bytes_is_refused(run, monkeypatch):
     _fake_child(
         monkeypatch, f"import sys; sys.stdin.buffer.read(); sys.stdout.buffer.write({payload!r})"
     )
+    pending = pdf_sandbox.page_count(_pdf(1))
     with pytest.raises(PdfTooComplex):
-        run(pdf_sandbox.page_count(_pdf(1)))
+        run(pending)
 
 
 # --- 6. the child's environment ----------------------------------------------------
@@ -437,8 +444,9 @@ def test_a_root_parent_without_the_sandbox_account_runs_nothing(run, spawned, mo
         raise KeyError(name)
 
     monkeypatch.setattr(pdf_sandbox.pwd, "getpwnam", _missing)
+    pending = pdf_sandbox.page_count(_pdf(1))
     with pytest.raises(PdfSandboxUnavailable):
-        run(pdf_sandbox.page_count(_pdf(1)))
+        run(pending)
     assert spawned == []
 
 
@@ -576,8 +584,9 @@ def test_a_spawn_failure_is_retryable_and_too_complex_is_not(run, monkeypatch):
         raise BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _no_room)
+    pending = pdf_sandbox.page_count(_pdf(1))
     with pytest.raises(PdfSandboxUnavailable) as caught:
-        run(pdf_sandbox.page_count(_pdf(1)))
+        run(pending)
     assert not is_permanent(caught.value)
     # Ours, so the tutor sees the generic sentence, not the OS error.
     assert safe_job_error(caught.value) == GENERIC_JOB_ERROR
@@ -787,8 +796,9 @@ def test_the_parent_retries_a_child_that_could_not_read_its_request(run, monkeyp
         "import sys; sys.stdout.buffer.write(b'R'); sys.stdout.flush(); "
         f"sys.exit({pdf_child.EXIT_BAD_REQUEST})",
     )
+    pending = pdf_sandbox.page_count(_pdf(1))
     with pytest.raises(PdfSandboxUnavailable) as caught:
-        run(pdf_sandbox.page_count(_pdf(1)))
+        run(pending)
     assert not is_permanent(caught.value)
 
 
@@ -818,8 +828,9 @@ def test_a_header_claiming_too_much_is_refused_before_it_is_read(run, monkeypatc
     )
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
     started = time.monotonic()
+    pending = pdf_sandbox.split(_pdf(1), [(1, 1)])
     with pytest.raises(PdfTooComplex):
-        run(pdf_sandbox.split(_pdf(1), [(1, 1)]))
+        run(pending)
     assert time.monotonic() - started < 10
     assert "output_cap" in caplog.text
 
@@ -871,8 +882,9 @@ def test_a_root_parent_will_not_start_a_child_while_the_uploads_are_open(
     _as_root(monkeypatch)
     caplog.set_level(logging.ERROR, logger="app.services.pdf_sandbox")
 
+    pending = pdf_sandbox.page_count(_pdf(1))
     with pytest.raises(PdfSandboxUnavailable) as caught:
-        run(pdf_sandbox.page_count(_pdf(1)))
+        run(pending)
     assert not is_permanent(caught.value)
     assert spawned == []
     assert "upload" in caplog.text

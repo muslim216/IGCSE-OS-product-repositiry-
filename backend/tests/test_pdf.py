@@ -178,8 +178,9 @@ def test_an_encrypted_pdf_has_its_own_type() -> None:
     writer.encrypt("hunter2")
     out = BytesIO()
     writer.write(out)
+    data = out.getvalue()
     with pytest.raises(PdfEncrypted, match="password-protected"):
-        page_count(out.getvalue())
+        page_count(data)
 
 
 def test_extract_ranges_parses_once_and_matches_extract_pages(monkeypatch) -> None:
