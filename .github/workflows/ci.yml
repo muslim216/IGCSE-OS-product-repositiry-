@@ -176,6 +176,20 @@ jobs:
       - name: pytest
         run: python -m pytest -q
 
+      # The PDF sandbox's limit tests (RLIMIT_AS, oom_score_adj, /proc) skip off
+      # Linux, which is right for a Mac and wrong here: this is the only place
+      # they prove the limits hold on a live child. Same guard as the step
+      # below. The root-only test still skips, because the runner is not root;
+      # the image job checks the child's account instead.
+      - name: PDF sandbox limit tests must actually run
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_pdf_sandbox.py -v -ra | tee /tmp/pdf-sandbox.log
+          if grep -q "Linux-only" /tmp/pdf-sandbox.log; then
+            echo "::error::PDF sandbox limit tests skipped — they must run on Linux"
+            exit 1
+          fi
+
       # The Redis-backed rate-limit tests skip themselves when TEST_REDIS_URL is
       # unset, which is right for a laptop and wrong here: a skip in this job
       # would be a green tick for the only tests that prove counters are shared
@@ -254,6 +268,20 @@ jobs:
 
       - name: pytest on Postgres
         run: python -m pytest -q
+
+      # The one-booklet-at-a-time check holds when two uploads arrive together
+      # only because it locks the workspace row, which SQLite ignores, so its
+      # race test skips everywhere but here. A skip here would be a green tick
+      # for a test that never ran; same guard as the PDF-limit tests.
+      - name: Booklet race test must actually run
+        run: |
+          set -euo pipefail
+          python -m pytest "tests/test_booklet_pdf_limits.py::test_two_uploads_at_the_same_moment_let_only_one_through" -v -ra \
+            | tee /tmp/booklet-race.log
+          if grep -qE "skipped|no tests ran" /tmp/booklet-race.log; then
+            echo "::error::the booklet race test skipped or was not collected — it must run on Postgres"
+            exit 1
+          fi
 
       # The two-requests-at-once syllabus test is the only proof that the
       # workspace lock holds, and it skips itself without Postgres (SQLite drops
@@ -471,6 +499,111 @@ jobs:
           docker run --rm --entrypoint python avora-api-ci -m pip check
           docker run --rm --entrypoint python avora-api-ci -c "import app.main, app.workers.__main__, seed.demo"
           docker run --rm --entrypoint alembic avora-api-ci heads
+
+      # Uploaded PDFs are read in a child process (app/services/pdf_child.py)
+      # that, started by a root API, drops to the image's `pdfsandbox` account
+      # and sets its own limits before reading anything. The test suite runs as
+      # a normal user, so only the image can show the drop really happens. This
+      # counts a one-page PDF through the real sandbox, under uvloop as
+      # production runs it, then holds a child and reads its account, groups,
+      # oom_score_adj and limits from /proc while it is alive. Last, it stores a
+      # file as the app does and checks the pdfsandbox account cannot read it.
+      - name: The PDF child runs as pdfsandbox, under its limits
+        run: |
+          docker run --rm -i --entrypoint python avora-api-ci - <<'PY'
+          import asyncio, os, pwd, subprocess, sys
+          from io import BytesIO
+
+          # Before any app import: settings are read once.
+          os.environ["UPLOAD_DIR"] = "/tmp/ci-uploads"
+
+          import uvloop
+          from pypdf import PdfWriter
+
+          from app.services import pdf_child, pdf_sandbox
+
+          writer = PdfWriter()
+          writer.add_blank_page(width=100, height=100)
+          buffer = BytesIO()
+          writer.write(buffer)
+          data = buffer.getvalue()
+
+          assert os.geteuid() == 0, "the image runs the API as root until T-009"
+          account = pwd.getpwnam("pdfsandbox")
+          assert account.pw_uid != 0 and account.pw_gid != 0
+
+          pids = []
+          real_spawn = asyncio.create_subprocess_exec
+
+          async def spy(*args, **kwargs):
+              proc = await real_spawn(*args, **kwargs)
+              pids.append(proc.pid)
+              return proc
+
+          asyncio.create_subprocess_exec = spy
+
+          def proc_file(pid, name):
+              with open(f"/proc/{pid}/{name}") as f:
+                  return f.read()
+
+          def field(pid, name):
+              for line in proc_file(pid, "status").splitlines():
+                  key, _, value = line.partition(":")
+                  if key == name:
+                      return value.split()
+              raise AssertionError(name)
+
+          def limit(pid, name):
+              for line in proc_file(pid, "limits").splitlines():
+                  if line.startswith(name):
+                      return line.split()[-3:-1]
+              raise AssertionError(name)
+
+          async def main():
+              assert await pdf_sandbox.page_count(data) == 1
+              held = asyncio.create_task(
+                  pdf_sandbox._run(pdf_child.Op.count, data, [], test_args=("--test-hold", "30"))
+              )
+              for _ in range(400):
+                  if len(pids) == 2 and limit(pids[1], "Max open files") == ["16", "16"]:
+                      break
+                  await asyncio.sleep(0.05)
+              pid = pids[1]
+              uid, gid = str(account.pw_uid), str(account.pw_gid)
+              assert field(pid, "Uid") == [uid] * 4, field(pid, "Uid")
+              assert field(pid, "Gid") == [gid] * 4, field(pid, "Gid")
+              assert field(pid, "Groups") == [], field(pid, "Groups")
+              assert proc_file(pid, "oom_score_adj").strip() == "1000"
+              assert limit(pid, "Max address space") == [str(256 * 1024 * 1024)] * 2
+              assert limit(pid, "Max cpu time") == ["60", "65"]
+              assert limit(pid, "Max core file size") == ["0", "0"]
+              assert limit(pid, "Max file size") == ["0", "0"]
+              held.cancel()
+              try:
+                  await held
+              except asyncio.CancelledError:
+                  pass
+              print(f"PDF child ran as uid {uid} gid {gid}, no groups, under its limits")
+
+              from app.services import storage
+
+              await storage.LocalBackend().upload("org/1/ci.pdf", data, "application/pdf")
+              stored = "/tmp/ci-uploads/org/1/ci.pdf"
+              assert os.path.exists(stored)
+              denied = subprocess.run(
+                  [sys.executable, "-I", "-c", f"open({stored!r}, 'rb').read()"],
+                  user="pdfsandbox",
+                  group="pdfsandbox",
+                  extra_groups=[],
+                  capture_output=True,
+                  check=False,
+              )
+              assert denied.returncode != 0 and b"PermissionError" in denied.stderr, denied
+              print("pdfsandbox cannot read a stored upload")
+
+          with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+              runner.run(main())
+          PY
 
       # The image is meant to hold the runtime set plus the build backend and
       # none of the dev tools; fail if one ever leaks in through the lock files.

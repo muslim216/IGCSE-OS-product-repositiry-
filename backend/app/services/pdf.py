@@ -6,10 +6,12 @@ download, question extraction, marking — then sees an ordinary single paper an
 needs to know nothing about page ranges. Splitting once at approval is what buys
 that; the alternative was teaching ranges to four separate places.
 
-**These functions block.** pypdf is synchronous and CPU-bound, and the worker
-shares the API's event loop (`BE-13`, `PERF-1`) — one call on the loop stalls
-request serving for every user, not just the tutor who uploaded. An async caller
-must go through `asyncio.to_thread`, or sit inside a job handler that does.
+**Only `services/pdf_child.py` calls these.** pypdf is synchronous and
+CPU-bound, and a crafted file can make it use memory or time without bound. Run
+in the API process, that stalls or kills it for every user, not only the tutor
+who uploaded (`BE-13`, `PERF-1`). So every caller goes through
+`services/pdf_sandbox.py`, which runs them in a separate, limited process, and
+`tests/test_pdf_guards.py` fails if anything else imports this module.
 
 Pure by `BE-4`: bytes in, bytes or an int out. No session, no storage, no
 logging of file contents.
@@ -21,6 +23,7 @@ upload rather than treating it as impossible.
 """
 
 import logging
+from collections.abc import Iterator, Sequence
 from io import BytesIO
 
 from pypdf import PdfReader, PdfWriter
@@ -28,6 +31,11 @@ from pypdf import PdfReader, PdfWriter
 from app.services.job_errors import DocumentProblem
 
 log = logging.getLogger(__name__)
+
+
+class PdfEncrypted(DocumentProblem):
+    """The PDF is password-protected. Its own type so that the sandbox's child
+    can report it as such without reading the sentence."""
 
 
 def _read(data: bytes) -> tuple[PdfReader, int]:
@@ -42,9 +50,17 @@ def _read(data: bytes) -> tuple[PdfReader, int]:
     try:
         reader = PdfReader(BytesIO(data))
         if reader.is_encrypted:
-            raise DocumentProblem("This PDF is password-protected, so its pages cannot be read.")
+            raise PdfEncrypted("This PDF is password-protected, so its pages cannot be read.")
         return reader, len(reader.pages)
-    except ValueError:
+    # Only our own refusals pass through as they are. pypdf also raises plain
+    # `ValueError`s of its own on a corrupt file ("invalid literal for int()"),
+    # which are unreadable like any other library error below.
+    except DocumentProblem:
+        raise
+    # Not "could not be read": running out of memory or stack is the sandbox's
+    # "too complex", which is never retried, where an unreadable file is the
+    # tutor's ordinary problem to fix.
+    except (MemoryError, RecursionError):
         raise
     # Blind on purpose, and not suppressed with a `noqa`: BLE001 does not fire
     # on a handler that re-raises, so one here would be a comment pretending to
@@ -71,6 +87,29 @@ def extract_pages(data: bytes, first_page: int, last_page: int) -> bytes:
     nearest valid slice would hand a student someone else's questions.
     """
     reader, total = _read(data)
+    return _cut(reader, total, first_page, last_page)
+
+
+def extract_ranges(data: bytes, ranges: Sequence[tuple[int, int]]) -> tuple[int, Iterator[bytes]]:
+    """The page count, and each range of `data` as its own PDF, in order.
+
+    One parse for the whole file, where `extract_pages` parses once per call:
+    a booklet of sixty papers is then one parse, not sixty, which on a large
+    file is the difference between a few seconds of CPU and the child's whole
+    allowance. Each piece is built as `extract_pages` builds it, byte for byte.
+
+    The pieces are produced one at a time, so a caller can stop at the first
+    range that fails; each raises what `extract_pages` would for it."""
+    reader, total = _read(data)
+
+    def _pieces() -> Iterator[bytes]:
+        for first_page, last_page in ranges:
+            yield _cut(reader, total, first_page, last_page)
+
+    return total, _pieces()
+
+
+def _cut(reader: PdfReader, total: int, first_page: int, last_page: int) -> bytes:
     if first_page < 1:
         raise DocumentProblem(f"Pages start at 1, but the range starts at {first_page}.")
     if last_page < first_page:
@@ -89,6 +128,8 @@ def extract_pages(data: bytes, first_page: int, last_page: int) -> bytes:
             writer.add_page(reader.pages[index])
         out = BytesIO()
         writer.write(out)
+    except (MemoryError, RecursionError):  # too complex, not unreadable, as in `_read`
+        raise
     except Exception as exc:  # blind on purpose, as in `_read`
         log.warning(
             "pages %s-%s of a PDF could not be read: %s: %s",

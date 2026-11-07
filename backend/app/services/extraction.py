@@ -1,7 +1,6 @@
 """AI extraction: read a classified PDF (and optional mark scheme) and produce
 the assignment's question list for the tutor to review."""
 
-import asyncio
 import logging
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
@@ -36,7 +35,7 @@ from app.models import (
     SubmissionStatus,
     Topic,
 )
-from app.services import pdf, storage
+from app.services import pdf_sandbox, storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.job_errors import DocumentProblem, safe_job_error
 from app.services.knowledge import build_tutor_context
@@ -683,15 +682,20 @@ async def extract_booklet(session: AsyncSession, payload: dict) -> None:
     # An applied booklet's paper list is settled — it already became PastPaper
     # rows. A re-run (an orphan reclaim, `BE-6`) must not overwrite the draft
     # those rows were created from, which is the tutor's corrected list, not the
-    # AI's (`PROD-7`).
-    if booklet.status is BookletStatus.applied:
+    # AI's (`PROD-7`). A file found too complex is settled too: reading it again
+    # would meet the same limit.
+    if booklet.status in (BookletStatus.applied, BookletStatus.too_complex):
         return
     try:
         await _run_booklet_extraction(session, booklet)
         booklet.status = BookletStatus.review
         booklet.error = None
     except Exception as exc:
-        booklet.status = BookletStatus.extraction_failed
+        booklet.status = (
+            BookletStatus.too_complex
+            if isinstance(exc, pdf_sandbox.PdfTooComplex)
+            else BookletStatus.extraction_failed
+        )
         booklet.error = safe_job_error(exc)
         await session.commit()
         raise
@@ -781,21 +785,32 @@ def _scheme_mismatch(
 async def _run_booklet_extraction(session: AsyncSession, booklet: Booklet) -> None:
     assert booklet.file_path is not None
     assert booklet.file_mime is not None
+    # Counted because approval needs it: a page range running past the end of
+    # the document is refused there, before anything is cut. In the sandbox,
+    # because counting parses the tutor's file (`services/pdf_sandbox.py`).
+    #
+    # Counted first, before the AI read, so a file too complex to parse fails
+    # here without paying for a model call over it. That failure is final
+    # (`PdfTooComplex` is not caught): it used to leave the count absent and
+    # carry on, which let the same file reach approval and be cut. A file that
+    # merely cannot be parsed is not hostile, and the AI may still read its
+    # list, so its count is left absent rather than guessed (`PROD-2`).
+    data = await storage.read_file(booklet.file_path)
+    # The count can wait behind another file for the heavy-work lock, so the
+    # connection goes back to the pool first (`CAP-6`).
+    await release_connection(session)
+    try:
+        page_count: int | None = await pdf_sandbox.page_count(data)
+    except pdf_sandbox.PdfTooComplex:
+        raise
+    except ValueError:
+        page_count = None
+    del data
+
     papers = await _read_papers(session, booklet, booklet.file_path, booklet.file_mime)
     if not papers:
         raise DocumentProblem("No papers were found in the booklet")
-
-    # Counted here because the bytes are in hand anyway, and because approval
-    # needs it: a page range running past the end of the document is refused
-    # there, before anything is cut. Counting blocks (`BE-13`), hence the
-    # thread. A booklet that is not a PDF cannot be split at all, so a count it
-    # cannot produce is left absent rather than guessed (`PROD-2`).
-    try:
-        booklet.page_count = await asyncio.to_thread(
-            pdf.page_count, await storage.read_file(booklet.file_path)
-        )
-    except ValueError:
-        booklet.page_count = None
+    booklet.page_count = page_count
 
     scheme_papers: list[ExtractedPaper] | None = None
     mismatch: str | None = None

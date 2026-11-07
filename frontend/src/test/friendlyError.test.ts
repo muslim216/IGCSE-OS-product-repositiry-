@@ -9,6 +9,11 @@ describe("friendlyError", () => {
     expect(friendlyError(new ApiError(503, busy))).toBe(busy);
   });
 
+  it("passes on the busy sentence a photo upload gets while a PDF is being read", () => {
+    const busy = "Avora is busy reading another file. Try again in a moment.";
+    expect(friendlyError(new ApiError(503, busy))).toBe(busy);
+  });
+
   it("does not call another 503, such as an unconfigured integration, busy", () => {
     expect(friendlyError(new ApiError(503, "Google Classroom is not configured"))).toBe(
       "Something went wrong on our side. Try again in a minute.",

@@ -412,8 +412,14 @@ _NAME_WRONG = (
 _NO_DELETION = (
     "nothing is scheduled for the seeded child, so the owner is told 404 after the ownership check"
 )
+_ONE_BOOKLET_AT_A_TIME = (
+    "the tutor's own control upload left a booklet being read in the same workspace, so the "
+    "admin's is refused by the one-booklet-at-a-time rule (409, T-027). The subject is checked "
+    "first, so a foreign subject still gets its 404"
+)
 CONTROL_EXCEPTIONS: dict[tuple[str, str, str, str], tuple[int, str]] = {
     ("tutor", "POST", "/students/{student_id}/erasure", ""): (422, _NAME_WRONG),
+    ("admin", "POST", "/booklets", "subject_id"): (409, _ONE_BOOKLET_AT_A_TIME),
     ("admin", "POST", "/students/{student_id}/erasure", ""): (422, _NAME_WRONG),
     ("parent", "POST", "/me/children/{student_id}/erasure", ""): (422, _NAME_WRONG),
     ("tutor", "DELETE", "/students/{student_id}/erasure", ""): (404, _NO_DELETION),

@@ -1,0 +1,937 @@
+"""T-027: uploaded PDFs are read in a separate, limited process.
+
+`services/pdf_sandbox.py` starts `services/pdf_child.py` for every count or
+split, so a file that makes the PDF library run away costs that one child, never
+the process serving every request and job.
+
+Every test that starts a real child runs under the default event loop and under
+uvloop, because uvloop is what production runs and its subprocess support is
+not the standard library's. The tests marked Linux-only need `RLIMIT_AS` and
+`/proc`; they skip on macOS and run in CI.
+"""
+
+import asyncio
+import errno
+import logging
+import os
+import signal
+import sys
+import time
+from io import BytesIO
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+import uvloop
+from pypdf import PdfWriter
+
+from app.services import heavy_work, pdf, pdf_child, pdf_sandbox, storage
+from app.services.job_errors import GENERIC_JOB_ERROR, DocumentProblem, safe_job_error
+from app.services.pdf_sandbox import PdfSandboxUnavailable, PdfTooComplex
+from app.workers.jobs import is_permanent
+from tests.test_booklets import _pdf, _widths
+
+linux_only = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="RLIMIT_AS, oom_score_adj and /proc are Linux-only; CI runs these",
+)
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(asyncio.new_event_loop, id="asyncio"),
+        pytest.param(uvloop.new_event_loop, id="uvloop"),
+    ]
+)
+def run(request):
+    """Run a coroutine to completion on a fresh loop of the parametrized kind."""
+
+    def _run(coro):
+        with asyncio.Runner(loop_factory=request.param) as runner:
+            return runner.run(coro)
+
+    return _run
+
+
+@pytest.fixture
+def spawned(monkeypatch):
+    """Every child the sandbox starts, with the arguments it was started with.
+    The spawn itself is the real one."""
+    seen: list[SimpleNamespace] = []
+    real = asyncio.create_subprocess_exec
+
+    async def _spy(*args, **kwargs):
+        proc = await real(*args, **kwargs)
+        seen.append(SimpleNamespace(args=args, kwargs=kwargs, pid=proc.pid))
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _spy)
+    return seen
+
+
+def _gone(pid: int) -> bool:
+    """No process with this id, and no process left in its group."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        pass
+    else:
+        return False
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def _encrypted_pdf() -> bytes:
+    writer = PdfWriter()
+    writer.add_blank_page(width=100, height=100)
+    writer.encrypt("secret")
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _message(call) -> str:
+    with pytest.raises(DocumentProblem) as caught:
+        call()
+    return str(caught.value)
+
+
+async def _wait_for(predicate, *, seconds: float = 10.0) -> None:
+    deadline = time.monotonic() + seconds
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError("timed out waiting")
+        await asyncio.sleep(0.05)
+
+
+# --- 1. a normal PDF ----------------------------------------------------------
+
+
+def test_count_and_split_match_the_library_byte_for_byte(run):
+    data = _pdf(6)
+    ranges = [(1, 2), (3, 6), (2, 4)]
+
+    count = run(pdf_sandbox.page_count(data))
+    result = run(pdf_sandbox.split(data, ranges))
+
+    assert count == pdf.page_count(data) == 6
+    assert result.failure is None
+    assert result.pieces == [pdf.extract_pages(data, f, last) for f, last in ranges]
+    assert _widths(result.pieces[1]) == [120, 130, 140, 150]
+
+
+def test_a_split_with_no_ranges_starts_no_child(run, spawned):
+    result = run(pdf_sandbox.split(_pdf(2), []))
+    assert result.pieces == []
+    assert result.failure is None
+    assert spawned == []
+
+
+# --- 2. broken and encrypted PDFs keep today's messages -----------------------
+
+
+def test_a_broken_pdf_gives_todays_message(run):
+    data = b"%PDF-1.4 not really a pdf"
+    expected = _message(lambda: pdf.page_count(data))
+
+    pending = pdf_sandbox.page_count(data)
+    with pytest.raises(DocumentProblem) as caught:
+        run(pending)
+    assert str(caught.value) == expected == "This file could not be read as a PDF."
+    assert not isinstance(caught.value, PdfTooComplex)
+
+    result = run(pdf_sandbox.split(data, [(1, 1)]))
+    assert result.pieces == []
+    assert str(result.failure) == _message(lambda: pdf.extract_pages(data, 1, 1))
+
+
+def test_an_encrypted_pdf_gives_todays_message(run):
+    data = _encrypted_pdf()
+    expected = _message(lambda: pdf.page_count(data))
+
+    pending = pdf_sandbox.page_count(data)
+    with pytest.raises(DocumentProblem) as caught:
+        run(pending)
+    assert str(caught.value) == expected
+    assert "password-protected" in expected
+
+
+@pytest.mark.parametrize("bad", [(0, 2), (4, 3), (5, 99)])
+def test_a_range_that_does_not_fit_gives_todays_message_after_the_good_ones(run, bad):
+    """The pieces before a bad range come back, so a split that fails part-way
+    behaves as it did when each range was cut on its own."""
+    data = _pdf(6)
+    result = run(pdf_sandbox.split(data, [(1, 2), bad, (3, 4)]))
+
+    assert result.pieces == [pdf.extract_pages(data, 1, 2)]
+    assert str(result.failure) == _message(lambda: pdf.extract_pages(data, *bad))
+    assert safe_job_error(result.failure) == str(result.failure)
+
+
+def test_a_page_that_cannot_be_read_names_its_range():
+    """A file that parses but fails on one page's content is told apart from a
+    file that does not parse at all, as `pdf.extract_pages` tells them apart."""
+    problem = pdf_sandbox._problem(
+        pdf_child.Code.unreadable, index=1, total=6, ranges=[(1, 2), (3, 4)]
+    )
+    assert str(problem) == "Pages 3-4 of this PDF could not be read."
+    whole = pdf_sandbox._problem(pdf_child.Code.unreadable, index=-1, total=0, ranges=[(1, 2)])
+    assert str(whole) == "This file could not be read as a PDF."
+
+
+# --- 3. the deadline -----------------------------------------------------------
+
+
+def test_a_child_held_past_the_deadline_is_killed(run, spawned, monkeypatch, caplog):
+    monkeypatch.setattr(pdf_sandbox, "DEADLINE_SECONDS", 2.0)
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    started = time.monotonic()
+
+    pending = pdf_sandbox._run(pdf_child.Op.count, _pdf(1), [], test_args=("--test-hold", "60"))
+    with pytest.raises(PdfTooComplex):
+        run(pending)
+
+    assert time.monotonic() - started < 20
+    assert len(spawned) == 1
+    assert _gone(spawned[0].pid)
+    assert "deadline" in caplog.text
+
+
+def test_the_deadline_starts_once_the_lock_is_held(run, spawned, monkeypatch):
+    """Waiting in line behind another file is not the file's fault."""
+    monkeypatch.setattr(pdf_sandbox, "DEADLINE_SECONDS", 3.0)
+    data = _pdf(3)
+
+    async def _scenario():
+        release = await heavy_work.acquire()
+        task = asyncio.create_task(pdf_sandbox.page_count(data))
+        await asyncio.sleep(3.5)
+        assert not task.done()
+        assert spawned == [], "a child started while another held the lock"
+        release()
+        return await task
+
+    assert run(_scenario()) == 3
+
+
+# --- 4. memory -----------------------------------------------------------------
+
+
+@linux_only
+def test_an_allocation_past_the_limit_is_refused_and_the_parent_survives(run, spawned):
+    pending = pdf_sandbox._run(
+        pdf_child.Op.count, _pdf(1), [], test_args=("--test-allocate-mb", "400")
+    )
+    with pytest.raises(PdfTooComplex):
+        run(pending)
+    assert _gone(spawned[0].pid)
+    # And the parent carries on reading files.
+    assert run(pdf_sandbox.page_count(_pdf(2))) == 2
+
+
+@linux_only
+def test_the_child_runs_under_its_limits(run, spawned):
+    """Read off the live child, not off the code that set them."""
+
+    async def _scenario():
+        task = asyncio.create_task(
+            pdf_sandbox._run(pdf_child.Op.count, _pdf(1), [], test_args=("--test-hold", "30"))
+        )
+        await _wait_for(lambda: bool(spawned))
+        pid = spawned[0].pid
+        # The hold starts after the request is read, which is after the limits.
+        await _wait_for(lambda: _limit_line(pid, "Max open files").split()[3] == "16")
+        limits = {
+            name: _limit_line(pid, name).split()[-3:-1]
+            for name in (
+                "Max address space",
+                "Max cpu time",
+                "Max core file size",
+                "Max file size",
+                "Max open files",
+            )
+        }
+        oom = _proc_file(pid, "oom_score_adj").decode().strip()
+        environ = _proc_file(pid, "environ")
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return limits, oom, environ
+
+    limits, oom, environ = run(_scenario())
+    assert limits["Max address space"] == [str(256 * 1024 * 1024)] * 2
+    assert limits["Max cpu time"] == ["60", "65"]
+    assert limits["Max core file size"] == ["0", "0"]
+    assert limits["Max file size"] == ["0", "0"]
+    assert limits["Max open files"] == ["16", "16"]
+    assert oom == "1000"
+    for secret in (b"DATABASE_URL", b"JWT_SECRET", b"_API_KEY"):
+        assert secret not in environ
+
+
+def _proc_file(pid: int, name: str) -> bytes:
+    with open(f"/proc/{pid}/{name}", "rb") as f:
+        return f.read()
+
+
+def _limit_line(pid: int, name: str) -> str:
+    with open(f"/proc/{pid}/limits") as f:
+        for line in f:
+            if line.startswith(name):
+                return line
+    raise AssertionError(f"{name} not in /proc/{pid}/limits")
+
+
+# --- 5. output and framing -------------------------------------------------------
+
+
+def test_output_over_the_cap_is_refused(run, monkeypatch, caplog):
+    monkeypatch.setattr(pdf_sandbox, "_output_cap", lambda n_ranges: 256)
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.split(_pdf(6), [(1, 6)])
+    with pytest.raises(PdfTooComplex):
+        run(pending)
+    # Its own name in the log, so a genuine booklet whose ranges overlap is
+    # told apart from a hostile one.
+    assert "output_cap" in caplog.text
+
+
+def test_the_output_cap_allows_twice_the_largest_upload():
+    assert pdf_sandbox._output_cap(60) >= 2 * storage.MAX_FILE_BYTES
+    assert pdf_child.MAX_INPUT_BYTES == storage.MAX_FILE_BYTES
+
+
+def _fake_child(monkeypatch, code: str) -> None:
+    monkeypatch.setattr(
+        pdf_sandbox, "_child_argv", lambda test_args=(): [sys.executable, "-I", "-c", code]
+    )
+
+
+_READY = pdf_child.READY
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(b"nonsense" * 10, id="garbage"),
+        pytest.param(
+            pdf_child.RESULT_HEAD.pack(
+                pdf_child.RESULT_MAGIC, pdf_child.VERSION, 0, 0, -1, 1, 10**6
+            ),
+            id="header-claims-a-million-pieces",
+        ),
+        pytest.param(
+            pdf_child.RESULT_HEAD.pack(pdf_child.RESULT_MAGIC, pdf_child.VERSION, 0, 0, -1, 1, 1)
+            + pdf_child.PIECE_LENGTH.pack(1000)
+            + b"abc",
+            id="piece-longer-than-the-output",
+        ),
+        pytest.param(
+            pdf_child.RESULT_HEAD.pack(pdf_child.RESULT_MAGIC, pdf_child.VERSION, 0, 0, -1, 1, 1)
+            + pdf_child.PIECE_LENGTH.pack(3)
+            + b"abc"
+            + b"trailing",
+            id="trailing-bytes",
+        ),
+        pytest.param(
+            pdf_child.RESULT_HEAD.pack(pdf_child.RESULT_MAGIC, pdf_child.VERSION, 99, 0, -1, 1, 0),
+            id="unknown-code",
+        ),
+        pytest.param(
+            pdf_child.RESULT_HEAD.pack(b"XXXX", pdf_child.VERSION, 0, 0, -1, 1, 0),
+            id="wrong-magic",
+        ),
+    ],
+)
+def test_bad_framing_is_refused(run, monkeypatch, caplog, body):
+    payload = _READY + body
+    _fake_child(
+        monkeypatch,
+        f"import sys; sys.stdin.buffer.read(); sys.stdout.buffer.write({payload!r})",
+    )
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.split(_pdf(1), [(1, 1)])
+    with pytest.raises(PdfTooComplex):
+        run(pending)
+    assert "bad_framing" in caplog.text
+
+
+def test_a_child_killed_by_a_signal_is_too_complex(run, monkeypatch, caplog):
+    _fake_child(
+        monkeypatch,
+        "import os, signal, sys; sys.stdout.buffer.write(b'R'); sys.stdout.flush(); "
+        "os.kill(os.getpid(), signal.SIGTERM)",
+    )
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.page_count(_pdf(1))
+    with pytest.raises(PdfTooComplex):
+        run(pending)
+    assert "SIGTERM" in caplog.text
+
+
+def test_a_child_that_never_gets_ready_is_our_failure_and_retryable(run, monkeypatch):
+    """Nothing of the file has been read before the child says it is ready, so
+    a child that dies first is a broken image or deploy, not a hostile file."""
+    _fake_child(monkeypatch, "import sys; sys.exit(3)")
+    pending = pdf_sandbox.page_count(_pdf(1))
+    with pytest.raises(PdfSandboxUnavailable) as caught:
+        run(pending)
+    assert not is_permanent(caught.value)
+
+
+def test_an_error_result_that_carries_bytes_is_refused(run, monkeypatch):
+    """An error is a code and nothing else: there is no field for text, and an
+    error frame with a piece attached is not a frame the child writes."""
+    head = pdf_child.RESULT_HEAD.pack(
+        pdf_child.RESULT_MAGIC, pdf_child.VERSION, int(pdf_child.Code.unreadable), 0, -1, 0, 1
+    )
+    payload = _READY + head + pdf_child.PIECE_LENGTH.pack(5) + b"hello"
+    _fake_child(
+        monkeypatch, f"import sys; sys.stdin.buffer.read(); sys.stdout.buffer.write({payload!r})"
+    )
+    pending = pdf_sandbox.page_count(_pdf(1))
+    with pytest.raises(PdfTooComplex):
+        run(pending)
+
+
+# --- 6. the child's environment ----------------------------------------------------
+
+
+def test_the_child_gets_a_minimal_environment_and_its_own_directory(run, spawned, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@db/avora")
+    monkeypatch.setenv("JWT_SECRET", "a-secret-the-child-must-not-see")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-not-for-the-child")
+    monkeypatch.setenv("GEMINI_API_KEY", "not-for-the-child-either")
+
+    assert run(pdf_sandbox.page_count(_pdf(1))) == 1
+
+    (child,) = spawned
+    assert list(child.args[:5]) == [sys.executable, "-I", "-B", "-m", "app.services.pdf_child"]
+    env = child.kwargs["env"]
+    assert set(env) <= {"PATH", "MALLOC_ARENA_MAX", "PYTHONHASHSEED"}
+    assert env["MALLOC_ARENA_MAX"] == "2"
+    assert child.kwargs["close_fds"] is True
+    assert child.kwargs["start_new_session"] is True
+    assert child.kwargs["stderr"] == asyncio.subprocess.DEVNULL
+    assert "pass_fds" not in child.kwargs
+    # Never the API's own directory, and gone once the child is.
+    assert os.path.realpath(child.kwargs["cwd"]) != os.path.realpath(os.getcwd())
+    assert not os.path.exists(child.kwargs["cwd"])
+    # The child drops privileges itself: uvloop does not take user= or group=.
+    assert not {"user", "group", "extra_groups"} & set(child.kwargs)
+
+
+def test_a_root_parent_hands_the_child_the_sandbox_account(monkeypatch):
+    monkeypatch.setattr(pdf_sandbox.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        pdf_sandbox.pwd,
+        "getpwnam",
+        lambda name: SimpleNamespace(pw_uid=4242, pw_gid=4343) if name == "pdfsandbox" else None,
+    )
+    argv = pdf_sandbox._child_argv(())
+    assert argv[argv.index("--uid") + 1] == "4242"
+    assert argv[argv.index("--gid") + 1] == "4343"
+
+
+def test_a_root_parent_without_the_sandbox_account_runs_nothing(run, spawned, monkeypatch):
+    """Never run the child as root because an account is missing."""
+    monkeypatch.setattr(pdf_sandbox.os, "geteuid", lambda: 0)
+
+    def _missing(name):
+        raise KeyError(name)
+
+    monkeypatch.setattr(pdf_sandbox.pwd, "getpwnam", _missing)
+    pending = pdf_sandbox.page_count(_pdf(1))
+    with pytest.raises(PdfSandboxUnavailable):
+        run(pending)
+    assert spawned == []
+
+
+@pytest.mark.skipif(
+    not (sys.platform.startswith("linux") and os.geteuid() == 0),
+    reason="needs a root parent on Linux; the CI image test checks the uid there",
+)
+def test_as_root_the_child_is_not_root(run, spawned):
+    async def _scenario():
+        task = asyncio.create_task(
+            pdf_sandbox._run(pdf_child.Op.count, _pdf(1), [], test_args=("--test-hold", "30"))
+        )
+        await _wait_for(lambda: bool(spawned))
+        pid = spawned[0].pid
+        await _wait_for(lambda: _status_uid(pid) != 0)
+        uid = _status_uid(pid)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return uid
+
+    assert run(_scenario()) != 0
+
+
+def _status_uid(pid: int) -> int:
+    with open(f"/proc/{pid}/status") as f:
+        for line in f:
+            if line.startswith("Uid:"):
+                return int(line.split()[1])
+    raise AssertionError("no Uid line")
+
+
+# --- the child's own start-up, in process ------------------------------------------
+
+
+def test_the_child_sets_itself_up_before_it_reads_the_file(monkeypatch):
+    """`oom_score_adj`, then the privilege drop, then the limits, then ready, and
+    only then the request."""
+    steps: list[str] = []
+    monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: steps.append("oom"))
+    monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: steps.append("drop"))
+    monkeypatch.setattr(pdf_child, "_set_limits", lambda: steps.append("limits"))
+    monkeypatch.setattr(pdf_child, "_load_library", lambda: steps.append("library"))
+
+    request = pdf_child.encode_request(pdf_child.Op.count, [], _pdf(2))
+
+    class _Stdin(BytesIO):
+        def read(self, *args):
+            if "read" not in steps:
+                steps.append("read")
+            return super().read(*args)
+
+    class _Stdout(BytesIO):
+        def write(self, b):
+            steps.append("ready" if bytes(b) == pdf_child.READY else "write")
+            return super().write(b)
+
+    out = _Stdout()
+    assert pdf_child.main([], stdin=_Stdin(request), stdout=out) == 0
+    assert steps[:6] == ["oom", "drop", "limits", "library", "ready", "read"]
+    assert out.getvalue().startswith(pdf_child.READY)
+
+
+def test_the_child_sets_soft_equal_to_hard(monkeypatch):
+    calls: dict[int, tuple[int, int]] = {}
+    monkeypatch.setattr(
+        pdf_child.resource, "setrlimit", lambda res, lim: calls.__setitem__(res, lim)
+    )
+    pdf_child._set_limits()
+    r = pdf_child.resource
+    assert calls[r.RLIMIT_AS] == (256 * 1024 * 1024, 256 * 1024 * 1024)
+    assert calls[r.RLIMIT_CPU] == (60, 65)
+    assert calls[r.RLIMIT_CORE] == (0, 0)
+    assert calls[r.RLIMIT_FSIZE] == (0, 0)
+    assert calls[r.RLIMIT_NOFILE] == (16, 16)
+
+
+def test_a_root_child_drops_to_the_given_account_in_order(monkeypatch):
+    steps: list[tuple] = []
+    state = {"uid": 0}
+    monkeypatch.setattr(pdf_child.os, "getuid", lambda: state["uid"])
+    monkeypatch.setattr(pdf_child.os, "geteuid", lambda: state["uid"])
+    monkeypatch.setattr(pdf_child.os, "setgroups", lambda g: steps.append(("setgroups", g)))
+    monkeypatch.setattr(pdf_child.os, "setgid", lambda g: steps.append(("setgid", g)))
+
+    def _setuid(u):
+        steps.append(("setuid", u))
+        state["uid"] = u
+
+    monkeypatch.setattr(pdf_child.os, "setuid", _setuid)
+    pdf_child._drop_privileges(4242, 4343)
+    assert steps == [("setgroups", []), ("setgid", 4343), ("setuid", 4242)]
+
+
+def test_a_root_child_with_no_account_refuses_to_run(monkeypatch):
+    monkeypatch.setattr(pdf_child.os, "getuid", lambda: 0)
+    monkeypatch.setattr(pdf_child.os, "geteuid", lambda: 0)
+    with pytest.raises(pdf_child.SetupFailed):
+        pdf_child._drop_privileges(None, None)
+    with pytest.raises(pdf_child.SetupFailed):
+        pdf_child._drop_privileges(0, 0)
+
+
+def test_a_root_child_that_stays_root_refuses_to_run(monkeypatch):
+    monkeypatch.setattr(pdf_child.os, "getuid", lambda: 0)
+    monkeypatch.setattr(pdf_child.os, "geteuid", lambda: 0)
+    for name in ("setgroups", "setgid", "setuid"):
+        monkeypatch.setattr(pdf_child.os, name, lambda *_: None)
+    with pytest.raises(pdf_child.SetupFailed):
+        pdf_child._drop_privileges(4242, 4343)
+
+
+def test_memory_and_recursion_are_too_complex_not_unreadable(monkeypatch):
+    for exc in (MemoryError, RecursionError):
+
+        def _boom(data, _exc=exc):
+            raise _exc()
+
+        monkeypatch.setattr(pdf, "page_count", _boom)
+        out = BytesIO()
+        request = pdf_child.encode_request(pdf_child.Op.count, [], b"%PDF-1.4")
+        monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: None)
+        monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: None)
+        monkeypatch.setattr(pdf_child, "_set_limits", lambda: None)
+        assert pdf_child.main([], stdin=BytesIO(request), stdout=out) == 0
+        head = pdf_child.RESULT_HEAD.unpack_from(out.getvalue(), len(pdf_child.READY))
+        assert head[2] == pdf_child.Code.too_complex
+
+
+# --- 7. what is retried ---------------------------------------------------------------
+
+
+def test_a_spawn_failure_is_retryable_and_too_complex_is_not(run, monkeypatch):
+    async def _no_room(*args, **kwargs):
+        raise BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _no_room)
+    pending = pdf_sandbox.page_count(_pdf(1))
+    with pytest.raises(PdfSandboxUnavailable) as caught:
+        run(pending)
+    assert not is_permanent(caught.value)
+    # Ours, so the tutor sees the generic sentence, not the OS error.
+    assert safe_job_error(caught.value) == GENERIC_JOB_ERROR
+
+    too_complex = PdfTooComplex()
+    assert is_permanent(too_complex)
+    assert isinstance(too_complex, DocumentProblem)
+    assert safe_job_error(too_complex) == "This PDF is too complex to read safely."
+
+
+# --- 8. cancellation ---------------------------------------------------------------------
+
+
+def test_cancelling_mid_run_reaps_the_child_and_frees_the_lock(run, spawned):
+    async def _scenario():
+        task = asyncio.create_task(
+            pdf_sandbox._run(pdf_child.Op.count, _pdf(1), [], test_args=("--test-hold", "60"))
+        )
+        await _wait_for(lambda: bool(spawned))
+        await asyncio.sleep(0.5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not heavy_work.lock_for_this_loop().locked()
+        return spawned[0].pid
+
+    pid = run(_scenario())
+    assert _gone(pid)
+
+
+# --- a large genuine booklet ----------------------------------------------------------------
+
+
+def _large_booklet(pages: int = 300, target_bytes: int = 19 * 1024 * 1024) -> bytes:
+    """About the largest booklet a tutor can upload: 300 pages, each carrying an
+    incompressible stream, the way a scanned page carries its image."""
+    from pypdf.generic import DecodedStreamObject, NameObject
+
+    per_page = target_bytes // pages
+    writer = PdfWriter()
+    for _ in range(pages):
+        page = writer.add_blank_page(width=595, height=842)
+        stream = DecodedStreamObject()
+        # Comment lines are valid content and survive a copy unchanged.
+        stream.set_data(b"%" + os.urandom(per_page // 2).hex().encode()[: per_page - 2] + b"\n")
+        page[NameObject("/Contents")] = writer._add_object(stream)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+#: Run in a fresh interpreter whose only children are sandbox children, so
+#: `RUSAGE_CHILDREN` is that one child's peak and CPU time, not the largest of
+#: everything this test process has ever started.
+_MEASURE = r"""
+import asyncio, json, resource, sys
+sys.path.insert(0, sys.argv[1])
+from app.services import pdf_sandbox
+
+data = open(sys.argv[2], "rb").read()
+ranges = json.loads(sys.argv[4])
+
+async def go():
+    if sys.argv[3] == "count":
+        return await pdf_sandbox.page_count(data)
+    result = await pdf_sandbox.split(data, [tuple(r) for r in ranges])
+    assert result.failure is None, str(result.failure)
+    return len(result.pieces)
+
+result = asyncio.run(go())
+usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+print(json.dumps({"result": result, "maxrss": usage.ru_maxrss,
+                  "cpu": usage.ru_utime + usage.ru_stime}))
+"""
+
+
+def _measure(tmp_path, data: bytes, op: str, ranges: list) -> dict:
+    import json
+    import subprocess
+
+    booklet = tmp_path / f"{op}.pdf"
+    booklet.write_bytes(data)
+    backend = str(Path(__file__).resolve().parent.parent)
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "JWT_SECRET": "test-secret-key-0123456789-abcdefghijklmnop",
+        "UPLOAD_DIR": str(tmp_path / "uploads"),
+    }
+    done = subprocess.run(
+        [sys.executable, "-I", "-c", _MEASURE, backend, str(booklet), op, json.dumps(ranges)],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        timeout=300,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr.decode()[-2000:]
+    report = json.loads(done.stdout.decode().strip().splitlines()[-1])
+    # Kilobytes on Linux, bytes on macOS.
+    divisor = 1024 if sys.platform.startswith("linux") else 1024 * 1024
+    report["peak_mb"] = report["maxrss"] / divisor
+    return report
+
+
+@pytest.mark.parametrize(
+    "op,ranges",
+    [
+        pytest.param("count", [], id="count"),
+        # Sixty papers, the most a booklet may hold: the case where re-parsing
+        # per paper would have spent the CPU allowance.
+        pytest.param("split", [[i, i + 4] for i in range(1, 301, 5)], id="split-60-papers"),
+        pytest.param("split", [[1, 300]], id="split-one-range"),
+    ],
+)
+def test_a_large_genuine_booklet_fits_the_limits(tmp_path, op, ranges):
+    """The limits are meant to refuse hostile files, not real ones. On Linux
+    this runs under the real 256 MB address-space limit and 60 s of CPU; the
+    child's peak and CPU are printed so they can be compared with those."""
+    report = _measure(tmp_path, _large_booklet(), op, ranges)
+    assert report["result"] == (300 if op == "count" else len(ranges))
+    print(
+        f"\nlarge booklet {op} x{len(ranges)}: peak {report['peak_mb']:.0f} MB, cpu {report['cpu']:.1f} s"
+    )
+    assert report["peak_mb"] < 256
+    # Well inside the 60 s soft limit, so a slow instance still has room.
+    assert report["cpu"] < 20
+
+
+def test_the_sandbox_signals_are_named_in_the_log():
+    assert pdf_sandbox._signal_name(-signal.SIGXCPU) == "SIGXCPU"
+    assert pdf_sandbox._limit_for_signal(signal.SIGXCPU) == "cpu_soft"
+    assert pdf_sandbox._limit_for_signal(signal.SIGKILL) == "cpu_hard_or_oom_killer"
+
+
+def _serve_in_process(monkeypatch, op, ranges, data) -> tuple:
+    """Run the child's main in this process, set-up steps stubbed, and return
+    the result header it wrote."""
+    monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: None)
+    monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: None)
+    monkeypatch.setattr(pdf_child, "_set_limits", lambda: None)
+    out = BytesIO()
+    request = pdf_child.encode_request(op, ranges, data)
+    assert pdf_child.main([], stdin=BytesIO(request), stdout=out) == 0
+    return pdf_child.RESULT_HEAD.unpack_from(out.getvalue(), len(pdf_child.READY))
+
+
+@pytest.mark.parametrize("exc", [TypeError("boom"), KeyError("/Root"), AttributeError("x")])
+def test_any_other_failure_while_counting_is_unreadable_not_too_complex(monkeypatch, exc):
+    """Only running out of memory or stack is "too complex", which is final. A
+    library bug on a corrupt file is the tutor's ordinary unreadable file."""
+
+    def _boom(data, _exc=exc):
+        raise _exc
+
+    monkeypatch.setattr(pdf, "page_count", _boom)
+    head = _serve_in_process(monkeypatch, pdf_child.Op.count, [], b"%PDF-1.4")
+    assert head[2] == pdf_child.Code.unreadable
+    assert head[4] == -1
+
+
+def test_the_child_tells_encrypted_by_type_not_by_cause():
+    from app.services.pdf import PdfEncrypted
+
+    assert pdf_child._file_code(PdfEncrypted("locked")) is pdf_child.Code.encrypted
+    # A refusal with no chained cause is still only unreadable.
+    assert pdf_child._file_code(DocumentProblem("no cause")) is pdf_child.Code.unreadable
+
+
+# --- who is blamed, and the parent's memory ------------------------------------
+
+
+def _stub_setup(monkeypatch) -> None:
+    monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: None)
+    monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: None)
+    monkeypatch.setattr(pdf_child, "_set_limits", lambda: None)
+
+
+def test_a_library_that_will_not_import_stops_the_child_before_ready(monkeypatch):
+    """A broken image is ours: the parent retries it, and it never reaches the
+    final "too complex"."""
+    _stub_setup(monkeypatch)
+
+    def _broken():
+        raise ImportError("no module named pypdf")
+
+    monkeypatch.setattr(pdf_child, "_load_library", _broken)
+    out = BytesIO()
+    request = pdf_child.encode_request(pdf_child.Op.count, [], _pdf(1))
+    assert pdf_child.main([], stdin=BytesIO(request), stdout=out) == pdf_child.EXIT_SETUP
+    assert out.getvalue() == b""
+
+
+def test_a_malformed_request_has_its_own_exit_code(monkeypatch):
+    _stub_setup(monkeypatch)
+    out = BytesIO()
+    assert (
+        pdf_child.main([], stdin=BytesIO(b"not a request at all"), stdout=out)
+        == pdf_child.EXIT_BAD_REQUEST
+    )
+    assert out.getvalue() == pdf_child.READY
+
+
+def test_the_parent_retries_a_child_that_could_not_read_its_request(run, monkeypatch):
+    _fake_child(
+        monkeypatch,
+        "import sys; sys.stdout.buffer.write(b'R'); sys.stdout.flush(); "
+        f"sys.exit({pdf_child.EXIT_BAD_REQUEST})",
+    )
+    pending = pdf_sandbox.page_count(_pdf(1))
+    with pytest.raises(PdfSandboxUnavailable) as caught:
+        run(pending)
+    assert not is_permanent(caught.value)
+
+
+def test_the_child_takes_only_its_account_unless_in_test_mode():
+    assert pdf_child._options(["--uid", "5", "--gid", "6"]) == {"uid": "5", "gid": "6"}
+    with pytest.raises(pdf_child.SetupFailed):
+        pdf_child._options(["--test-hold", "1"])
+    with pytest.raises(pdf_child.SetupFailed):
+        pdf_child._options(["--anything", "1"])
+    assert pdf_child._options(["--test-mode", "1", "--test-hold", "1"])["test-hold"] == "1"
+    argv = pdf_sandbox._child_argv(("--test-hold", "1"))
+    assert argv[argv.index("--test-mode") + 1] == "1"
+    assert "--test-mode" not in pdf_sandbox._child_argv(())
+
+
+def test_a_header_claiming_too_much_is_refused_before_it_is_read(run, monkeypatch, caplog):
+    """The result is read as it arrives, and the lengths come first, so a
+    child that announces more than the cap is stopped at once, not after the
+    parent has buffered it or waited out the deadline."""
+    monkeypatch.setattr(pdf_sandbox, "DEADLINE_SECONDS", 30.0)
+    head = pdf_child.RESULT_HEAD.pack(pdf_child.RESULT_MAGIC, pdf_child.VERSION, 0, 0, -1, 1, 1)
+    payload = _READY + head + pdf_child.PIECE_LENGTH.pack(10**12)
+    _fake_child(
+        monkeypatch,
+        "import sys, time; sys.stdin.buffer.read(); "
+        f"sys.stdout.buffer.write({payload!r}); sys.stdout.flush(); time.sleep(60)",
+    )
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    started = time.monotonic()
+    pending = pdf_sandbox.split(_pdf(1), [(1, 1)])
+    with pytest.raises(PdfTooComplex):
+        run(pending)
+    assert time.monotonic() - started < 10
+    assert "output_cap" in caplog.text
+
+
+def test_the_file_is_written_to_the_child_as_it_is_not_copied(run, monkeypatch):
+    """The request header and the file go down the pipe as two writes, so the
+    parent never builds a second copy of a 20 MB upload to send it."""
+    written: list[object] = []
+    real = asyncio.StreamWriter.write
+
+    def _spy(self, data):
+        written.append(data)
+        return real(self, data)
+
+    monkeypatch.setattr(asyncio.StreamWriter, "write", _spy)
+    data = _pdf(2)
+    assert run(pdf_sandbox.page_count(data)) == 2
+    assert any(chunk is data for chunk in written)
+
+
+def test_a_child_that_has_exited_is_not_signalled(run, monkeypatch):
+    """Its group is gone with it, and its id may already belong to another."""
+    calls: list[int] = []
+    monkeypatch.setattr(pdf_sandbox.os, "killpg", lambda pgid, sig: calls.append(pgid))
+    assert run(pdf_sandbox.page_count(_pdf(1))) == 1
+    assert calls == []
+
+
+def _as_root(monkeypatch) -> None:
+    monkeypatch.setattr(pdf_sandbox.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        pdf_sandbox.pwd, "getpwnam", lambda name: SimpleNamespace(pw_uid=4242, pw_gid=4343)
+    )
+
+
+def test_a_root_parent_will_not_start_a_child_while_the_uploads_are_open(
+    run, spawned, monkeypatch, tmp_path, caplog
+):
+    """If the upload folder could not be closed (`storage.secure_upload_root`),
+    the sandbox account could read every stored file. Refused, retryably, and
+    loudly, rather than run."""
+    from app.config import get_settings
+
+    root = tmp_path / "uploads"
+    root.mkdir()
+    root.chmod(0o755)
+    monkeypatch.setattr(get_settings(), "upload_dir", str(root))
+    monkeypatch.setattr(get_settings(), "storage_backend", "local")
+    _as_root(monkeypatch)
+    caplog.set_level(logging.ERROR, logger="app.services.pdf_sandbox")
+
+    pending = pdf_sandbox.page_count(_pdf(1))
+    with pytest.raises(PdfSandboxUnavailable) as caught:
+        run(pending)
+    assert not is_permanent(caught.value)
+    assert spawned == []
+    assert "upload" in caplog.text
+
+    root.chmod(0o700)
+    argv = pdf_sandbox._child_argv(())
+    assert argv[argv.index("--uid") + 1] == "4242"
+
+
+def test_a_root_parent_with_object_storage_does_not_check_a_local_folder(monkeypatch, tmp_path):
+    from app.config import get_settings
+
+    root = tmp_path / "unused"
+    root.mkdir()
+    root.chmod(0o755)
+    monkeypatch.setattr(get_settings(), "upload_dir", str(root))
+    monkeypatch.setattr(get_settings(), "storage_backend", "s3")
+    _as_root(monkeypatch)
+    assert "--uid" in pdf_sandbox._child_argv(())
+
+
+def test_a_child_killed_mid_write_is_logged_by_how_it_died(run, monkeypatch, caplog):
+    """Its result is cut short, which on its own reads as bad framing. The log
+    names the signal that ended it, so a child killed for memory while writing
+    is labelled as that, not as a malformed result."""
+    partial = _READY + pdf_child.RESULT_MAGIC
+    _fake_child(
+        monkeypatch,
+        "import os, signal, sys; sys.stdin.buffer.read(); "
+        f"sys.stdout.buffer.write({partial!r}); sys.stdout.flush(); "
+        "os.kill(os.getpid(), signal.SIGTERM)",
+    )
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.split(_pdf(1), [(1, 1)])
+    with pytest.raises(PdfTooComplex):
+        run(pending)
+    assert "reason=signal" in caplog.text
+    assert "SIGTERM" in caplog.text
+    assert "after=bad_framing" in caplog.text
+
+
+def test_a_request_the_child_cannot_read_from_its_pipe_exits_retryably(monkeypatch):
+    _stub_setup(monkeypatch)
+
+    class _Broken(BytesIO):
+        def read(self, *args):
+            raise OSError("the pipe went away")
+
+    out = BytesIO()
+    assert pdf_child.main([], stdin=_Broken(), stdout=out) == pdf_child.EXIT_BAD_REQUEST
