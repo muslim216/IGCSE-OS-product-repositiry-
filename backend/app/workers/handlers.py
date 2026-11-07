@@ -122,7 +122,31 @@ def register_all() -> None:
     # synthesis, not one each.
     register_handler("compute_readiness_v2", compute_readiness_v2, background=True)
     register_handler("generate_report", generate_report, on_give_up=report_given_up)
-    register_handler("extract_syllabus", extract_syllabus, on_give_up=syllabus_read_given_up)
+    # The two essential jobs (`ai.ESSENTIAL_SURFACES`, T-028): one AI call each,
+    # allowed `ai_essential_call_timeout_seconds` (45 minutes) for the model's
+    # whole answer. Their limit sits a margin above that so the AI deadline
+    # always ends first, as a clear error the handler records, rather than as
+    # the worker's cancellation. While one runs past the default limit,
+    # /health/ready reports the worker as stalled, as it does for a booklet.
+    #
+    # Background, so with two slots (`render.yaml` sets WORKER_CONCURRENCY=2) a
+    # long read takes the first slot and marking keeps the second (`CAP-2`).
+    # Accepted trade-off: that first slot also runs every readiness recompute,
+    # narrative and sweep, so a run of long reads from several workspaces puts
+    # those behind it, by hours on a bad day. Marking never waits. The owner
+    # sees it on /health/ready as a stalled worker and a deep queue.
+    #
+    # The orphan sweep waits for the longest job limit (`orphan_reclaim_
+    # seconds`), so this also slows crash recovery for every job type, from
+    # about 34 minutes to about 51. Accepted with the rest.
+    essential_limit = get_settings().ai_essential_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS
+    register_handler(
+        "extract_syllabus",
+        extract_syllabus,
+        timeout_seconds=essential_limit,
+        on_give_up=syllabus_read_given_up,
+        background=True,
+    )
     # Polling sync: imports courseWork/submissions from every course a tutor has
     # linked. Its router is unmounted (0.5, AV-58) so nothing enqueues this
     # today, but the handler stays registered: rows of type "sync_classroom" may
@@ -145,8 +169,9 @@ def register_all() -> None:
     # Drafts a teaching plan's generated slots (task 6.3, AV-14). Enqueued by the
     # plan-inputs endpoint and re-plan (6.2, 6.4) via `enqueue_plan_draft`. Safe to
     # re-run (`BE-6`): it replaces only `generated` slots and leaves a tutor's
-    # edits, and anything but a draft plan, alone.
-    register_handler(PLAN_DRAFT_JOB, draft_plan)
+    # edits, and anything but a draft plan, alone. Essential: the same limit and
+    # slot as the syllabus read above, for the same reasons.
+    register_handler(PLAN_DRAFT_JOB, draft_plan, timeout_seconds=essential_limit, background=True)
     # Reflows a plan's generated future slots after the subject's chapters change
     # (task 6.8, AV-68). Enqueued by the syllabus apply. Safe to re-run (`BE-6`):
     # it replaces only generated slots dated after today, from current state.

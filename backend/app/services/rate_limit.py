@@ -38,7 +38,7 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from app.config import get_settings
 
@@ -548,6 +548,35 @@ message_daily_limiter = RateLimiter(
     limit=get_settings().daily_messages_per_workspace,
     window_seconds=DAY_SECONDS,
 )
+#: The essential surfaces' own allowances (`ai.ESSENTIAL_SURFACES`), per
+#: workspace. Their own rather than `ai_daily_limiter`, so other AI use can
+#: never stop a tutor reading a syllabus or drafting a plan.
+syllabus_daily_limiter = RateLimiter(
+    purpose="syllabus_daily",
+    limit=get_settings().daily_syllabus_ai_calls_per_workspace,
+    window_seconds=DAY_SECONDS,
+)
+plan_daily_limiter = RateLimiter(
+    purpose="plan_daily",
+    limit=get_settings().daily_plan_ai_calls_per_workspace,
+    window_seconds=DAY_SECONDS,
+)
+#: Both essential surfaces, every workspace together. Keyed globally, never by
+#: tenant: it is the only bound on the bill while sign-up is open, since a new
+#: sign-up is a new workspace with fresh allowances of its own.
+#:
+#: Accepted trade-off (T-028, until sign-up is throttled in T-029): this is one
+#: shared pool. Someone with enough throwaway workspaces could spend the day's
+#: cap and leave real tutors unable to read a syllabus until the window turns.
+#: The refusal logs an ERROR saying it was this cap (`services/ai.py`), so the
+#: owner can tell it from one workspace's own limit and raise the setting.
+essential_platform_daily_limiter = RateLimiter(
+    purpose="essential_ai_platform_daily",
+    limit=get_settings().daily_essential_ai_calls_platform,
+    window_seconds=DAY_SECONDS,
+)
+#: The one identifier the platform cap counts under.
+PLATFORM_IDENTIFIER = "platform"
 
 #: Every limiter the app defines. A list rather than one global so a new
 #: limiter joins the health report without changing its shape.
@@ -558,6 +587,9 @@ ALL_LIMITERS: list[RateLimiter] = [
     upload_daily_limiter,
     student_upload_daily_limiter,
     message_daily_limiter,
+    syllabus_daily_limiter,
+    plan_daily_limiter,
+    essential_platform_daily_limiter,
 ]
 
 
@@ -575,6 +607,25 @@ async def spend_daily_allowance(
         return False
     await limiter.record(identifier, tenant=organization_id)
     return True
+
+
+async def spend_essential_allowance(
+    limiter: RateLimiter, organization_id: int
+) -> Literal["workspace", "platform"] | None:
+    """Count one essential call against the workspace's own allowance for that
+    surface and against the platform cap. None when both had room; otherwise
+    which one refused, having counted nothing against either. Both are checked
+    before either is counted, so a workspace refused its own allowance does not
+    use up the platform's, and a call the platform refuses does not use up the
+    workspace's. A check then a count, as in `spend_daily_allowance`."""
+    identifier = str(organization_id)
+    if await limiter.is_limited(identifier, tenant=organization_id):
+        return "workspace"
+    if await essential_platform_daily_limiter.is_limited(PLATFORM_IDENTIFIER):
+        return "platform"
+    await limiter.record(identifier, tenant=organization_id)
+    await essential_platform_daily_limiter.record(PLATFORM_IDENTIFIER)
+    return None
 
 
 async def rate_limit_health() -> dict:

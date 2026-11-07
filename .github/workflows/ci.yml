@@ -283,6 +283,25 @@ jobs:
             exit 1
           fi
 
+      # The two-requests-at-once syllabus test is the only proof that the
+      # workspace lock holds, and it skips itself without Postgres (SQLite drops
+      # FOR UPDATE). A skip here would be a green tick for a lock nobody tested,
+      # so this step fails unless that test is reported as passed.
+      - name: One syllabus read per workspace, under a real row lock (Postgres)
+        run: |
+          set -euo pipefail
+          case "$TEST_DATABASE_URL" in
+            postgresql*) ;;
+            *) echo "::error::TEST_DATABASE_URL is not PostgreSQL; the race test would silently skip"; exit 1 ;;
+          esac
+          python -m pytest tests/test_syllabus_one_read_at_a_time.py -v -ra \
+            | tee /tmp/syllabus-one-read.log
+          if grep -qE "test_two_uploads_at_the_same_moment_start_one_read SKIPPED|no tests ran" /tmp/syllabus-one-read.log \
+            || ! grep -q "test_two_uploads_at_the_same_moment_start_one_read PASSED" /tmp/syllabus-one-read.log; then
+            echo "::error::the syllabus race test was skipped or did not run; it must pass here"
+            exit 1
+          fi
+
   migrations:
     name: Migrations up/down/up (Postgres)
     runs-on: ubuntu-latest

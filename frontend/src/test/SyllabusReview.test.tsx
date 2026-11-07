@@ -37,7 +37,7 @@ const DRAFT = {
   ],
 };
 
-function stub(status = "review", draft: typeof DRAFT | null = DRAFT) {
+function stub(status = "review", draft: typeof DRAFT | null = DRAFT, error: string | null = null) {
   const puts: unknown[] = [];
   vi.stubGlobal(
     "fetch",
@@ -54,7 +54,7 @@ function stub(status = "review", draft: typeof DRAFT | null = DRAFT) {
       if (method === "GET" && path === "/api/v1/syllabus-uploads/1")
         return json({
           ...upload,
-          error: null,
+          error,
           subject_id: null,
           created_at: "2026-06-01",
           draft,
@@ -193,4 +193,51 @@ test("a failed extraction that still has a draft can be applied", async () => {
   stub("extraction_failed");
   await openDraft();
   expect(screen.getByRole("button", { name: /Apply/ })).toBeInTheDocument();
+});
+
+async function openFailed(error: string | null) {
+  stub("extraction_failed", null, error);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <SyllabusUploadPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByText("Chemistry 4CH1"));
+  await screen.findByText("We couldn't read this syllabus.");
+}
+
+/* A read refused by a daily AI limit (services/ai.py) is not the document's
+   fault: telling the tutor to upload a clearer copy would send them round in
+   circles until the limit frees up. */
+test.each([
+  "This workspace has reached today's limit for AI work. It frees up within 24 hours.",
+  "Avora has reached today's limit for this AI work. It frees up within 24 hours.",
+])("a read stopped by a daily AI limit says so instead of blaming the file: %s", async (limit) => {
+  await openFailed(limit);
+  expect(screen.getByText(limit)).toBeVisible();
+  expect(screen.queryByText(/upload a clearer copy/)).not.toBeInTheDocument();
+});
+
+test("any other failed read still suggests a clearer copy", async () => {
+  await openFailed("The AI's answer was cut off at the output limit (128000 tokens)");
+  expect(screen.getByText(/upload a clearer copy/)).toBeInTheDocument();
+});
+
+test("a read in progress says it can take a while and the tutor can leave", async () => {
+  stub("extracting", null);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <SyllabusUploadPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByText("Chemistry 4CH1"));
+  const status = await screen.findByText(/reading the syllabus/);
+  expect(status.textContent).toMatch(/up to 45 minutes/);
+  expect(status.textContent).toMatch(/leave this page/);
 });

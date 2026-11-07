@@ -16,11 +16,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db import release_connection
 from app.models import AiFeature, SubjectLevel, SyllabusUpload, SyllabusUploadStatus, User
 from app.schemas.syllabus import SyllabusDraft
 from app.services import storage
-from app.services.ai import file_block, record_usage, require_parsed, structured_complete
+from app.services.ai import (
+    file_block,
+    output_ceiling,
+    record_usage,
+    require_parsed,
+    structured_complete,
+)
 from app.services.job_errors import DocumentProblem, safe_job_error
 
 
@@ -124,7 +131,12 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
         surface="syllabus",
         content=content,
         output_format=SyllabusExtractionResult,
-        max_tokens=16000,
+        # The whole answer the routed model can give, and the long deadline:
+        # no subject can be set up without this read, so its length must never
+        # be what fails it (owner, 5 Nov 2026; `ai.ESSENTIAL_SURFACES`). A 16,000
+        # limit cut off a real chemistry specification.
+        max_tokens=output_ceiling("syllabus"),
+        timeout_seconds=get_settings().ai_essential_call_timeout_seconds,
     )
     await record_usage(
         session,
