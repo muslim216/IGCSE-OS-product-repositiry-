@@ -367,13 +367,36 @@ async def test_apply_names_a_stored_code_too_long_instead_of_failing(client, tut
     assert (await _stored(upload_id)) == draft
 
 
-async def test_apply_names_a_stored_exam_board_too_long(client, tutor, monkeypatch):
+async def _applied_subject(client, tutor, upload_id) -> Subject:
+    applied = await client.post(_url(upload_id, "/apply"), headers=tutor["headers"])
+    assert applied.status_code == 200, applied.text
+    async with async_session() as session:
+        return await session.get(Subject, applied.json()["subject_id"])
+
+
+async def test_a_stored_exam_board_too_long_applies_cut_to_fit(client, tutor, monkeypatch):
+    """The review page cannot edit the exam board, so refusing it would leave a
+    draft stored before T-033 that nobody could ever apply."""
     upload_id = await _upload_with(
-        client, tutor, monkeypatch, draft_of(chapters=CHAPTERS, exam_board="B" * 65)
+        client, tutor, monkeypatch, draft_of(chapters=CHAPTERS, exam_board="B" * 100)
     )
-    refused = await client.post(_url(upload_id, "/apply"), headers=tutor["headers"])
-    assert refused.status_code == 422
-    assert refused.json()["detail"] == "The exam board is longer than 64 characters."
+    assert (await _applied_subject(client, tutor, upload_id)).exam_board == "B" * 64
+
+
+async def test_a_stored_subject_code_too_long_applies_cut_to_fit(client, tutor, monkeypatch):
+    upload_id = await _upload_with(
+        client, tutor, monkeypatch, draft_of(chapters=CHAPTERS, code="X" * 20)
+    )
+    assert (await _applied_subject(client, tutor, upload_id)).code == "X" * 16
+
+
+async def test_an_extracted_subject_code_loses_a_control_character(
+    client, tutor, monkeypatch, fake_ai
+):
+    """Unlike chapter and topic codes, the subject code is not editable on the
+    page, so a control character in it is dropped rather than named."""
+    upload_id = await _read(client, tutor, monkeypatch, fake_ai, _answer(code="4CH\x961"))
+    assert (await _applied_subject(client, tutor, upload_id)).code == "4CH1"
 
 
 @sqlite_only
@@ -510,12 +533,10 @@ async def test_put_strips_what_postgres_cannot_store_from_free_text(client, tuto
     assert stored["topics"][0]["code"] == "2.1"
 
 
-async def test_apply_names_a_subject_code_one_over_its_column(client, tutor, uploaded):
+async def test_a_saved_subject_code_one_over_its_column_is_cut(client, tutor, uploaded):
     saved = await _put(client, tutor, uploaded, draft_of(chapters=CHAPTERS, code="X" * 17))
     assert saved.status_code == 200, saved.text
-    refused = await _apply(client, tutor, uploaded)
-    assert refused.status_code == 422
-    assert refused.json()["detail"] == "The subject code is longer than 16 characters."
+    assert (await _stored(uploaded))["code"] == "X" * 16
 
 
 async def test_apply_accepts_a_subject_code_exactly_its_column(client, tutor, uploaded):
