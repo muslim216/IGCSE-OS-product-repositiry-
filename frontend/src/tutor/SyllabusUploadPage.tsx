@@ -134,7 +134,7 @@ function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
 }
 
 // Mirrors DEFAULT_BOUNDARIES in backend/app/services/grade_boundaries.py.
-const GRADE_SCALES = ["9-1", "A*-E"] as const;
+const GRADE_SCALES: ReadonlySet<string> = new Set(["9-1", "A*-E"]);
 
 const LEVELS: { value: SubjectLevel; label: string }[] = [
   { value: "igcse", label: "IGCSE" },
@@ -410,8 +410,7 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
                         </option>
                         {[
                           ...GRADE_SCALES,
-                          ...(draft.grade_scale &&
-                          !(GRADE_SCALES as readonly string[]).includes(draft.grade_scale)
+                          ...(draft.grade_scale && !GRADE_SCALES.has(draft.grade_scale)
                             ? [draft.grade_scale]
                             : []),
                         ].map((g) => (

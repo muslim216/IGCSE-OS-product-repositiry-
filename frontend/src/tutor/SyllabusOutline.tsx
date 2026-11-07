@@ -27,7 +27,7 @@ function parentKeys(
   });
 }
 
-function Chevron({ open }: { open: boolean }) {
+function Chevron({ open }: Readonly<{ open: boolean }>) {
   return (
     <ChevronRight
       aria-hidden="true"
@@ -53,7 +53,12 @@ interface Props {
  *  topic, weights out of the row. Fold state is local and never saved. Each
  *  toggle is its own button, so opening or folding never takes focus from an
  *  input the tutor is typing in. */
-export function SyllabusOutline({ chapters, editable, onChapterField, onTopicField }: Props) {
+export function SyllabusOutline({
+  chapters,
+  editable,
+  onChapterField,
+  onTopicField,
+}: Readonly<Props>) {
   // Fold state is keyed by index (chapter index, topic path). That holds because
   // this page only edits fields in place and never adds, removes or reorders;
   // the parent mounts this with key={upload id} so state cannot carry across uploads.
