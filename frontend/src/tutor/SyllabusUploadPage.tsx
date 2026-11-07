@@ -35,6 +35,15 @@ const STATUS: Record<string, { label: string; tone: string }> = {
   applied: { label: "In use", tone: "bg-ok-100 text-ok-700" },
 };
 
+/** The two sentences the server stores when a daily AI limit stopped a read
+ *  (`_DAILY_LIMIT_MESSAGE` and `_PLATFORM_LIMIT_MESSAGE` in
+ *  backend/app/services/ai.py; keep them in step). Nothing is wrong with the
+ *  document then, so the page says that instead of suggesting a clearer copy. */
+const AI_LIMIT_MESSAGES = new Set([
+  "This workspace has reached today's limit for AI work. It frees up within 24 hours.",
+  "Avora has reached today's limit for this AI work. It frees up within 24 hours.",
+]);
+
 function StatusChip({ status }: { status: string }) {
   const known = STATUS[status];
   return (
@@ -323,8 +332,8 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
           >
             <Loader2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-brand-600" />
             <p>
-              The AI is reading the syllabus and drafting its chapters. Long documents can take a
-              minute — this page updates by itself.
+              The AI is reading the syllabus and drafting its chapters. A long document can take up
+              to 45 minutes. You can leave this page and come back; it updates by itself.
             </p>
           </div>
         )}
@@ -332,11 +341,18 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
         {upload.status === "extraction_failed" && (
           <div role="alert" className="rounded-lg bg-risk-100 p-4 text-sm">
             <p className="font-medium text-risk-600">We couldn't read this syllabus.</p>
-            <p className="mt-1 text-ink-700">
-              Try again, or upload a clearer copy of the PDF. You can also fix the draft below by
-              hand.
-            </p>
-            {upload.error && (
+            {upload.error && AI_LIMIT_MESSAGES.has(upload.error) ? (
+              <>
+                <p className="mt-1 text-ink-700">{upload.error}</p>
+                <p className="mt-1 text-ink-700">You can also fix the draft below by hand.</p>
+              </>
+            ) : (
+              <p className="mt-1 text-ink-700">
+                Try again, or upload a clearer copy of the PDF. You can also fix the draft below by
+                hand.
+              </p>
+            )}
+            {upload.error && !AI_LIMIT_MESSAGES.has(upload.error) && (
               <details className="mt-2 text-xs text-ink-500">
                 <summary className="cursor-pointer">What went wrong</summary>
                 <p className="mt-1">{upload.error}</p>

@@ -54,6 +54,21 @@ services:
       - key: UPLOAD_DIR
         value: /data/uploads
 
+      # --- Job worker ----------------------------------------------------
+      # Two slots (`CAP-2`, T-028). A syllabus read or a plan draft may now run
+      # for up to 45 minutes; both are background jobs, so they take the first
+      # slot and the second is left for marking and the other jobs someone is
+      # waiting on. With one slot a long read held up every hand-in behind it.
+      # Checked for T-028: each slot holds a database connection only between
+      # model calls, well inside the 20 a process may hold (DB_POOL_SIZE plus
+      # DB_MAX_OVERFLOW) and the database's 100. Memory is not measured on
+      # Render: locally the app sits near 150 MB and a 20 MB syllabus adds about
+      # 100 MB while it is sent, which fits the starter plan's 512 MB beside an
+      # ordinary hand-in. Two very large hand-ins marked at once would not;
+      # the starter plan's memory is the limit to watch. Undo: set this to 1.
+      - key: WORKER_CONCURRENCY
+        value: "2"
+
       # --- Object storage (task 1.2, AV-82) ------------------------------
       # STORAGE_BACKEND stays "local" here deliberately: the persistent disk
       # above is still what's live. Flipping to "s3" is a separate, deliberate

@@ -38,9 +38,14 @@ from app.db import async_session
 from app.models import AiFeature, AiUsageEvent
 from app.services.prompts import get_prompt
 from app.services.rate_limit import (
+    RateLimiter,
     ai_daily_limiter,
+    essential_platform_daily_limiter,
     marking_daily_limiter,
+    plan_daily_limiter,
     spend_daily_allowance,
+    spend_essential_allowance,
+    syllabus_daily_limiter,
 )
 
 log = logging.getLogger(__name__)
@@ -76,15 +81,62 @@ class AIDailyLimitError(AIUnavailableError):
     job_retryable = False
 
 
+#: The AI work a tutor cannot move on without (owner, 5 Nov 2026): the syllabus
+#: read, which every subject starts from, and the plan's chapter weights. Only
+#: these get the model's whole answer length (`output_ceiling`), the long
+#: deadline (`ai_essential_call_timeout_seconds`) and allowances of their own.
+#: Homework, marking, reports and the rest keep their limits. Defined once,
+#: here; nothing else decides which surfaces are essential.
+ESSENTIAL_SURFACES: frozenset[str] = frozenset({"syllabus", "plan_weighting"})
+
+#: Each essential surface's own per-workspace allowance.
+_ESSENTIAL_ALLOWANCES: dict[str, RateLimiter] = {
+    "syllabus": syllabus_daily_limiter,
+    "plan_weighting": plan_daily_limiter,
+}
+
+_DAILY_LIMIT_MESSAGE = (
+    "This workspace has reached today's limit for AI work. It frees up within 24 hours."
+)
+#: Shown to the tutor when the platform cap refused. Their own workspace did
+#: nothing wrong, so it does not say it did; the detail is in the ERROR log.
+_PLATFORM_LIMIT_MESSAGE = (
+    "Avora has reached today's limit for this AI work. It frees up within 24 hours."
+)
+
+
+async def _spend_essential_allowance(organization_id: int, surface: str) -> None:
+    refused = await spend_essential_allowance(_ESSENTIAL_ALLOWANCES[surface], organization_id)
+    if refused == "platform":
+        # The one place this cap is visible, so it says plainly which cap it is:
+        # one workspace's limit and the shared platform cap call for different
+        # fixes. A shared pool, accepted until T-029 (see
+        # `essential_platform_daily_limiter`).
+        log.error(
+            "AI call on surface %r for organization %s refused by the PLATFORM-WIDE daily cap "
+            "on essential AI calls (%s a day across every workspace), not this workspace's "
+            "own allowance. No workspace can read a syllabus or draft a plan until the "
+            "window turns; raise DAILY_ESSENTIAL_AI_CALLS_PLATFORM to let them through.",
+            surface,
+            organization_id,
+            essential_platform_daily_limiter.limit,
+        )
+        raise AIDailyLimitError(_PLATFORM_LIMIT_MESSAGE)
+    if refused == "workspace":
+        raise AIDailyLimitError(_DAILY_LIMIT_MESSAGE)
+
+
 async def _spend_ai_allowance(organization_id: int, surface: str) -> None:
     # Every model call starts here, so no surface can go round the limit; the
     # count is per workspace, whichever tutor or job is asking. Marking draws
     # on its own allowance: background work must not leave hand-ins unmarked.
+    # The essential surfaces draw on theirs, so nothing else can block them.
+    if surface in ESSENTIAL_SURFACES:
+        await _spend_essential_allowance(organization_id, surface)
+        return
     limiter = marking_daily_limiter if surface == "marking" else ai_daily_limiter
     if not await spend_daily_allowance(limiter, organization_id):
-        raise AIDailyLimitError(
-            "This workspace has reached today's limit for AI work. It frees up within 24 hours."
-        )
+        raise AIDailyLimitError(_DAILY_LIMIT_MESSAGE)
 
 
 # Said in more than one place, so defined once. Tests assert on the literal text
@@ -258,6 +310,34 @@ def resolve_surface(surface: str) -> tuple[AiProvider, str]:
     return provider, model
 
 
+#: The most output tokens one answer may ask each provider for. Anthropic's is
+#: the routed model's own limit (128K for claude-sonnet-5, whose 1M context
+#: holds a syllabus plus that answer); Gemini refuses a request above 65,536.
+#: Keyed by provider, not model, because every surface on a provider resolves to
+#: a model with at least this limit today. A model added with a lower one needs
+#: its own entry here, or the request is refused.
+_OUTPUT_CEILINGS: dict[AiProvider, int] = {
+    AiProvider.anthropic: 128_000,
+    AiProvider.gemini: 65_536,
+}
+
+
+def output_ceiling(surface: str) -> int:
+    """The largest `max_tokens` the provider this surface is routed to accepts.
+
+    For the essential surfaces (`ESSENTIAL_SURFACES`), whose answer must never
+    be what makes the job fail. A provider needs some maximum, so "no limit" is
+    this. Read from the routing at call time, so moving a surface to another
+    provider can never send a request above that provider's limit.
+
+    The figure is the provider's, not the model's. A per-surface model override
+    (`AI_SYLLABUS_MODEL`, `AI_PLAN_WEIGHTING_MODEL`) naming a model with a lower
+    output limit than this needs an entry of its own here first, or every call
+    on that surface asks for more than the model gives and is refused."""
+    provider, _model = resolve_surface(surface)
+    return _OUTPUT_CEILINGS[provider]
+
+
 ParsedT = TypeVar("ParsedT", bound=BaseModel)
 
 
@@ -376,7 +456,14 @@ async def _call_deadline(surface: str, limit: float) -> AsyncIterator[None]:
         if not deadline.expired():
             raise
         log.error("AI call on surface %r exceeded its %ss deadline", surface, limit)
-        raise AITimeoutError(_TIMEOUT_MESSAGE) from exc
+        # An essential call already had the long deadline. Running out of it is
+        # a read too big or too slow for the model, which a second attempt meets
+        # again: a retry would cost another 45 minutes and another full answer.
+        # Only this timeout; the SDK's silence timeout below is a dropped
+        # connection and keeps its retry, as does every other failure.
+        raise AITimeoutError(
+            _TIMEOUT_MESSAGE, job_retryable=surface not in ESSENTIAL_SURFACES
+        ) from exc
     except anthropic.APITimeoutError as exc:
         log.error("AI request on surface %r timed out", surface)
         raise AITimeoutError(_TIMEOUT_MESSAGE) from exc
@@ -840,12 +927,18 @@ async def structured_complete(
     max_tokens: int,
     extra_system: list[str] | None = None,
     cache_extra_system: bool = False,
+    timeout_seconds: float | None = None,
 ) -> AiResponse[ParsedT]:
     """A structured (schema-constrained) completion for one surface. `content`
     is a list of Anthropic-shaped blocks; `output_format` is a Pydantic model
     both providers are asked to fill in. `organization_id` is whose daily AI
-    allowance the call spends."""
+    allowance the call spends.
+
+    `timeout_seconds` is the total deadline for this call, as on
+    `text_complete`. Left out, it is `ai_call_timeout_seconds`; the essential
+    surfaces pass `ai_essential_call_timeout_seconds`."""
     await _spend_ai_allowance(organization_id, surface)
+    limit = get_settings().ai_call_timeout_seconds if timeout_seconds is None else timeout_seconds
     provider, model = resolve_surface(surface)
     prompt = get_prompt(surface)
     extras = extra_system or []
@@ -860,7 +953,7 @@ async def structured_complete(
         # still wait for the one complete message.
         async with (
             _provider_errors_as_ai_errors(surface),
-            _call_deadline(surface, get_settings().ai_call_timeout_seconds),
+            _call_deadline(surface, limit),
             client.messages.stream(
                 model=model,
                 max_tokens=max_tokens,
@@ -905,7 +998,7 @@ async def structured_complete(
     from google.genai import types
 
     client = get_gemini_client()
-    async with _call_deadline(surface, get_settings().ai_call_timeout_seconds):
+    async with _call_deadline(surface, limit):
         response = await client.aio.models.generate_content(
             model=model,
             contents=_gemini_parts(content),
