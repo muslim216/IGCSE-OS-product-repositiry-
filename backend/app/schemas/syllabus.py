@@ -66,7 +66,16 @@ WEIGHT_MAX = 100.0
 # extraction produces (T-025). Deeper nodes can only come from a hand-made body.
 TREE_DEPTH_MAX = 3
 
-CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# Lone surrogates too: they cannot be encoded as UTF-8, so Postgres cannot
+# store them, and no syllabus is written with one.
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
+
+
+def position_label(indices: tuple[int, ...] | list[int]) -> str:
+    """Where a row sits, counted from one as the tutor counts rows on screen:
+    "Chapter 1, topic 2, sub-topic 1"."""
+    names = ["Chapter", "topic"] + ["sub-topic"] * max(len(indices) - 2, 0)
+    return ", ".join(f"{name} {index + 1}" for name, index in zip(names, indices, strict=False))
 
 
 def _printable(value: str) -> str:
@@ -125,29 +134,33 @@ class SyllabusDraftChecked(BaseModel):
 
     @model_validator(mode="after")
     def _tree_is_applicable(self) -> SyllabusDraftChecked:
-        for chapter in self.chapters:
-            for topic in chapter.topics:
-                _check_node(topic, depth=2, above=())
+        for c, chapter in enumerate(self.chapters):
+            for t, topic in enumerate(chapter.topics):
+                _check_node(topic, at=(c, t), above=())
         return self
 
 
-def _check_node(node: SyllabusTopicChecked, *, depth: int, above: tuple[str, ...]) -> None:
-    if depth > TREE_DEPTH_MAX:
+def _check_node(node: SyllabusTopicChecked, *, at: tuple[int, ...], above: tuple[str, ...]) -> None:
+    # The code names the row and the position finds it, since two rows may
+    # share a code. `at` counts the chapter, so its length is the depth.
+    where = {"code": node.code, "where": position_label(at)}
+    if len(at) > TREE_DEPTH_MAX:
         raise PydanticCustomError(
             "too_deep",
-            "Topic {code} is too deep: a syllabus goes chapter, topic, sub-topic, no further",
-            {"code": node.code},
+            "Topic {code} ({where}) is too deep: a syllabus goes chapter, topic, "
+            "sub-topic, no further",
+            where,
         )
     # Apply files a topic under the row already holding its code, so a node
     # sharing a code with a topic above it would become its own ancestor.
     if node.code in above:
         raise PydanticCustomError(
             "repeats_ancestor",
-            "Topic {code} has the same code as a topic it sits under",
-            {"code": node.code},
+            "Topic {code} ({where}) has the same code as a topic it sits under",
+            where,
         )
-    for child in node.children:
-        _check_node(child, depth=depth + 1, above=(*above, node.code))
+    for k, child in enumerate(node.children):
+        _check_node(child, at=(*at, k), above=(*above, node.code))
 
 
 class SyllabusUploadOut(BaseModel):

@@ -26,7 +26,7 @@ from app.schemas.syllabus import (
 )
 from app.services import storage
 from app.services.plan_reflow import enqueue_reflow_for_subject
-from app.services.syllabus_extraction import DraftNotValid, check_draft
+from app.services.syllabus_extraction import DraftNotValid, check_draft, tidy_for_save
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
@@ -203,10 +203,12 @@ async def edit_draft(
     upload = await _owned_upload(db, user, upload_id)
     if upload.status == SyllabusUploadStatus.applied:
         raise HTTPException(status.HTTP_409_CONFLICT, "This syllabus has already been applied")
-    # The body is declared as the lenient `SyllabusDraft`, the shape the review
-    # page reads and sends back, and is held to the strict one here. Declaring
-    # the strict model instead would rename the draft's generated types.
-    upload.draft = _checked(body.model_dump()).model_dump()
+    # Lenient on purpose: the review page saves on every keystroke, so a
+    # half-typed code or weight must save. Apply is the strict gate (T-033).
+    try:
+        upload.draft = tidy_for_save(body.model_dump())
+    except DraftNotValid as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
     if upload.status == SyllabusUploadStatus.extraction_failed:
         upload.status = SyllabusUploadStatus.review
     await db.commit()

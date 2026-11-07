@@ -12,6 +12,7 @@ They are tutor-entered (task 2.4, AV-11)."""
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -28,12 +29,14 @@ from app.schemas.syllabus import (
     CONTROL_CHARACTERS,
     EXAM_BOARD_MAX,
     GRADE_SCALE_MAX,
+    SUBJECT_CODE_MAX,
     SUBJECT_NAME_MAX,
     TOPIC_CODE_MAX,
     TOPIC_TITLE_MAX,
     WEIGHT_MAX,
     SyllabusDraft,
     SyllabusDraftChecked,
+    position_label,
 )
 from app.services import storage
 from app.services.ai import (
@@ -181,31 +184,65 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
 # Whitespace control characters (a line break inside a title) become a space so
 # the words either side stay apart; the rest are dropped.
 _LINE_BREAKS = re.compile(r"\s*[\t\n\r\v\f\x1c-\x1f\x85\u2028\u2029]\s*")
+# What Postgres cannot store at all: NUL in text, and lone surrogates, which
+# have no UTF-8 encoding.
+_UNSTORABLE = re.compile(r"[\x00\ud800-\udfff]")
 
 
-def _printable(value: str) -> str:
+def _tidy_text(value: str, *, is_code: bool) -> str:
+    value = _UNSTORABLE.sub("", value)
+    if is_code:
+        # Only the ends. Dropping a character inside a code would silently
+        # make it another code ("1.1\x962" would become "1.12" and merge with
+        # that topic at apply); kept, apply names it for the tutor to fix.
+        return value.strip()
     return CONTROL_CHARACTERS.sub("", _LINE_BREAKS.sub(" ", value)).strip()
 
 
-def _without_control_characters(value: Any) -> Any:
+def _tidy_strings(value: Any, *, is_code: bool = False) -> Any:
     if isinstance(value, str):
-        return _printable(value)
+        return _tidy_text(value, is_code=is_code)
     if isinstance(value, dict):
-        return {key: _without_control_characters(item) for key, item in value.items()}
+        return {key: _tidy_strings(item, is_code=key == "code") for key, item in value.items()}
     if isinstance(value, list):
-        return [_without_control_characters(item) for item in value]
+        return [_tidy_strings(item) for item in value]
     return value
+
+
+def _known_scale(scale: object) -> str:
+    """The scale in its known form ("A*-E (IAL); A-E (IAS)" is "A*-E"), else
+    as written. Anything not text is no scale at all."""
+    if not isinstance(scale, str):
+        return ""
+    return normalise_grade_scale(scale) or scale
+
+
+def _tidy(draft: dict) -> dict:
+    """What every path does to a draft: strings made storable, scale named."""
+    tidy = _tidy_strings(draft)
+    tidy["grade_scale"] = _known_scale(tidy.get("grade_scale"))
+    return tidy
 
 
 def _cut(value: str, length: int) -> str:
     return value[:length].rstrip()
 
 
-def _topics(nodes: list[dict]) -> list[dict]:
+def _nodes(nodes: list, at: tuple[int, ...]) -> list[tuple[tuple[int, ...], dict]]:
+    """Every topic under a chapter, depth first, with where it sits."""
+    found: list[tuple[tuple[int, ...], dict]] = []
+    for index, node in enumerate(nodes):
+        if isinstance(node, dict):
+            found.append(((*at, index), node))
+            found.extend(_nodes(node.get("children") or [], (*at, index)))
+    return found
+
+
+def _every_node(draft: dict) -> list[tuple[tuple[int, ...], dict]]:
     found = []
-    for node in nodes:
-        found.append(node)
-        found.extend(_topics(node.get("children") or []))
+    for c, chapter in enumerate(draft.get("chapters") or []):
+        if isinstance(chapter, dict):
+            found.extend(_nodes(chapter.get("topics") or [], (c,)))
     return found
 
 
@@ -213,47 +250,65 @@ def tidy_answer(answer: dict) -> dict:
     """The AI's answer made storable, without failing the read.
 
     The read has been paid for and may have taken most of an hour, so nothing
-    here refuses it (T-033). NUL and other control characters are stripped
-    (Postgres refuses NUL in text). Free text is cut to its column: a shortened
-    exam board or title is harmless and in front of the tutor at review. Codes
-    are never cut, because a cut code is silently a different code; an
-    over-long one stays as read and the draft PUT and apply name it for the
-    tutor to correct. A grade scale is put in its known form, and one that is
-    unknown and too long to store is left empty for the tutor to choose.
+    here refuses it (T-033). NUL and lone surrogates go everywhere (Postgres
+    cannot store them), other control characters from free text. Free text is
+    cut to its column: a shortened exam board or title is harmless and in
+    front of the tutor at review. So is the subject code, unlike chapter and
+    topic codes: the review page cannot edit it, so an over-long one would be
+    a draft nobody could ever apply. Chapter and topic codes are never cut,
+    because a cut code is silently a different code; an over-long one stays as
+    read, the tutor can edit it, and apply names it. A grade scale is put in
+    its known form, and one that is unknown and too long to store is left
+    empty for the tutor to choose.
     """
-    tidy = _without_control_characters(answer)
+    tidy = _tidy(answer)
     tidy["exam_board"] = _cut(tidy["exam_board"], EXAM_BOARD_MAX)
     tidy["name"] = _cut(tidy["name"], SUBJECT_NAME_MAX)
-    scale = tidy["grade_scale"]
-    tidy["grade_scale"] = normalise_grade_scale(scale) or (
-        scale if len(scale) <= GRADE_SCALE_MAX else ""
-    )
+    tidy["code"] = _cut(tidy["code"], SUBJECT_CODE_MAX)
+    if len(tidy["grade_scale"]) > GRADE_SCALE_MAX:
+        tidy["grade_scale"] = ""
     for chapter in tidy["chapters"]:
         chapter["title"] = _cut(chapter["title"], CHAPTER_TITLE_MAX)
-        for topic in _topics(chapter["topics"]):
-            topic["title"] = _cut(topic["title"], TOPIC_TITLE_MAX)
+    for _, topic in _every_node(tidy):
+        topic["title"] = _cut(topic["title"], TOPIC_TITLE_MAX)
     return tidy
 
 
 class DraftNotValid(Exception):
-    """A draft that cannot be applied, with the reason in words for the tutor."""
+    """A draft that cannot be saved or applied, with the reason in words for the tutor."""
+
+
+def tidy_for_save(draft: dict) -> dict:
+    """A draft the tutor is part-way through editing, made storable.
+
+    Deliberately lenient (T-033 review). The review page saves the whole draft
+    on every keystroke and puts the stored one back when a save fails, so
+    refusing a half-typed value would undo the tutor's typing: a code being
+    shortened a character at a time, a code cleared to retype, a weight of "0"
+    on the way to "0.5", and one bad field would block every other edit.
+    Length, emptiness and the shape of the tree are checked at apply
+    (`check_draft`). Refused here: only a weight that is not a finite number,
+    which a JSON column on Postgres cannot store.
+    """
+    tidy = _tidy(draft)
+    for at, node in _every_node(tidy):
+        weight = node.get("weight")
+        if isinstance(weight, float) and not math.isfinite(weight):
+            raise DraftNotValid(f"{_label(tidy, at)}: the weight must be a number.")
+    return tidy
 
 
 def check_draft(raw: object) -> SyllabusDraftChecked:
     """`raw` held to the tables it will be applied into, or `DraftNotValid`.
 
-    The grade scale is put in its known form first, so a draft stored before
-    T-033 with the AI's own wording ("A*-E (IAL); A-E (IAS)") applies. Then the
-    strict schema; its failures become words naming the field. Those words may
-    repeat a code from the draft, the tutor's own text and already on their
-    screen, but never Pydantic's echo of the input or anything from the
-    database.
+    Tidied first, as extraction and the save are, so a draft stored before
+    T-033 applies: the AI's own wording of a grade scale ("A*-E (IAL); A-E
+    (IAS)") and a line break in a title. Then the strict schema; its failures
+    become words naming the field. Those words may repeat a code from the
+    draft, the tutor's own text and already on their screen, but never
+    Pydantic's echo of the input or anything from the database.
     """
-    data = dict(raw) if isinstance(raw, dict) else raw
-    if isinstance(data, dict):
-        scale = data.get("grade_scale")
-        scale = scale.strip() if isinstance(scale, str) else ""
-        data["grade_scale"] = normalise_grade_scale(scale) or scale
+    data = _tidy(raw) if isinstance(raw, dict) else raw
     try:
         return SyllabusDraftChecked.model_validate(data)
     except ValidationError as exc:
@@ -302,21 +357,21 @@ def _problem(kind: str, field: str, ctx: dict) -> str:
     return f"the {field} is not valid"
 
 
-def _node_label(data: object, path: list[tuple[str, int]]) -> str:
+def _label(data: object, at: tuple[int, ...]) -> str:
     """Where a node sits: by its code when that is a usable one, else by
     position, counted from one as the tutor counts rows on screen."""
     node: object = data
-    for key, index in path:
+    for depth, index in enumerate(at):
+        key = "chapters" if depth == 0 else "topics" if depth == 1 else "children"
         items = node.get(key) if isinstance(node, dict) else None
         node = items[index] if isinstance(items, list) and index < len(items) else None
     code = node.get("code") if isinstance(node, dict) else None
     if isinstance(code, str):
         code = code.strip()
-        longest = CHAPTER_CODE_MAX if len(path) == 1 else TOPIC_CODE_MAX
+        longest = CHAPTER_CODE_MAX if len(at) == 1 else TOPIC_CODE_MAX
         if 0 < len(code) <= longest and not CONTROL_CHARACTERS.search(code):
-            return f"{'Chapter' if len(path) == 1 else 'Topic'} {code}"
-    names = ["Chapter", "topic"] + ["sub-topic"] * (len(path) - 2)
-    return ", ".join(f"{name} {index + 1}" for name, (_, index) in zip(names, path, strict=False))
+            return f"{'Chapter' if len(at) == 1 else 'Topic'} {code}"
+    return position_label(at)
 
 
 def _sentence(error: Any, data: object) -> str:
@@ -333,7 +388,7 @@ def _sentence(error: Any, data: object) -> str:
         field = _SUBJECT_FIELDS.get(str(loc[0]), str(loc[0]).replace("_", " "))
         problem = _problem(kind, field, error.get("ctx") or {})
         return f"{problem[0].upper()}{problem[1:]}."
-    label = _node_label(data, path)
+    label = _label(data, tuple(index for _, index in path))
     if not loc:
         return f"{label} is not valid."
     field = _NODE_FIELDS.get(str(loc[0]), str(loc[0]).replace("_", " "))
