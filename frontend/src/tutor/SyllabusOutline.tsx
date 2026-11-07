@@ -8,8 +8,10 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 const toggleBtn =
   "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-700 hover:bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600";
 
-const countDescendants = (topics: SyllabusTopicDraft[]): number =>
+export const countDescendants = (topics: SyllabusTopicDraft[]): number =>
   topics.reduce((n, t) => n + 1 + countDescendants(t.children), 0);
+
+const topicKey = (chapter: number, path: number[]) => `${chapter}:${path.join(".")}`;
 
 /** A key for every topic that has sub-points, scoped to its chapter. */
 function parentKeys(
@@ -21,7 +23,7 @@ function parentKeys(
     const path = [...prefix, i];
     return t.children.length === 0
       ? []
-      : [`${chapter}:${path.join(".")}`, ...parentKeys(chapter, t.children, path)];
+      : [topicKey(chapter, path), ...parentKeys(chapter, t.children, path)];
   });
 }
 
@@ -52,15 +54,22 @@ interface Props {
  *  toggle is its own button, so opening or folding never takes focus from an
  *  input the tutor is typing in. */
 export function SyllabusOutline({ chapters, editable, onChapterField, onTopicField }: Props) {
+  // Fold state is keyed by index (chapter index, topic path). That holds because
+  // this page only edits fields in place and never adds, removes or reorders;
+  // the parent mounts this with key={upload id} so state cannot carry across uploads.
   const [openChapters, setOpenChapters] = useState<Set<number>>(new Set());
   const [openTopics, setOpenTopics] = useState<Set<string>>(new Set());
   const [weightsShown, setWeightsShown] = useState<Set<number>>(new Set());
 
-  const allOpen = chapters.length > 0 && openChapters.size === chapters.length;
+  const allParentKeys = chapters.flatMap((c, i) => parentKeys(i, c.topics));
+  const allOpen =
+    chapters.length > 0 &&
+    openChapters.size === chapters.length &&
+    allParentKeys.every((k) => openTopics.has(k));
 
   function setAll(open: boolean) {
     setOpenChapters(open ? new Set(chapters.map((_, i) => i)) : new Set());
-    setOpenTopics(open ? new Set(chapters.flatMap((c, i) => parentKeys(i, c.topics))) : new Set());
+    setOpenTopics(open ? new Set(allParentKeys) : new Set());
   }
 
   function renderTopics(
@@ -71,7 +80,7 @@ export function SyllabusOutline({ chapters, editable, onChapterField, onTopicFie
   ) {
     return topics.map((node, i) => {
       const path = [...prefix, i];
-      const key = `${chapterIndex}:${path.join(".")}`;
+      const key = topicKey(chapterIndex, path);
       const subCount = countDescendants(node.children);
       const open = openTopics.has(key);
       return (

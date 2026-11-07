@@ -25,7 +25,7 @@ import {
 } from "../components/page";
 import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
 import { friendlyError } from "../lib/errors";
-import { SyllabusOutline } from "./SyllabusOutline";
+import { SyllabusOutline, countDescendants } from "./SyllabusOutline";
 
 /** Each status as a short chip, and in the words a tutor would use. The tone
  *  carries meaning only alongside the words, never instead of them (UX-15). */
@@ -133,26 +133,14 @@ function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
   );
 }
 
-const GRADE_SCALES = ["9-1", "A*-E"];
+// Mirrors DEFAULT_BOUNDARIES in backend/app/services/grade_boundaries.py.
+const GRADE_SCALES = ["9-1", "A*-E"] as const;
 
 const LEVELS: { value: SubjectLevel; label: string }[] = [
   { value: "igcse", label: "IGCSE" },
   { value: "o_level", label: "O Level" },
   { value: "a_level", label: "A Level" },
 ];
-
-interface FlatRow {
-  path: number[];
-  node: SyllabusTopicDraft;
-}
-
-/** A chapter's topics with their sub-topics, depth carried by `path.length`. */
-function flatten(topics: SyllabusTopicDraft[], prefix: number[] = []): FlatRow[] {
-  return topics.flatMap((node, i) => {
-    const path = [...prefix, i];
-    return [{ path, node }, ...flatten(node.children, path)];
-  });
-}
 
 function updateAtPath(
   topics: SyllabusTopicDraft[],
@@ -256,7 +244,7 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
   const editable = upload.status === "review" || upload.status === "extraction_failed";
 
   const draft = upload.draft;
-  const topicCount = draft?.chapters.reduce((n, c) => n + flatten(c.topics).length, 0) ?? 0;
+  const topicCount = draft?.chapters.reduce((n, c) => n + countDescendants(c.topics), 0) ?? 0;
 
   /** The draft as of the last edit, not as of this render.
    *
@@ -422,7 +410,8 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
                         </option>
                         {[
                           ...GRADE_SCALES,
-                          ...(draft.grade_scale && !GRADE_SCALES.includes(draft.grade_scale)
+                          ...(draft.grade_scale &&
+                          !(GRADE_SCALES as readonly string[]).includes(draft.grade_scale)
                             ? [draft.grade_scale]
                             : []),
                         ].map((g) => (
@@ -494,6 +483,7 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
               />
 
               <SyllabusOutline
+                key={id}
                 chapters={draft.chapters}
                 editable={editable}
                 onChapterField={setChapterField}

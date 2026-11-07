@@ -307,7 +307,10 @@ test("toggles carry aria-expanded and change it without moving focus off an inpu
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   const title = screen.getByDisplayValue("Principles of chemistry");
   title.focus();
+  expect(title).toHaveFocus();
   fireEvent.click(toggle);
+  // Folding or opening a different row must leave the focused input alone.
+  expect(title).toHaveFocus();
   expect(
     screen.getByRole("button", { name: /Hide topics in Principles of chemistry/ }),
   ).toHaveAttribute("aria-expanded", "true");
@@ -318,6 +321,15 @@ test("toggles carry aria-expanded and change it without moving focus off an inpu
   expect(all).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(all);
   expect(screen.getByRole("button", { name: "Fold all" })).toHaveAttribute("aria-expanded", "true");
+});
+
+test("the button says Fold all only while every sub-point is open too", async () => {
+  stub();
+  await openDraft();
+
+  fireEvent.click(screen.getByRole("button", { name: "Open all" }));
+  fireEvent.click(screen.getByRole("button", { name: /Hide sub-points of Atoms/ }));
+  expect(screen.getByRole("button", { name: "Open all" })).toBeInTheDocument();
 });
 
 test("the grade scale shows the draft's value and a change saves", async () => {
