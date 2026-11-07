@@ -5,23 +5,30 @@ column, and apply answered with a 500. Three layers now hold the line:
 
 - after the AI answers, the draft is tidied (grade scale normalised, control
   characters stripped, free text cut to fit) so a paid read is never lost;
-- the draft PUT and apply check the draft against a strict schema and answer a
-  422 in plain words naming the field;
+- the draft PUT is lenient, because the review page saves on every keystroke
+  and a half-typed value must save; it only tidies what Postgres cannot store;
+- apply checks the draft against a strict schema and answers a 422 in plain
+  words naming the field;
 - the stored draft stays readable, because the GET reads it leniently.
 """
 
 import copy
 import json
 import math
+import os
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.engine import make_url
 
 from app.db import async_session
-from app.models import Subject, SyllabusUpload
+from app.models import Chapter, Subject, SyllabusUpload
 from tests.test_syllabus_upload import CHAPTERS, draft_of, extraction_returning, upload_pdf
 
-# The owner's real failing draft, as the AI stored it (upload #4).
+# The owner's real failing draft (upload #4). From the owner's Render log: the
+# exam board, code, name, level and grade scale, and that it is one
+# organization's upload. Invented here: the chapters, which the log did not
+# show (`CHAPTERS` is the shared test tree).
 OWNER_DRAFT = {
     "exam_board": "Pearson Edexcel International Advanced Subsidiary/Advanced Level",
     "code": "XCH11/YCH11",
@@ -30,6 +37,13 @@ OWNER_DRAFT = {
     "grade_scale": "A*-E (IAL); A-E (IAS)",
     "chapters": CHAPTERS,
 }
+
+
+# A JSON column on Postgres refuses NaN, so a stored NaN can exist only here.
+sqlite_only = pytest.mark.skipif(
+    make_url(os.environ["DATABASE_URL"]).get_backend_name() != "sqlite",
+    reason="Postgres's JSON column cannot store NaN, so no stored draft can hold one",
+)
 
 
 def _url(upload_id: int, tail: str = "") -> str:
@@ -66,6 +80,9 @@ async def _upload_with(client, tutor, monkeypatch, draft: dict, title="Limits") 
         ("9–1", "9-1"),
         ("Grades 9 to 1", "9-1"),
         ("9 - 1 (9 is highest)", "9-1"),
+        ("1-9", "9-1"),
+        ("1\u20139", "9-1"),
+        ("Grades 1 to 9", "9-1"),
         ("A*-G", None),
         ("A-E", None),
         ("19-10", None),
@@ -193,6 +210,61 @@ async def test_extraction_strips_nul_and_control_characters(client, tutor, monke
     assert "\x00" not in json.dumps(draft)
 
 
+async def test_extraction_cuts_the_subject_code_the_page_cannot_edit(
+    client, tutor, monkeypatch, fake_ai
+):
+    upload_id = await _read(client, tutor, monkeypatch, fake_ai, _answer(code="X" * 20))
+    assert (await _stored(upload_id))["code"] == "X" * 16
+
+
+async def test_extraction_keeps_a_control_character_inside_a_code(
+    client, tutor, monkeypatch, fake_ai
+):
+    """Dropping it would turn "1.1\x962" into "1.12", silently a different
+    topic that apply would merge with one already there. Kept, so apply names
+    it; only the ends are trimmed, and NUL and lone surrogates go everywhere."""
+    answer = _answer(
+        chapters=[
+            {
+                "code": " 1\x00 ",
+                "title": "Section \ud800one",
+                "topics": [
+                    {"code": "1.1\x962", "title": "A", "weight": 1.0},
+                    {"code": "1.12", "title": "B", "weight": 1.0},
+                ],
+            }
+        ],
+    )
+    upload_id = await _read(client, tutor, monkeypatch, fake_ai, answer)
+    chapter = (await _stored(upload_id))["chapters"][0]
+    assert chapter["code"] == "1"
+    assert chapter["title"] == "Section one"
+    assert [t["code"] for t in chapter["topics"]] == ["1.1\x962", "1.12"]
+
+    refused = await client.post(_url(upload_id, "/apply"), headers=tutor["headers"])
+    assert refused.status_code == 422
+    assert "Chapter 1, topic 1: the code contains a control character" in (refused.json()["detail"])
+
+
+async def test_the_owners_syllabus_is_read_and_applied_end_to_end(
+    client, tutor, monkeypatch, fake_ai
+):
+    answer = _answer(
+        exam_board=OWNER_DRAFT["exam_board"],
+        code=OWNER_DRAFT["code"],
+        name=OWNER_DRAFT["name"],
+        level=OWNER_DRAFT["level"],
+        grade_scale=OWNER_DRAFT["grade_scale"],
+    )
+    upload_id = await _read(client, tutor, monkeypatch, fake_ai, answer)
+    applied = await client.post(_url(upload_id, "/apply"), headers=tutor["headers"])
+    assert applied.status_code == 200, applied.text
+    async with async_session() as session:
+        subject = await session.get(Subject, applied.json()["subject_id"])
+    assert subject.grade_scale == "A*-E"
+    assert (subject.exam_board, subject.code) == (OWNER_DRAFT["exam_board"], "XCH11/YCH11")
+
+
 async def test_hostile_text_in_the_document_is_stored_as_data_and_cut_to_fit(
     client, tutor, monkeypatch, fake_ai
 ):
@@ -304,6 +376,7 @@ async def test_apply_names_a_stored_exam_board_too_long(client, tutor, monkeypat
     assert refused.json()["detail"] == "The exam board is longer than 64 characters."
 
 
+@sqlite_only
 async def test_apply_refuses_a_stored_nan_weight(client, tutor, monkeypatch):
     draft = draft_of(chapters=copy.deepcopy(CHAPTERS))
     draft["chapters"][0]["topics"][0]["weight"] = math.nan
@@ -317,6 +390,22 @@ async def test_apply_refuses_a_stored_nan_weight(client, tutor, monkeypatch):
     )
 
 
+async def test_apply_tidies_a_line_break_in_an_older_stored_title(client, tutor, monkeypatch):
+    chapters = copy.deepcopy(CHAPTERS)
+    chapters[0]["title"] = "Bonding\nand structure"
+    upload_id = await _upload_with(client, tutor, monkeypatch, draft_of(chapters=chapters))
+
+    applied = await client.post(_url(upload_id, "/apply"), headers=tutor["headers"])
+    assert applied.status_code == 200, applied.text
+    async with async_session() as session:
+        chapter = await session.scalar(
+            select(Chapter).where(
+                Chapter.subject_id == applied.json()["subject_id"], Chapter.code == "1"
+            )
+        )
+    assert chapter.title == "Bonding and structure"
+
+
 async def test_apply_trims_whitespace_before_matching(client, tutor, monkeypatch):
     draft = draft_of(chapters=CHAPTERS, code=" 4XX1 ", exam_board=" Edexcel IGCSE ")
     upload_id = await _upload_with(client, tutor, monkeypatch, draft)
@@ -328,68 +417,141 @@ async def test_apply_trims_whitespace_before_matching(client, tutor, monkeypatch
     assert (subject.exam_board, subject.code) == ("Edexcel IGCSE", "4XX1")
 
 
-# --- the draft PUT -------------------------------------------------------------
+# --- the draft PUT: lenient, because the page saves on every keystroke --------
 
 
 async def _put(client, tutor, upload_id, draft):
     return await client.put(_url(upload_id, "/draft"), json=draft, headers=tutor["headers"])
 
 
-async def test_put_names_a_subject_code_one_over_its_column(client, tutor, uploaded):
-    draft = draft_of(chapters=CHAPTERS, code="X" * 17)
-    refused = await _put(client, tutor, uploaded, draft)
-    assert refused.status_code == 422
-    assert refused.json()["detail"] == "The subject code is longer than 16 characters."
-    # The stored draft is untouched.
-    assert (await _stored(uploaded))["code"] == "4XX1"
+async def _put_raw(client, tutor, upload_id, draft):
+    """Through `json.dumps`, which writes NaN and Infinity as a hostile client could."""
+    return await client.put(
+        _url(upload_id, "/draft"),
+        content=json.dumps(draft),
+        headers={**tutor["headers"], "Content-Type": "application/json"},
+    )
 
 
-async def test_put_accepts_a_subject_code_exactly_its_column(client, tutor, uploaded):
-    saved = await _put(client, tutor, uploaded, draft_of(chapters=CHAPTERS, code="X" * 16))
+async def _apply(client, tutor, upload_id):
+    return await client.post(_url(upload_id, "/apply"), headers=tutor["headers"])
+
+
+async def test_an_over_long_topic_code_saves_and_apply_names_it(client, tutor, uploaded):
+    chapters = copy.deepcopy(CHAPTERS)
+    chapters[0]["topics"][1]["children"][0]["code"] = "1.2." + "1" * 40
+    saved = await _put(client, tutor, uploaded, draft_of(chapters=chapters))
     assert saved.status_code == 200, saved.text
 
+    refused = await _apply(client, tutor, uploaded)
+    assert refused.status_code == 422
+    assert (
+        "Chapter 1, topic 2, sub-topic 1: the code is longer than 32 characters"
+        in (refused.json()["detail"])
+    )
 
-async def test_put_refuses_a_child_with_its_parents_code(client, tutor, uploaded):
+
+async def test_an_empty_code_saves_while_it_is_retyped(client, tutor, uploaded):
+    chapters = copy.deepcopy(CHAPTERS)
+    chapters[1]["topics"][0]["code"] = ""
+    saved = await _put(client, tutor, uploaded, draft_of(chapters=chapters))
+    assert saved.status_code == 200, saved.text
+
+    refused = await _apply(client, tutor, uploaded)
+    assert refused.status_code == 422
+    assert "Chapter 2, topic 1: the code is empty" in refused.json()["detail"]
+
+
+@pytest.mark.parametrize("weight", [0, 0.5])
+async def test_a_weight_part_typed_saves(client, tutor, uploaded, weight):
+    chapters = copy.deepcopy(CHAPTERS)
+    chapters[1]["topics"][0]["weight"] = weight
+    saved = await _put(client, tutor, uploaded, draft_of(chapters=chapters))
+    assert saved.status_code == 200, saved.text
+    assert (await _stored(uploaded))["chapters"][1]["topics"][0]["weight"] == weight
+
+
+@pytest.mark.parametrize("weight", [math.nan, math.inf, -math.inf])
+async def test_put_refuses_a_weight_postgres_cannot_store(client, tutor, uploaded, weight):
+    draft = draft_of(chapters=copy.deepcopy(CHAPTERS))
+    draft["chapters"][1]["topics"][0]["weight"] = weight
+    refused = await _put_raw(client, tutor, uploaded, draft)
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "Topic 2.1: the weight must be a number."
+    assert (await _stored(uploaded))["chapters"][1]["topics"][0]["weight"] == 1.0
+
+
+async def test_with_two_bad_fields_fixing_one_saves(client, tutor, uploaded):
+    chapters = copy.deepcopy(CHAPTERS)
+    chapters[0]["topics"][0]["code"] = "A" * 40
+    chapters[1]["topics"][0]["code"] = "B" * 40
+    assert (await _put(client, tutor, uploaded, draft_of(chapters=chapters))).status_code == 200
+
+    chapters[0]["topics"][0]["code"] = "1.1"
+    saved = await _put(client, tutor, uploaded, draft_of(chapters=chapters))
+    assert saved.status_code == 200, saved.text
+
+    detail = (await _apply(client, tutor, uploaded)).json()["detail"]
+    assert "Chapter 2, topic 1: the code is longer than 32 characters" in detail
+    assert "Chapter 1, topic 1" not in detail
+
+
+async def test_put_strips_what_postgres_cannot_store_from_free_text(client, tutor, uploaded):
+    chapters = copy.deepcopy(CHAPTERS)
+    chapters[1]["title"] = "Section\x00 two\ud800"
+    chapters[1]["topics"][0]["title"] = "Rates of\nreaction\x07"
+    chapters[1]["topics"][0]["code"] = "2.1\x00"
+    # `json.dumps` escapes the lone surrogate, which httpx's UTF-8 body cannot carry.
+    saved = await _put_raw(client, tutor, uploaded, draft_of(chapters=chapters))
+    assert saved.status_code == 200, saved.text
+    stored = (await _stored(uploaded))["chapters"][1]
+    assert stored["title"] == "Section two"
+    assert stored["topics"][0]["title"] == "Rates of reaction"
+    assert stored["topics"][0]["code"] == "2.1"
+
+
+async def test_apply_names_a_subject_code_one_over_its_column(client, tutor, uploaded):
+    saved = await _put(client, tutor, uploaded, draft_of(chapters=CHAPTERS, code="X" * 17))
+    assert saved.status_code == 200, saved.text
+    refused = await _apply(client, tutor, uploaded)
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "The subject code is longer than 16 characters."
+
+
+async def test_apply_accepts_a_subject_code_exactly_its_column(client, tutor, uploaded):
+    await _put(client, tutor, uploaded, draft_of(chapters=CHAPTERS, code="X" * 16))
+    applied = await _apply(client, tutor, uploaded)
+    assert applied.status_code == 200, applied.text
+
+
+async def test_apply_refuses_a_child_with_its_parents_code(client, tutor, uploaded):
     chapters = copy.deepcopy(CHAPTERS)
     chapters[0]["topics"][1]["children"][0]["code"] = "1.2"
-    refused = await _put(client, tutor, uploaded, draft_of(chapters=chapters))
-    assert refused.status_code == 422
-    assert "Topic 1.2" in refused.json()["detail"]
-    assert "same code" in refused.json()["detail"]
+    assert (await _put(client, tutor, uploaded, draft_of(chapters=chapters))).status_code == 200
+    detail = (await _apply(client, tutor, uploaded)).json()["detail"]
+    assert "Topic 1.2" in detail
+    assert "same code" in detail
+    assert "Chapter 1, topic 2, sub-topic 1" in detail
 
 
-async def test_put_refuses_a_tree_four_deep(client, tutor, uploaded):
+async def test_apply_refuses_a_tree_four_deep(client, tutor, uploaded):
     chapters = copy.deepcopy(CHAPTERS)
     chapters[0]["topics"][1]["children"][0]["children"] = [
         {"code": "1.2.1.1", "title": "Too deep", "weight": 1.0, "children": []}
     ]
-    refused = await _put(client, tutor, uploaded, draft_of(chapters=chapters))
+    assert (await _put(client, tutor, uploaded, draft_of(chapters=chapters))).status_code == 200
+    refused = await _apply(client, tutor, uploaded)
     assert refused.status_code == 422
     assert "Topic 1.2.1.1" in refused.json()["detail"]
     assert "too deep" in refused.json()["detail"]
 
 
-async def test_put_refuses_a_nan_weight(client, tutor, uploaded):
-    draft = draft_of(chapters=copy.deepcopy(CHAPTERS))
-    draft["chapters"][0]["topics"][0]["weight"] = math.nan
-    refused = await client.put(
-        _url(uploaded, "/draft"),
-        content=json.dumps(draft),  # json.dumps writes NaN, as a hostile client could
-        headers={**tutor["headers"], "Content-Type": "application/json"},
-    )
-    assert refused.status_code == 422
-    assert "the weight must be a number above 0 and at most 100" in refused.json()["detail"]
-
-
-@pytest.mark.parametrize("weight", [0, -1, 100.5, math.inf])
-async def test_put_refuses_a_weight_out_of_range(client, tutor, uploaded, weight):
-    draft = draft_of(chapters=copy.deepcopy(CHAPTERS))
-    draft["chapters"][1]["topics"][0]["weight"] = weight
-    refused = await client.put(
-        _url(uploaded, "/draft"),
-        content=json.dumps(draft),
-        headers={**tutor["headers"], "Content-Type": "application/json"},
-    )
+@pytest.mark.parametrize("weight", [0, -1, 100.5])
+async def test_apply_refuses_a_weight_out_of_range(client, tutor, uploaded, weight):
+    chapters = copy.deepcopy(CHAPTERS)
+    chapters[1]["topics"][0]["weight"] = weight
+    assert (await _put(client, tutor, uploaded, draft_of(chapters=chapters))).status_code == 200
+    refused = await _apply(client, tutor, uploaded)
     assert refused.status_code == 422
     assert (
         "Topic 2.1: the weight must be a number above 0 and at most 100"
@@ -397,18 +559,13 @@ async def test_put_refuses_a_weight_out_of_range(client, tutor, uploaded, weight
     )
 
 
-async def test_put_refuses_an_empty_title_and_a_control_character(client, tutor, uploaded):
+async def test_apply_refuses_an_empty_title(client, tutor, uploaded):
     chapters = copy.deepcopy(CHAPTERS)
     chapters[1]["title"] = "   "
-    refused = await _put(client, tutor, uploaded, draft_of(chapters=chapters))
+    assert (await _put(client, tutor, uploaded, draft_of(chapters=chapters))).status_code == 200
+    refused = await _apply(client, tutor, uploaded)
     assert refused.status_code == 422
     assert "Chapter 2: the title is empty" in refused.json()["detail"]
-
-    chapters = copy.deepcopy(CHAPTERS)
-    chapters[1]["topics"][0]["title"] = "Bad\x00title"
-    refused = await _put(client, tutor, uploaded, draft_of(chapters=chapters))
-    assert refused.status_code == 422
-    assert "Topic 2.1: the title contains a control character" in refused.json()["detail"]
 
 
 async def test_put_stores_the_normalised_grade_scale(client, tutor, uploaded):
