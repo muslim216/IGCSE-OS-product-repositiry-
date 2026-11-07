@@ -15,7 +15,7 @@ import {
   type SyllabusUploadDetail,
 } from "../api/syllabusUpload";
 import { ApiError } from "../api/client";
-import { Button, Field, FileInput, Input, inputClasses, Select } from "../components/controls";
+import { Button, Field, FileInput, Input, Select } from "../components/controls";
 import {
   ErrorState,
   NotFoundState,
@@ -25,6 +25,7 @@ import {
 } from "../components/page";
 import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import { SyllabusOutline, countDescendants } from "./SyllabusOutline";
 
 /** Each status as a short chip, and in the words a tutor would use. The tone
  *  carries meaning only alongside the words, never instead of them (UX-15). */
@@ -132,24 +133,14 @@ function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
   );
 }
 
+// Mirrors DEFAULT_BOUNDARIES in backend/app/services/grade_boundaries.py.
+const GRADE_SCALES: ReadonlySet<string> = new Set(["9-1", "A*-E"]);
+
 const LEVELS: { value: SubjectLevel; label: string }[] = [
   { value: "igcse", label: "IGCSE" },
   { value: "o_level", label: "O Level" },
   { value: "a_level", label: "A Level" },
 ];
-
-interface FlatRow {
-  path: number[];
-  node: SyllabusTopicDraft;
-}
-
-/** A chapter's topics with their sub-topics, depth carried by `path.length`. */
-function flatten(topics: SyllabusTopicDraft[], prefix: number[] = []): FlatRow[] {
-  return topics.flatMap((node, i) => {
-    const path = [...prefix, i];
-    return [{ path, node }, ...flatten(node.children, path)];
-  });
-}
 
 function updateAtPath(
   topics: SyllabusTopicDraft[],
@@ -253,7 +244,7 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
   const editable = upload.status === "review" || upload.status === "extraction_failed";
 
   const draft = upload.draft;
-  const topicCount = draft?.chapters.reduce((n, c) => n + flatten(c.topics).length, 0) ?? 0;
+  const topicCount = draft?.chapters.reduce((n, c) => n + countDescendants(c.topics), 0) ?? 0;
 
   /** The draft as of the last edit, not as of this render.
    *
@@ -289,7 +280,6 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
 
   const dt = "text-xs font-medium text-ink-500";
   const dd = "mt-1 text-sm text-ink-900";
-  const cell = inputClasses;
 
   return (
     <div>
@@ -396,8 +386,47 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
                 <dd className={dd}>{draft.name}</dd>
               </div>
               <div>
-                <dt className={dt}>Grade scale</dt>
-                <dd className={dd}>{draft.grade_scale}</dd>
+                {editable ? (
+                  <>
+                    <dt>
+                      <label htmlFor="syllabus-grade-scale" className={dt}>
+                        Grade scale
+                      </label>
+                    </dt>
+                    <dd className="mt-1">
+                      <Select
+                        id="syllabus-grade-scale"
+                        value={draft.grade_scale}
+                        onChange={(e) => {
+                          const current = latestDraft();
+                          if (current)
+                            saveDraft.mutate({ ...current, grade_scale: e.target.value });
+                        }}
+                      >
+                        {/* "" is what the server sends when it cannot recognise the
+                          scale; nothing guesses one for the tutor (PROD-2). */}
+                        <option value="" disabled>
+                          Choose a grade scale
+                        </option>
+                        {[
+                          ...GRADE_SCALES,
+                          ...(draft.grade_scale && !GRADE_SCALES.has(draft.grade_scale)
+                            ? [draft.grade_scale]
+                            : []),
+                        ].map((g) => (
+                          <option key={g} value={g}>
+                            {g}
+                          </option>
+                        ))}
+                      </Select>
+                    </dd>
+                  </>
+                ) : (
+                  <>
+                    <dt className={dt}>Grade scale</dt>
+                    <dd className={dd}>{draft.grade_scale || "Not set"}</dd>
+                  </>
+                )}
               </div>
               <div>
                 {editable ? (
@@ -452,128 +481,13 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
                 }
               />
 
-              <div className="mt-4 space-y-4">
-                {/* Keyed by index deliberately, against the usual rule: a chapter's
-                    code is what the tutor is editing, so keying on it would change
-                    the key on every keystroke and pull focus out of the input. The
-                    list is never reordered or filtered here. */}
-                {draft.chapters.map((chapter, chapterIndex) => (
-                  <div key={chapterIndex} className="overflow-hidden rounded-lg border border-line">
-                    <div className="flex items-center gap-2 border-b border-line bg-surface-muted px-3 py-2">
-                      {editable ? (
-                        <>
-                          <label className="sr-only" htmlFor={`chapter-code-${chapterIndex}`}>
-                            Chapter code
-                          </label>
-                          <div className="w-20 shrink-0">
-                            <input
-                              id={`chapter-code-${chapterIndex}`}
-                              className={cell}
-                              value={chapter.code}
-                              onChange={(e) =>
-                                setChapterField(chapterIndex, { code: e.target.value })
-                              }
-                            />
-                          </div>
-                          <label className="sr-only" htmlFor={`chapter-title-${chapterIndex}`}>
-                            Chapter title
-                          </label>
-                          <input
-                            id={`chapter-title-${chapterIndex}`}
-                            className={`${cell} font-medium`}
-                            value={chapter.title}
-                            onChange={(e) =>
-                              setChapterField(chapterIndex, { title: e.target.value })
-                            }
-                          />
-                        </>
-                      ) : (
-                        <p className="text-sm font-medium text-ink-900">
-                          {chapter.title}
-                          <span className="ml-2 font-normal text-ink-500">{chapter.code}</span>
-                        </p>
-                      )}
-                    </div>
-
-                    {chapter.topics.length === 0 ? (
-                      <p className="px-3 py-3 text-sm text-ink-500">No topics in this chapter.</p>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-line text-left text-xs text-ink-500">
-                            <th className="py-2 pl-3 pr-2 font-medium">Code</th>
-                            <th className="py-2 pr-2 font-medium">Topic</th>
-                            <th className="py-2 pr-3 font-medium">Weight</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {flatten(chapter.topics).map(({ path, node }) => (
-                            <tr
-                              key={path.join(".")}
-                              className="border-b border-line align-middle last:border-0"
-                            >
-                              <td
-                                className="py-1.5 pr-2 pl-3 text-ink-500"
-                                style={{ paddingLeft: `${12 + (path.length - 1) * 16}px` }}
-                              >
-                                {editable ? (
-                                  <div className="w-20">
-                                    <input
-                                      aria-label="Topic code"
-                                      className={cell}
-                                      value={node.code}
-                                      onChange={(e) =>
-                                        setTopicField(chapterIndex, path, { code: e.target.value })
-                                      }
-                                    />
-                                  </div>
-                                ) : (
-                                  node.code
-                                )}
-                              </td>
-                              <td className="py-1.5 pr-2 text-ink-900">
-                                {editable ? (
-                                  <input
-                                    aria-label="Topic title"
-                                    className={cell}
-                                    value={node.title}
-                                    onChange={(e) =>
-                                      setTopicField(chapterIndex, path, { title: e.target.value })
-                                    }
-                                  />
-                                ) : (
-                                  node.title
-                                )}
-                              </td>
-                              <td className="py-1.5 pr-3 tabular-nums text-ink-700">
-                                {editable ? (
-                                  <div className="w-20">
-                                    <input
-                                      type="number"
-                                      aria-label="Topic weight"
-                                      step={0.1}
-                                      min={0.1}
-                                      className={cell}
-                                      value={node.weight}
-                                      onChange={(e) =>
-                                        setTopicField(chapterIndex, path, {
-                                          weight: Number(e.target.value),
-                                        })
-                                      }
-                                    />
-                                  </div>
-                                ) : (
-                                  node.weight
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <SyllabusOutline
+                key={id}
+                chapters={draft.chapters}
+                editable={editable}
+                onChapterField={setChapterField}
+                onTopicField={setTopicField}
+              />
             </div>
           </SectionCard>
         )}
