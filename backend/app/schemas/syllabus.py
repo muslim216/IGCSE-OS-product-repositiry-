@@ -119,10 +119,11 @@ class SyllabusChapterChecked(BaseModel):
 class SyllabusDraftChecked(BaseModel):
     """A draft that will fit the tables it is applied into.
 
-    What the draft PUT and apply hold a draft to, so a value too long for its
-    column is a 422 naming it rather than a 500 from the database (T-033).
-    `services.syllabus_extraction.check_draft` is the way in: it normalises
-    the grade scale first and turns a failure into plain words.
+    What apply holds a draft to, so a value too long for its column is a 422
+    naming it rather than a 500 from the database (T-033). The draft PUT does
+    not: it is lenient on purpose, so a half-typed value saves.
+    `services.syllabus_extraction.check_draft` is the way in: it tidies the
+    draft first and turns a failure into plain words.
     """
 
     exam_board: ExamBoard

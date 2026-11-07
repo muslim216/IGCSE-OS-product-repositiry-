@@ -217,15 +217,35 @@ def _known_scale(scale: object) -> str:
     return normalise_grade_scale(scale) or scale
 
 
-def _tidy(draft: dict) -> dict:
-    """What every path does to a draft: strings made storable, scale named."""
-    tidy = _tidy_strings(draft)
-    tidy["grade_scale"] = _known_scale(tidy.get("grade_scale"))
-    return tidy
-
-
 def _cut(value: str, length: int) -> str:
     return value[:length].rstrip()
+
+
+# The fields the review page cannot edit, and their columns. They are cut to
+# fit on every path, never refused: a refusal would be a draft nobody could
+# ever apply. Each is visible to the tutor at review.
+_NOT_EDITABLE_ON_THE_PAGE = {
+    "exam_board": EXAM_BOARD_MAX,
+    "name": SUBJECT_NAME_MAX,
+    "code": SUBJECT_CODE_MAX,
+}
+
+
+def _tidy(draft: dict) -> dict:
+    """What every path does to a draft: strings made storable, the scale put in
+    its known form, and the fields the page cannot edit made to fit.
+
+    The subject code is tidied as free text, inner control characters and all,
+    unlike chapter and topic codes: those the tutor can correct when apply
+    names them, this one they cannot.
+    """
+    tidy = _tidy_strings(draft)
+    for field, length in _NOT_EDITABLE_ON_THE_PAGE.items():
+        value = draft.get(field)
+        if isinstance(value, str):
+            tidy[field] = _cut(_tidy_text(value, is_code=False), length)
+    tidy["grade_scale"] = _known_scale(tidy.get("grade_scale"))
+    return tidy
 
 
 def _nodes(nodes: list, at: tuple[int, ...]) -> list[tuple[tuple[int, ...], dict]]:
@@ -251,20 +271,16 @@ def tidy_answer(answer: dict) -> dict:
 
     The read has been paid for and may have taken most of an hour, so nothing
     here refuses it (T-033). NUL and lone surrogates go everywhere (Postgres
-    cannot store them), other control characters from free text. Free text is
-    cut to its column: a shortened exam board or title is harmless and in
-    front of the tutor at review. So is the subject code, unlike chapter and
-    topic codes: the review page cannot edit it, so an over-long one would be
-    a draft nobody could ever apply. Chapter and topic codes are never cut,
-    because a cut code is silently a different code; an over-long one stays as
-    read, the tutor can edit it, and apply names it. A grade scale is put in
-    its known form, and one that is unknown and too long to store is left
-    empty for the tutor to choose.
+    cannot store them), other control characters from free text. The exam
+    board, subject name and subject code are cut to fit by `_tidy`, as on every
+    path. Titles are cut here too: a shortened title is harmless and in front
+    of the tutor at review. Chapter and topic codes are never cut, because a
+    cut code is silently a different code; an over-long one stays as read, the
+    tutor can edit it, and apply names it. A grade scale is put in its known
+    form, and one that is unknown and too long to store is left empty for the
+    tutor to choose.
     """
     tidy = _tidy(answer)
-    tidy["exam_board"] = _cut(tidy["exam_board"], EXAM_BOARD_MAX)
-    tidy["name"] = _cut(tidy["name"], SUBJECT_NAME_MAX)
-    tidy["code"] = _cut(tidy["code"], SUBJECT_CODE_MAX)
     if len(tidy["grade_scale"]) > GRADE_SCALE_MAX:
         tidy["grade_scale"] = ""
     for chapter in tidy["chapters"]:

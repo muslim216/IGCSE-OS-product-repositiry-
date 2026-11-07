@@ -245,8 +245,8 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
         raise HTTPException(status.HTTP_409_CONFLICT, "This syllabus has already been applied")
     if not upload.draft:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No syllabus draft to apply yet")
-    # Re-checked here, not trusted from the PUT: a draft stored by the AI, or
-    # before T-033, never went through it.
+    # Apply is the gate. The PUT is lenient on purpose, so a half-typed value
+    # saves, and a draft stored by the AI or before T-033 was never checked.
     draft = _checked(upload.draft)
 
     if draft.level is None:
