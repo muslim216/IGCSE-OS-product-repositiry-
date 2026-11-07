@@ -319,3 +319,31 @@ test("toggles carry aria-expanded and change it without moving focus off an inpu
   fireEvent.click(all);
   expect(screen.getByRole("button", { name: "Fold all" })).toHaveAttribute("aria-expanded", "true");
 });
+
+test("the grade scale shows the draft's value and a change saves", async () => {
+  const puts = stub();
+  await openDraft();
+
+  const select = screen.getByLabelText("Grade scale") as HTMLSelectElement;
+  expect(select.value).toBe("9-1");
+
+  fireEvent.change(select, { target: { value: "A*-E" } });
+  await waitFor(() => expect(puts).toHaveLength(1));
+  expect((puts[0] as typeof DRAFT).grade_scale).toBe("A*-E");
+});
+
+test("a grade scale the AI could not recognise shows the placeholder", async () => {
+  stub("review", { ...DRAFT, grade_scale: "" });
+  await openDraft();
+
+  const select = screen.getByLabelText("Grade scale") as HTMLSelectElement;
+  expect(select.value).toBe("");
+  expect(screen.getByRole("option", { name: "Choose a grade scale" })).toBeDisabled();
+});
+
+test("an unusual grade scale stays selectable", async () => {
+  stub("review", { ...DRAFT, grade_scale: "A-G" });
+  await openDraft();
+
+  expect((screen.getByLabelText("Grade scale") as HTMLSelectElement).value).toBe("A-G");
+});

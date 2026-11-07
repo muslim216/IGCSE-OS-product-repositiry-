@@ -133,6 +133,8 @@ function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
   );
 }
 
+const GRADE_SCALES = ["9-1", "A*-E"];
+
 const LEVELS: { value: SubjectLevel; label: string }[] = [
   { value: "igcse", label: "IGCSE" },
   { value: "o_level", label: "O Level" },
@@ -396,8 +398,47 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
                 <dd className={dd}>{draft.name}</dd>
               </div>
               <div>
-                <dt className={dt}>Grade scale</dt>
-                <dd className={dd}>{draft.grade_scale}</dd>
+                {editable ? (
+                  <>
+                    <dt>
+                      <label htmlFor="syllabus-grade-scale" className={dt}>
+                        Grade scale
+                      </label>
+                    </dt>
+                    <dd className="mt-1">
+                      <Select
+                        id="syllabus-grade-scale"
+                        value={draft.grade_scale}
+                        onChange={(e) => {
+                          const current = latestDraft();
+                          if (current)
+                            saveDraft.mutate({ ...current, grade_scale: e.target.value });
+                        }}
+                      >
+                        {/* "" is what the server sends when it cannot recognise the
+                          scale; nothing guesses one for the tutor (PROD-2). */}
+                        <option value="" disabled>
+                          Choose a grade scale
+                        </option>
+                        {[
+                          ...GRADE_SCALES,
+                          ...(draft.grade_scale && !GRADE_SCALES.includes(draft.grade_scale)
+                            ? [draft.grade_scale]
+                            : []),
+                        ].map((g) => (
+                          <option key={g} value={g}>
+                            {g}
+                          </option>
+                        ))}
+                      </Select>
+                    </dd>
+                  </>
+                ) : (
+                  <>
+                    <dt className={dt}>Grade scale</dt>
+                    <dd className={dd}>{draft.grade_scale || "Not set"}</dd>
+                  </>
+                )}
               </div>
               <div>
                 {editable ? (
