@@ -298,13 +298,18 @@ def test_a_limit_that_would_stop_every_run_is_refused(monkeypatch, bad):
 
 def test_the_booklet_reader_gets_room_for_both_of_its_ai_calls(monkeypatch):
     """It makes two AI calls in a row, each allowed the full AI deadline, where
-    the default limit leaves room for one."""
+    the default limit leaves room for one, and counts the booklet's pages in
+    the PDF sandbox first, which has its own deadline (T-027)."""
+    from app.services.pdf_sandbox import DEADLINE_SECONDS
+
     monkeypatch.setattr(jobs, "_handlers", {})
     monkeypatch.setattr(jobs, "_timeouts", {})
     register_all()
 
     ai_deadline = get_settings().ai_call_timeout_seconds
-    assert job_timeout_seconds("extract_booklet") == 2 * ai_deadline + JOB_TIMEOUT_MARGIN_SECONDS
+    assert job_timeout_seconds("extract_booklet") == (
+        2 * ai_deadline + DEADLINE_SECONDS + 2 * JOB_TIMEOUT_MARGIN_SECONDS
+    )
     assert job_timeout_seconds("extract_booklet") > job_timeout_seconds("mark_submission")
     assert "mark_submission" not in jobs._timeouts, "single-call jobs keep the default"
 

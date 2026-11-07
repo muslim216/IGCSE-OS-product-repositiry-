@@ -43,6 +43,13 @@ class BookletStatus(str, enum.Enum):
     # while the papers already cut keep their old indexes (`PROD-7`).
     split_failed = "split_failed"
     applied = "applied"
+    # The read or the cut hit one of the limits the PDF is read under
+    # (`services/pdf_sandbox.py`). Final, unlike the two failures above: the
+    # same file would hit the same limit again, so retry, approve and edit all
+    # refuse it, and the way on is a new upload. A status rather than a match
+    # on `error`'s wording, so the check cannot drift from the sentence. No
+    # migration (`DB-5`, `DB-6`).
+    too_complex = "too_complex"
 
 
 class Booklet(TimestampMixin, Base):

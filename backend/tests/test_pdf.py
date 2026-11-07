@@ -123,3 +123,95 @@ def test_a_page_that_fails_while_being_copied_is_refused(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="could not be read"):
         extract_pages(data, 1, 2)
+
+
+@pytest.mark.parametrize("exc", [MemoryError, RecursionError])
+def test_running_out_of_memory_or_stack_is_not_called_unreadable(monkeypatch, exc) -> None:
+    """T-027. A file that exhausts memory or the stack is not "unreadable": the
+    sandbox reports it as too complex, which is never retried, where an
+    unreadable file is shown to the tutor as an ordinary problem with it."""
+    data = _pdf(3)
+
+    def _exhaust(*args, **kwargs):
+        raise exc()
+
+    monkeypatch.setattr("app.services.pdf.PdfReader", _exhaust)
+    with pytest.raises(exc):
+        page_count(data)
+
+
+@pytest.mark.parametrize("exc", [MemoryError, RecursionError])
+def test_running_out_while_copying_a_page_is_not_called_unreadable(monkeypatch, exc) -> None:
+    data = _pdf(3)
+
+    def _exhaust(*args, **kwargs):
+        raise exc()
+
+    monkeypatch.setattr("app.services.pdf.PdfWriter.add_page", _exhaust)
+    with pytest.raises(exc):
+        extract_pages(data, 1, 2)
+
+
+def test_a_plain_value_error_from_the_library_is_unreadable(monkeypatch) -> None:
+    """pypdf raises a bare ValueError for some corrupt files (one fuzzed file
+    gave "invalid literal for int() with base 10: b'a456'"). It is an ordinary
+    unreadable file, in our words, not something that escapes as itself."""
+    from app.services.job_errors import DocumentProblem
+
+    data = _pdf(1)
+
+    def _corrupt(*args, **kwargs):
+        raise ValueError("invalid literal for int() with base 10: b'a456'")
+
+    monkeypatch.setattr("app.services.pdf.PdfReader", _corrupt)
+    with pytest.raises(DocumentProblem) as caught:
+        page_count(data)
+    assert str(caught.value) == "This file could not be read as a PDF."
+    assert isinstance(caught.value.__cause__, ValueError)
+
+
+def test_an_encrypted_pdf_has_its_own_type() -> None:
+    from app.services.pdf import PdfEncrypted
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=110, height=200)
+    writer.encrypt("hunter2")
+    out = BytesIO()
+    writer.write(out)
+    data = out.getvalue()
+    with pytest.raises(PdfEncrypted, match="password-protected"):
+        page_count(data)
+
+
+def test_extract_ranges_parses_once_and_matches_extract_pages(monkeypatch) -> None:
+    """T-027. One parse for every range of a file: re-parsing a 20 MB booklet
+    once per paper could spend the child's whole CPU allowance on 60 papers."""
+    from app.services import pdf
+    from app.services.pdf import extract_ranges
+
+    data = _pdf(6)
+    ranges = [(1, 2), (3, 6), (2, 4)]
+    expected = [extract_pages(data, first, last) for first, last in ranges]
+
+    parses = []
+    real = pdf.PdfReader
+
+    def _counting(*args, **kwargs):
+        parses.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pdf, "PdfReader", _counting)
+    total, pieces = extract_ranges(data, ranges)
+    assert total == 6
+    assert list(pieces) == expected
+    assert len(parses) == 1
+
+
+def test_extract_ranges_refuses_a_bad_range_with_todays_message() -> None:
+    from app.services.pdf import extract_ranges
+
+    data = _pdf(3)
+    _total, pieces = extract_ranges(data, [(1, 1), (2, 9)])
+    assert next(pieces) == extract_pages(data, 1, 1)
+    with pytest.raises(ValueError, match="runs past the last page"):
+        next(pieces)

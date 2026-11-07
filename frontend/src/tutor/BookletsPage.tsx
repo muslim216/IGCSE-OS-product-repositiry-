@@ -37,6 +37,10 @@ function statusLine(b: Booklet): string {
       return "Reading the list of papers out of this booklet…";
     case "extraction_failed":
       return "Couldn't read this booklet. Try again, or upload a clearer PDF.";
+    case "too_complex":
+      // Final: the server refuses a retry, since the same file would fail the
+      // same way. The way on is a new upload.
+      return "Couldn't read this PDF safely. Save it as a new PDF or in smaller parts, and upload it again.";
     case "review":
       return "Ready for you to check.";
     case "applying":
@@ -443,12 +447,19 @@ export default function BookletsPage() {
                         <p className="font-medium text-ink-900">{b.display_title}</p>
                         <p
                           className={
-                            b.status === "extraction_failed" ? "text-risk-600" : "text-ink-500"
+                            b.status === "extraction_failed" || b.status === "too_complex"
+                              ? "text-risk-600"
+                              : "text-ink-500"
                           }
                           aria-live="polite"
                         >
                           {statusLine(b)}
                         </p>
+                        {/* The server writes this one sentence itself, never a
+                            job's raw text, so it is shown as it is. */}
+                        {b.status === "too_complex" && b.error && (
+                          <p className="mt-1 text-xs text-ink-500">{b.error}</p>
+                        )}
                         {b.status === "extraction_failed" && b.error && (
                           <details className="mt-1 text-xs text-ink-500">
                             <summary className="cursor-pointer">What went wrong</summary>
@@ -491,8 +502,11 @@ export default function BookletsPage() {
                         )}
                       </div>
                     </div>
-                    <Reveal open={openId === b.id} className="pt-3">
-                      {openId === b.id && (
+                    {/* Only while the list is still the tutor's to correct: once
+                        approved (or refused as too complex) the server takes no
+                        edit or approval, so Save and Approve must not show. */}
+                    <Reveal open={openId === b.id && b.status === "review"} className="pt-3">
+                      {openId === b.id && b.status === "review" && (
                         <>
                           {detail.isLoading ? (
                             <SectionSkeleton rows={4} label="Loading the papers" />

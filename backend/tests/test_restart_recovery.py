@@ -282,11 +282,19 @@ def test_the_window_covers_the_longest_job_and_comes_back_in_minutes(monkeypatch
     monkeypatch.setattr(jobs, "_give_ups", {})
     register_all()
 
+    from app.services.pdf_sandbox import DEADLINE_SECONDS
+
     # The longest since T-028: a syllabus read or a plan draft, allowed the
     # essential AI deadline. That moved the window from about 34 minutes to
-    # about 51, for every job type, which the design accepted.
+    # about 51, for every job type, which the design accepted. The booklet read
+    # (two AI calls plus its page count in the PDF sandbox, T-027) stays below it.
     essential = get_settings().ai_essential_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS
-    booklet = 2 * get_settings().ai_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS
+    booklet = (
+        2 * get_settings().ai_call_timeout_seconds
+        + DEADLINE_SECONDS
+        + 2 * JOB_TIMEOUT_MARGIN_SECONDS
+    )
+    assert jobs._timeouts["extract_booklet"] == booklet
     assert essential > booklet
     assert max(jobs._timeouts.values()) == essential
     assert orphan_reclaim_seconds() == essential + GIVE_UP_TIMEOUT_SECONDS + ORPHAN_GRACE_SECONDS
