@@ -27,15 +27,15 @@ COPY seed ./seed
 
 # The app itself only: --no-deps because resolving anything here would undo the
 # locks, --no-build-isolation so the build uses the locked setuptools above.
-RUN pip install --no-cache-dir --no-deps --no-build-isolation --only-binary :all: .
-
-# The account an uploaded PDF is read under (app/services/pdf_child.py). The
-# API still runs as root here, so the child drops to this account before it
+#
+# Then the account an uploaded PDF is read under (app/services/pdf_child.py).
+# The API still runs as root here, so the child drops to this account before it
 # reads anything: no home, no shell, owning nothing, and unable to reach the
 # API process or anything only root can read. T-009, which gives the API an
 # account of its own, must keep this one separate from it. No USER line for the
-# app is set here.
-RUN groupadd --system pdfsandbox \
+# app is set here. One RUN for both, so the image has one layer fewer.
+RUN pip install --no-cache-dir --no-deps --no-build-isolation --only-binary :all: . \
+    && groupadd --system pdfsandbox \
     && useradd --system --gid pdfsandbox --no-create-home --home-dir /nonexistent \
         --shell /usr/sbin/nologin pdfsandbox
 
