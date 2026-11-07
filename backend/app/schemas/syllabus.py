@@ -48,7 +48,8 @@ def _column_length(model: Any, name: str) -> int:
     """The declared length of a String column, so these limits cannot drift
     from what the database will actually take."""
     length = getattr(model.__table__.c[name].type, "length", None)
-    assert isinstance(length, int), f"{model.__name__}.{name} has no length"
+    if not isinstance(length, int):
+        raise TypeError(f"{model.__name__}.{name} has no declared length")
     return length
 
 
@@ -61,8 +62,8 @@ CHAPTER_TITLE_MAX = _column_length(Chapter, "title")
 TOPIC_CODE_MAX = _column_length(Topic, "code")
 TOPIC_TITLE_MAX = _column_length(Topic, "title")
 WEIGHT_MAX = 100.0
-# Chapter, topic, sub-topic: the depth syllabuses print and the extraction asks
-# for. A node deeper than that is one the review page has no row for.
+# Chapter, topic, sub-topic: the depth syllabuses print and the most the
+# extraction produces (T-025). Deeper nodes can only come from a hand-made body.
 TREE_DEPTH_MAX = 3
 
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")

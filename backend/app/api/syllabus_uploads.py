@@ -20,12 +20,13 @@ from app.models import (
 from app.schemas.syllabus import (
     GRADE_SCALE_MAX,
     SyllabusDraft,
+    SyllabusDraftChecked,
     SyllabusUploadDetail,
     SyllabusUploadOut,
 )
 from app.services import storage
 from app.services.plan_reflow import enqueue_reflow_for_subject
-from app.services.syllabus_extraction import DraftNotValid, SyllabusDraftChecked, check_draft
+from app.services.syllabus_extraction import DraftNotValid, check_draft
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
