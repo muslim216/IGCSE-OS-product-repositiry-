@@ -20,6 +20,7 @@ owned by one tenant since task 2.2, but two tutors sharing an organization share
 these numbers, and no tenant may ever move another's (`SEC-8`).
 """
 
+import re
 from collections import defaultdict
 
 from sqlalchemy import delete, select
@@ -57,6 +58,34 @@ DEFAULT_BOUNDARIES: dict[str, list[dict]] = {
         {"grade": "U", "min": 0.0},
     ],
 }
+
+
+# Each known scale and the forms that clearly name it, matched after dashes and
+# "to" are made a plain hyphen and case is folded. The lookarounds keep a scale
+# from being found inside a longer number or word ("19-10" is not "9-1").
+_SCALE_FORMS: dict[str, re.Pattern[str]] = {
+    # Either way round: some boards write the scale lowest grade first.
+    "9-1": re.compile(r"(?<![0-9])(?:9\s*-\s*1|1\s*-\s*9)(?![0-9])"),
+    "A*-E": re.compile(r"(?<![a-z0-9])a\s*\*\s*-\s*e(?![a-z0-9])"),
+}
+_DASHES = re.compile(r"[‐-―−]|\bto\b")
+
+
+def normalise_grade_scale(text: object) -> str | None:
+    """The known scale `text` clearly names, or None.
+
+    A syllabus read by the AI states its scale in its own words ("A*-E (IAL);
+    A-E (IAS)", "Grades 9 to 1"), and only a known key gets default
+    boundaries. None when nothing is recognised, and also when two different
+    known scales are named: choosing between them is the tutor's call, not a
+    guess made here. Nothing maps to a scale outside `DEFAULT_BOUNDARIES`, so
+    "A*-G" stays unrecognised rather than becoming an invented one (PROD-1).
+    """
+    if not isinstance(text, str):
+        return None
+    folded = _DASHES.sub("-", text.casefold())
+    found = {key for key, form in _SCALE_FORMS.items() if form.search(folded)}
+    return found.pop() if len(found) == 1 else None
 
 
 def defaults_for_scale(grade_scale: str) -> list[dict]:

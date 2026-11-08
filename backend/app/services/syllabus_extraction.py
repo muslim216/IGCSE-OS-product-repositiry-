@@ -12,14 +12,32 @@ They are tutor-entered (task 2.4, AV-11)."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import math
+import re
+from typing import Any
+
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import release_connection
 from app.models import AiFeature, SubjectLevel, SyllabusUpload, SyllabusUploadStatus, User
-from app.schemas.syllabus import SyllabusDraft
+from app.schemas.syllabus import (
+    CHAPTER_CODE_MAX,
+    CHAPTER_TITLE_MAX,
+    CONTROL_CHARACTERS,
+    EXAM_BOARD_MAX,
+    GRADE_SCALE_MAX,
+    SUBJECT_CODE_MAX,
+    SUBJECT_NAME_MAX,
+    TOPIC_CODE_MAX,
+    TOPIC_TITLE_MAX,
+    WEIGHT_MAX,
+    SyllabusDraft,
+    SyllabusDraftChecked,
+    position_label,
+)
 from app.services import storage
 from app.services.ai import (
     file_block,
@@ -28,6 +46,7 @@ from app.services.ai import (
     require_parsed,
     structured_complete,
 )
+from app.services.grade_boundaries import normalise_grade_scale
 from app.services.job_errors import DocumentProblem, safe_job_error
 
 
@@ -159,4 +178,243 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
     # Through `SyllabusDraft`, so a sub-topic is stored with `children: []` like
     # every other node: the review page and the apply step read that list on
     # every node, and `ExtractedSubtopic` has none to dump.
-    upload.draft = SyllabusDraft.model_validate(result.model_dump()).model_dump()
+    upload.draft = SyllabusDraft.model_validate(tidy_answer(result.model_dump())).model_dump()
+
+
+# Whitespace control characters (a line break inside a title) become a space so
+# the words either side stay apart; the rest are dropped.
+_LINE_BREAKS = re.compile(r"\s*[\t\n\r\v\f\x1c-\x1f\x85\u2028\u2029]\s*")
+# What Postgres cannot store at all: NUL in text, and lone surrogates, which
+# have no UTF-8 encoding.
+_UNSTORABLE = re.compile(r"[\x00\ud800-\udfff]")
+
+
+def _tidy_text(value: str, *, is_code: bool) -> str:
+    value = _UNSTORABLE.sub("", value)
+    if is_code:
+        # Only the ends. Dropping a character inside a code would silently
+        # make it another code ("1.1\x962" would become "1.12" and merge with
+        # that topic at apply); kept, apply names it for the tutor to fix.
+        return value.strip()
+    return CONTROL_CHARACTERS.sub("", _LINE_BREAKS.sub(" ", value)).strip()
+
+
+def _tidy_strings(value: Any, *, is_code: bool = False) -> Any:
+    if isinstance(value, str):
+        return _tidy_text(value, is_code=is_code)
+    if isinstance(value, dict):
+        return {key: _tidy_strings(item, is_code=key == "code") for key, item in value.items()}
+    if isinstance(value, list):
+        return [_tidy_strings(item) for item in value]
+    return value
+
+
+def _known_scale(scale: object) -> str:
+    """The scale in its known form ("A*-E (IAL); A-E (IAS)" is "A*-E"), else
+    as written. Anything not text is no scale at all."""
+    if not isinstance(scale, str):
+        return ""
+    return normalise_grade_scale(scale) or scale
+
+
+def _cut(value: str, length: int) -> str:
+    return value[:length].rstrip()
+
+
+# The fields the review page cannot edit, and their columns. They are cut to
+# fit on every path, never refused: a refusal would be a draft nobody could
+# ever apply. Each is visible to the tutor at review.
+_NOT_EDITABLE_ON_THE_PAGE = {
+    "exam_board": EXAM_BOARD_MAX,
+    "name": SUBJECT_NAME_MAX,
+    "code": SUBJECT_CODE_MAX,
+}
+
+
+def _tidy(draft: dict) -> dict:
+    """What every path does to a draft: strings made storable, the scale put in
+    its known form, and the fields the page cannot edit made to fit.
+
+    The subject code is tidied as free text, inner control characters and all,
+    unlike chapter and topic codes: those the tutor can correct when apply
+    names them, this one they cannot.
+    """
+    tidy = _tidy_strings(draft)
+    for field, length in _NOT_EDITABLE_ON_THE_PAGE.items():
+        value = draft.get(field)
+        if isinstance(value, str):
+            tidy[field] = _cut(_tidy_text(value, is_code=False), length)
+    tidy["grade_scale"] = _known_scale(tidy.get("grade_scale"))
+    return tidy
+
+
+def _nodes(nodes: list, at: tuple[int, ...]) -> list[tuple[tuple[int, ...], dict]]:
+    """Every topic under a chapter, depth first, with where it sits."""
+    found: list[tuple[tuple[int, ...], dict]] = []
+    for index, node in enumerate(nodes):
+        if isinstance(node, dict):
+            found.append(((*at, index), node))
+            found.extend(_nodes(node.get("children") or [], (*at, index)))
+    return found
+
+
+def _every_node(draft: dict) -> list[tuple[tuple[int, ...], dict]]:
+    found = []
+    for c, chapter in enumerate(draft.get("chapters") or []):
+        if isinstance(chapter, dict):
+            found.extend(_nodes(chapter.get("topics") or [], (c,)))
+    return found
+
+
+def tidy_answer(answer: dict) -> dict:
+    """The AI's answer made storable, without failing the read.
+
+    The read has been paid for and may have taken most of an hour, so nothing
+    here refuses it (T-033). NUL and lone surrogates go everywhere (Postgres
+    cannot store them), other control characters from free text. The exam
+    board, subject name and subject code are cut to fit by `_tidy`, as on every
+    path. Titles are cut here too: a shortened title is harmless and in front
+    of the tutor at review. Chapter and topic codes are never cut, because a
+    cut code is silently a different code; an over-long one stays as read, the
+    tutor can edit it, and apply names it. A grade scale is put in its known
+    form, and one that is unknown and too long to store is left empty for the
+    tutor to choose.
+    """
+    tidy = _tidy(answer)
+    if len(tidy["grade_scale"]) > GRADE_SCALE_MAX:
+        tidy["grade_scale"] = ""
+    for chapter in tidy["chapters"]:
+        chapter["title"] = _cut(chapter["title"], CHAPTER_TITLE_MAX)
+    for _, topic in _every_node(tidy):
+        topic["title"] = _cut(topic["title"], TOPIC_TITLE_MAX)
+    return tidy
+
+
+class DraftNotValid(Exception):
+    """A draft that cannot be saved or applied, with the reason in words for the tutor."""
+
+
+def tidy_for_save(draft: dict) -> dict:
+    """A draft the tutor is part-way through editing, made storable.
+
+    Deliberately lenient (T-033 review). The review page saves the whole draft
+    on every keystroke and puts the stored one back when a save fails, so
+    refusing a half-typed value would undo the tutor's typing: a code being
+    shortened a character at a time, a code cleared to retype, a weight of "0"
+    on the way to "0.5", and one bad field would block every other edit.
+    Length, emptiness and the shape of the tree are checked at apply
+    (`check_draft`). Refused here: only a weight that is not a finite number,
+    which a JSON column on Postgres cannot store.
+    """
+    tidy = _tidy(draft)
+    for at, node in _every_node(tidy):
+        weight = node.get("weight")
+        if isinstance(weight, float) and not math.isfinite(weight):
+            raise DraftNotValid(f"{_label(tidy, at)}: the weight must be a number.")
+    return tidy
+
+
+def check_draft(raw: object) -> SyllabusDraftChecked:
+    """`raw` held to the tables it will be applied into, or `DraftNotValid`.
+
+    Tidied first, as extraction and the save are, so a draft stored before
+    T-033 applies: the AI's own wording of a grade scale ("A*-E (IAL); A-E
+    (IAS)") and a line break in a title. Then the strict schema; its failures
+    become words naming the field. Those words may repeat a code from the
+    draft, the tutor's own text and already on their screen, but never
+    Pydantic's echo of the input or anything from the database.
+    """
+    data = _tidy(raw) if isinstance(raw, dict) else raw
+    try:
+        return SyllabusDraftChecked.model_validate(data)
+    except ValidationError as exc:
+        raise DraftNotValid(_in_plain_words(exc, data)) from None
+
+
+_SUBJECT_FIELDS = {
+    "exam_board": "exam board",
+    "code": "subject code",
+    "name": "subject name",
+    "level": "level",
+    "grade_scale": "grade scale",
+    "chapters": "chapter list",
+}
+_NODE_FIELDS = {
+    "code": "code",
+    "title": "title",
+    "weight": "weight",
+    "topics": "topic list",
+    "children": "sub-topic list",
+}
+_OUR_OWN_WORDS = {"too_deep", "repeats_ancestor"}
+_NUMBER_PROBLEMS = {
+    "finite_number",
+    "greater_than",
+    "less_than_equal",
+    "float_parsing",
+    "float_type",
+}
+_SHOWN_AT_MOST = 3
+
+
+def _problem(kind: str, field: str, ctx: dict) -> str:
+    if kind == "string_too_long":
+        return f"the {field} is longer than {ctx.get('max_length')} characters"
+    if kind == "string_too_short":
+        return f"the {field} is empty"
+    if kind == "missing":
+        return f"the {field} is missing"
+    if kind == "control_character":
+        return f"the {field} contains a control character"
+    if kind in _NUMBER_PROBLEMS:
+        return f"the {field} must be a number above 0 and at most {WEIGHT_MAX:g}"
+    if kind == "enum":
+        return f"the {field} must be IGCSE, O Level or A Level"
+    return f"the {field} is not valid"
+
+
+def _label(data: object, at: tuple[int, ...]) -> str:
+    """Where a node sits: by its code when that is a usable one, else by
+    position, counted from one as the tutor counts rows on screen."""
+    node: object = data
+    for depth, index in enumerate(at):
+        key = "chapters" if depth == 0 else "topics" if depth == 1 else "children"
+        items = node.get(key) if isinstance(node, dict) else None
+        node = items[index] if isinstance(items, list) and index < len(items) else None
+    code = node.get("code") if isinstance(node, dict) else None
+    if isinstance(code, str):
+        code = code.strip()
+        longest = CHAPTER_CODE_MAX if len(at) == 1 else TOPIC_CODE_MAX
+        if 0 < len(code) <= longest and not CONTROL_CHARACTERS.search(code):
+            return f"{'Chapter' if len(at) == 1 else 'Topic'} {code}"
+    return position_label(at)
+
+
+def _sentence(error: Any, data: object) -> str:
+    loc = list(error["loc"])
+    kind = error["type"]
+    if not loc:
+        if kind in _OUR_OWN_WORDS:
+            return f"{error['msg']}."
+        return "The syllabus draft is not valid."
+    path: list[tuple[str, int]] = []
+    while len(loc) >= 2 and isinstance(loc[0], str) and isinstance(loc[1], int):
+        path.append((loc.pop(0), loc.pop(0)))
+    if not path:
+        field = _SUBJECT_FIELDS.get(str(loc[0]), str(loc[0]).replace("_", " "))
+        problem = _problem(kind, field, error.get("ctx") or {})
+        return f"{problem[0].upper()}{problem[1:]}."
+    label = _label(data, tuple(index for _, index in path))
+    if not loc:
+        return f"{label} is not valid."
+    field = _NODE_FIELDS.get(str(loc[0]), str(loc[0]).replace("_", " "))
+    return f"{label}: {_problem(kind, field, error.get('ctx') or {})}."
+
+
+def _in_plain_words(exc: ValidationError, data: object) -> str:
+    sentences = list(dict.fromkeys(_sentence(error, data) for error in exc.errors()))
+    shown = " ".join(sentences[:_SHOWN_AT_MOST])
+    hidden = len(sentences) - _SHOWN_AT_MOST
+    if hidden > 0:
+        shown += f" ({hidden} more to fix.)"
+    return shown

@@ -17,14 +17,22 @@ from app.models import (
     User,
     UserRole,
 )
-from app.schemas.syllabus import SyllabusDraft, SyllabusUploadDetail, SyllabusUploadOut
+from app.schemas.syllabus import (
+    GRADE_SCALE_MAX,
+    SyllabusDraft,
+    SyllabusDraftChecked,
+    SyllabusUploadDetail,
+    SyllabusUploadOut,
+)
 from app.services import storage
 from app.services.plan_reflow import enqueue_reflow_for_subject
+from app.services.syllabus_extraction import DraftNotValid, check_draft, tidy_for_save
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
 
 SYLLABUS_BEING_READ_MESSAGE = "A syllabus is already being read. Try again when it finishes."
+CHOOSE_GRADE_SCALE_MESSAGE = "Choose the grade scale before applying"
 EXTRACT_SYLLABUS_JOB = "extract_syllabus"
 
 
@@ -98,6 +106,16 @@ async def _owned_upload(db, user: User, upload_id: int) -> SyllabusUpload:
         if owner is None or owner.organization_id != user.organization_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Syllabus upload not found")
     return upload
+
+
+def _checked(draft: object) -> SyllabusDraftChecked:
+    """The draft held to its columns, or a 422 in plain words naming the field
+    (T-033). Without this a value too long for its column reached the database
+    and came back as a 500."""
+    try:
+        return check_draft(draft)
+    except DraftNotValid as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
 
 
 def _detail(upload: SyllabusUpload) -> SyllabusUploadDetail:
@@ -185,7 +203,12 @@ async def edit_draft(
     upload = await _owned_upload(db, user, upload_id)
     if upload.status == SyllabusUploadStatus.applied:
         raise HTTPException(status.HTTP_409_CONFLICT, "This syllabus has already been applied")
-    upload.draft = body.model_dump()
+    # Lenient on purpose: the review page saves on every keystroke, so a
+    # half-typed code or weight must save. Apply is the strict gate (T-033).
+    try:
+        upload.draft = tidy_for_save(body.model_dump())
+    except DraftNotValid as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
     if upload.status == SyllabusUploadStatus.extraction_failed:
         upload.status = SyllabusUploadStatus.review
     await db.commit()
@@ -222,7 +245,9 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
         raise HTTPException(status.HTTP_409_CONFLICT, "This syllabus has already been applied")
     if not upload.draft:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No syllabus draft to apply yet")
-    draft = SyllabusDraft.model_validate(upload.draft)
+    # Apply is the gate. The PUT is lenient on purpose, so a half-typed value
+    # saves, and a draft stored by the AI or before T-033 was never checked.
+    draft = _checked(upload.draft)
 
     if draft.level is None:
         # AV-7: nothing may assume an IGCSE-shaped world, and PROD-2 forbids
@@ -233,6 +258,11 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "Choose a level (IGCSE, O Level or A Level) before applying this syllabus",
         )
+    if not draft.grade_scale or len(draft.grade_scale) > GRADE_SCALE_MAX:
+        # Only an empty scale or one too long to store. An unknown one that
+        # fits applies as it always has, with no default boundaries; refusing
+        # it would block every A*-G subject.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, CHOOSE_GRADE_SCALE_MESSAGE)
 
     subject = await db.scalar(
         select(Subject).where(
