@@ -12,6 +12,6 @@ export async function axeViolations(element: Element, disabled: string[] = []): 
   );
   const results = await axe.run(element, { rules });
   return results.violations.map(
-    (v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(" | ")})`,
+    (v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.flat().join(" ")).join(" | ")})`,
   );
 }

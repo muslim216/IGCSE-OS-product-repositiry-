@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Home, Settings } from "lucide-react";
@@ -93,6 +93,7 @@ function stubFetch() {
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+      // Matching is by order: /today/overview must stay above /today.
       if (url.includes("/auth/me")) return json(TUTOR);
       if (url.includes("/narrative")) {
         return json({ text: null, generated_at: null, prompt_version: null });
@@ -165,8 +166,18 @@ function stubFetch() {
   );
 }
 
+/* These pages render without AppShell, which supplies the <main> landmark they
+   sit in at runtime, so axe's "region" rule would misfire on them alone. The
+   shell tests keep it on. */
+const NO_SHELL = ["region"];
+
 function client() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
+/** Axe must see the final DOM, so wait until every query has settled. */
+async function settled(qc: QueryClient) {
+  await waitFor(() => expect(qc.isFetching()).toBe(0));
 }
 
 beforeEach(() => {
@@ -184,8 +195,9 @@ test("AppShell with the tutor navigation has no violations", async () => {
     { to: "/tutor", label: "Overview", icon: Home },
     { to: "/tutor/settings", label: "Settings", icon: Settings },
   ];
-  const { container } = render(
-    <QueryClientProvider client={client()}>
+  const qc = client();
+  const { baseElement } = render(
+    <QueryClientProvider client={qc}>
       <AuthProvider>
         <MemoryRouter initialEntries={["/tutor"]}>
           <Routes>
@@ -198,21 +210,23 @@ test("AppShell with the tutor navigation has no violations", async () => {
     </QueryClientProvider>,
   );
   await screen.findByRole("heading", { name: "Overview" });
-  expect(await axeViolations(container)).toEqual([]);
+  await settled(qc);
+  expect(await axeViolations(baseElement)).toEqual([]);
 });
 
 test("the shared Modal, open, has no violations", async () => {
-  render(
+  const { baseElement } = render(
     <Modal open onClose={() => {}} title="Sure?">
       <button type="button">First</button>
     </Modal>,
   );
-  const dialog = screen.getByRole("dialog");
-  expect(await axeViolations(dialog)).toEqual([]);
+  screen.getByRole("dialog");
+  // The whole body, so the portalled backdrop button is checked too.
+  expect(await axeViolations(baseElement)).toEqual([]);
 });
 
 test("PageHeader with actions has no violations", async () => {
-  const { container } = render(
+  const { baseElement } = render(
     <MemoryRouter>
       <PageHeader
         title="Homework"
@@ -222,22 +236,23 @@ test("PageHeader with actions has no violations", async () => {
       />
     </MemoryRouter>,
   );
-  expect(await axeViolations(container)).toEqual([]);
+  expect(await axeViolations(baseElement)).toEqual([]);
 });
 
 test("SectionCard has no violations", async () => {
-  const { container } = render(
+  const { baseElement } = render(
     <SectionCard>
       <h2>Classes</h2>
       <p>Physics A</p>
     </SectionCard>,
   );
-  expect(await axeViolations(container)).toEqual([]);
+  expect(await axeViolations(baseElement, NO_SHELL)).toEqual([]);
 });
 
 test("the tutor home has no violations", async () => {
-  const { container } = render(
-    <QueryClientProvider client={client()}>
+  const qc = client();
+  const { baseElement } = render(
+    <QueryClientProvider client={qc}>
       <AuthProvider>
         <MemoryRouter initialEntries={["/tutor"]}>
           <App />
@@ -246,29 +261,41 @@ test("the tutor home has no violations", async () => {
     </QueryClientProvider>,
   );
   await screen.findByText("Physics A");
-  expect(await axeViolations(container)).toEqual([]);
+  await screen.findByText("Forces worksheet");
+  await settled(qc);
+  expect(await axeViolations(baseElement)).toEqual([]);
 });
 
 test("the student home has no violations", async () => {
-  const { container } = render(
-    <QueryClientProvider client={client()}>
+  const qc = client();
+  const { baseElement } = render(
+    <QueryClientProvider client={qc}>
       <MemoryRouter>
         <StudentHomePage />
       </MemoryRouter>
     </QueryClientProvider>,
   );
   await screen.findByText("72%");
-  expect(await axeViolations(container)).toEqual([]);
+  await screen.findByText("Moles, p.2");
+  await settled(qc);
+  expect(await axeViolations(baseElement, NO_SHELL)).toEqual([]);
 });
 
 test("the parent dashboard has no violations", async () => {
-  const { container } = render(
-    <QueryClientProvider client={client()}>
+  const qc = client();
+  const { baseElement } = render(
+    <QueryClientProvider client={qc}>
       <MemoryRouter>
         <ParentDashboard />
       </MemoryRouter>
     </QueryClientProvider>,
   );
   await screen.findByText("What you can do");
-  expect(await axeViolations(container)).toEqual([]);
+  await settled(qc);
+  expect(await axeViolations(baseElement, NO_SHELL)).toEqual([]);
+});
+
+test("the check can fail: an image with no text alternative is reported", async () => {
+  const { baseElement } = render(<img src="x" />);
+  expect(await axeViolations(baseElement)).not.toEqual([]);
 });
