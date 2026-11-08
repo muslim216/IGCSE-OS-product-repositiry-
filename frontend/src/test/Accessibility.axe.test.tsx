@@ -11,6 +11,7 @@ import { Modal, SectionCard } from "../components/ui";
 import ParentDashboard from "../parent/ParentDashboard";
 import StudentHomePage from "../student/StudentHomePage";
 import { axeViolations } from "./axe";
+import { subject } from "./fixtures/subject";
 
 /* An automatic accessibility check (UX standards, "No automated accessibility
    testing"). Each test renders a shared piece or a role's home and fails with
@@ -36,37 +37,6 @@ const CLASS_ROW = {
   member_count: 11,
   students_with_evidence: 9,
   awaiting_review_count: 1,
-};
-
-const SUBJECT = {
-  subject_id: 1,
-  subject_name: "Chemistry",
-  exam_board: "Edexcel IGCSE",
-  grade_scale: "9-1",
-  score: 72,
-  predicted_grade: "7",
-  status: "on_track",
-  averaging_score: 64,
-  averaging_grade: "6",
-  marked_piece_count: 5,
-  direction: "up",
-  month_delta: null,
-  topics_with_evidence: 2,
-  topic_count: 4,
-  homework_assignment_count: null,
-  homework_submitted_count: null,
-  topics: [],
-  weak_topics: [],
-  is_updating: false,
-  calculation_failed: false,
-  computed_at: null,
-  rationale: null,
-  recommended_revision: null,
-  verdict: {
-    status: "on_track",
-    reason_topics: [],
-    next_step: "Nothing flagged in this subject.",
-  },
 };
 
 const WEEK = {
@@ -133,7 +103,7 @@ function stubFetch() {
         ]);
       }
       if (url.includes("/readiness/me")) {
-        return json({ student_id: 1, student_name: "Sara", subjects: [SUBJECT] });
+        return json({ student_id: 1, student_name: "Sara", subjects: [subject()] });
       }
       if (url.includes("/me/assignments")) {
         return json([
@@ -156,7 +126,7 @@ function stubFetch() {
       }
       if (url.includes("/me/children")) return json([{ id: 2, name: "Sara", role: "student" }]);
       if (url.includes("/readiness/students/")) {
-        return json({ student_id: 2, student_name: "Sara", subjects: [SUBJECT] });
+        return json({ student_id: 2, student_name: "Sara", subjects: [subject()] });
       }
       if (url.includes("/attendance")) {
         return json({ lessons: 0, present: 0, absent: 0, not_taken: 0, rate: null, classes: [] });
@@ -291,11 +261,13 @@ test("the parent dashboard has no violations", async () => {
     </QueryClientProvider>,
   );
   await screen.findByText("What you can do");
+  // The readiness request succeeded, not the error screen.
+  await screen.findAllByText("Chemistry");
   await settled(qc);
   expect(await axeViolations(baseElement, NO_SHELL)).toEqual([]);
 });
 
 test("the check can fail: an image with no text alternative is reported", async () => {
   const { baseElement } = render(<img src="x" />);
-  expect(await axeViolations(baseElement)).not.toEqual([]);
+  expect((await axeViolations(baseElement)).join("\n")).toContain("image-alt");
 });
