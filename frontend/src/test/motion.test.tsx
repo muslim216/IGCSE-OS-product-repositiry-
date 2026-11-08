@@ -153,19 +153,24 @@ test("the exit timer and the exit animation are the same length", () => {
   expect(css).toMatch(new RegExp(`--dur-exit:\\s*${EXIT_MS}ms;`));
 });
 
+// These guard the stylesheet text, since jsdom has no :hover to exercise.
 test("only a card that is clickable lifts on hover or sinks on press", () => {
   const css = readFileSync(resolve(__dirname, "../index.css"), "utf8");
   const interactive = ':is(a, button, [role="button"], [role="link"], .avora-card-interactive)';
-  const lift = css.match(/[^{}]*\{\s*transform: translateY\(var\(--card-lift\)\);/);
-  const press = css.match(/[^{}]*\{\s*transform: scale\(var\(--card-press\)\);/);
-  expect(lift?.[0]).toContain(interactive);
-  expect(press?.[0]).toContain(interactive);
-  // The rule that cancels the lift inside a scrolling pane is gated the same way.
-  const pane = css.match(/\[class\*="overflow-y-auto"\][^{}]*\{\s*transform: none;/);
-  expect(pane?.[0]).toContain(interactive);
+  const rules = {
+    lift: /[^{}]*\{\s*transform: translateY\(var\(--card-lift\)\);/g,
+    press: /[^{}]*\{\s*transform: scale\(var\(--card-press\)\);/g,
+    // The rule that cancels the lift inside a scrolling pane.
+    pane: /\[class\*="overflow-y-auto"\][^{}]*\{\s*transform: none;/g,
+  };
+  for (const re of Object.values(rules)) {
+    const found = css.match(re) ?? [];
+    expect(found.length).toBeGreaterThan(0);
+    for (const rule of found) expect(rule).toContain(interactive);
+  }
 });
 
 test("the class cards on the tutor home are marked as clickable", () => {
   const src = readFileSync(resolve(__dirname, "../tutor/today/ClassCards.tsx"), "utf8");
-  expect(src).toMatch(/<li className="avora-card-interactive /);
+  expect(src).toMatch(/className="[^"]*\bavora-card-interactive\b/);
 });

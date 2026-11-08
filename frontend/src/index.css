@@ -1021,7 +1021,7 @@ details > summary {
       -0.75rem 0 0 var(--color-surface-muted),
       0.75rem 0 0 var(--color-surface-muted);
   }
-  :is(a, button):is(
+  :is(a, button, [role="button"], [role="link"], .avora-card-interactive):is(
       .avora-card,
       .rounded-xl.border.bg-surface,
       .rounded-lg.border.bg-surface,
@@ -1052,8 +1052,11 @@ details > summary {
       color var(--dur-color) var(--ease-color),
       transform var(--dur-release) var(--ease-release);
   }
-  /* Only a card that is itself the link or the button sinks. A panel that
-     merely contains a button must not squash when that button is pressed. */
+  /* A card sinks when it is itself a link or button, carries role=button or
+     role=link, or is marked avora-card-interactive (a stretched link). A panel
+     that merely contains a button must not squash when that button is pressed.
+     On a marked card, pressing an inner link also sinks the card; that is
+     accepted because that link also acts. */
   :is(a, button, [role="button"], [role="link"], .avora-card-interactive):is(
       .avora-card,
       .rounded-xl.border.bg-surface,
