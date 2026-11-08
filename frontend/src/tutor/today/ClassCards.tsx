@@ -64,7 +64,7 @@ function Card({ row, card }: { row: ClassStripRow; card: ClassCard | undefined }
   const fix = attention ? attentionLink(row.group_id, attention) : null;
   const direction = readinessDirectionLine(row, card);
   return (
-    <li className="relative rounded-xl border border-line bg-surface p-4 hover:border-brand-600">
+    <li className="avora-card-interactive relative rounded-xl border border-line bg-surface p-4 hover:border-brand-600">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {/* The stretched link makes the whole card open the class while the
             attention link below stays its own, separate link. */}

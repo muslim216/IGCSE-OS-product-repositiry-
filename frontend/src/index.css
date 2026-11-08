@@ -603,7 +603,15 @@ h3 {
    alike without each page being edited. Dialogs and popovers share the
    signature and are excluded: they are positioned, and a card is not. So is a
    bordered list — its rows answer the pointer one at a time, and lifting the
-   whole list under every one of them would be the list answering for them. */
+   whole list under every one of them would be the list answering for them.
+
+   Only a card that does something when clicked lifts, casts the hover shadow
+   and sinks on press: one that is itself a link or a button, or one marked
+   `avora-card-interactive` because its link is stretched over it (the class
+   cards on the tutor home). A card that only holds information, or merely
+   contains a button, stays still: movement that promises a click which does
+   nothing misleads (owner, 8 Nov 2026). The hover and press rules below carry
+   the same restriction. */
 :is(
   .avora-card,
   .rounded-xl.border.bg-surface,
@@ -970,7 +978,7 @@ details > summary {
   .avora-btn:not(:disabled, .avora-btn-flat):hover {
     box-shadow: var(--btn-shadow-hover);
   }
-  :is(
+  :is(a, button, [role="button"], [role="link"], .avora-card-interactive):is(
       .avora-card,
       .rounded-xl.border.bg-surface,
       .rounded-lg.border.bg-surface,
@@ -982,7 +990,7 @@ details > summary {
   /* Inside a scrolling pane a lifted card would rise past the pane's clip
      edge and lose its top, so there it keeps the shadow and stays put. */
   [class*="overflow-y-auto"]
-    :is(
+    :is(a, button, [role="button"], [role="link"], .avora-card-interactive):is(
       .avora-card,
       .rounded-xl.border.bg-surface,
       .rounded-lg.border.bg-surface,
@@ -1046,7 +1054,7 @@ details > summary {
   }
   /* Only a card that is itself the link or the button sinks. A panel that
      merely contains a button must not squash when that button is pressed. */
-  :is(a, button):is(
+  :is(a, button, [role="button"], [role="link"], .avora-card-interactive):is(
       .avora-card,
       .rounded-xl.border.bg-surface,
       .rounded-lg.border.bg-surface,
