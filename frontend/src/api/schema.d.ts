@@ -7609,21 +7609,21 @@ export interface components {
             /** Predicted Grade */
             predicted_grade: string | null;
             /** Status */
-            status?: string | null;
+            status: ("on_track" | "needs_attention" | "at_risk") | null;
             verdict: components["schemas"]["SubjectVerdict"];
             /** Averaging Score */
-            averaging_score?: number | null;
+            averaging_score: number | null;
             /** Averaging Grade */
-            averaging_grade?: string | null;
+            averaging_grade: string | null;
             /**
              * Marked Piece Count
              * @default 0
              */
             marked_piece_count: number;
             /** Direction */
-            direction?: string | null;
+            direction: ("up" | "flat" | "down") | null;
             /** Month Delta */
-            month_delta?: number | null;
+            month_delta: number | null;
             /**
              * Topics With Evidence
              * @default 0
@@ -7635,9 +7635,9 @@ export interface components {
              */
             topic_count: number;
             /** Homework Assignment Count */
-            homework_assignment_count?: number | null;
+            homework_assignment_count: number | null;
             /** Homework Submitted Count */
-            homework_submitted_count?: number | null;
+            homework_submitted_count: number | null;
             /** Topics */
             topics: components["schemas"]["TopicReadinessOut"][];
             /** Weak Topics */
@@ -7653,11 +7653,11 @@ export interface components {
              */
             calculation_failed: boolean;
             /** Computed At */
-            computed_at?: string | null;
+            computed_at: string | null;
             /** Rationale */
-            rationale?: string | null;
+            rationale: string | null;
             /** Recommended Revision */
-            recommended_revision?: string | null;
+            recommended_revision: string | null;
         };
         /** SubjectStatus */
         SubjectStatus: {

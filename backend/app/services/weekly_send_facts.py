@@ -49,7 +49,6 @@ from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
-from typing import Literal, cast
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, select
@@ -80,7 +79,7 @@ from app.models import (
     UserRole,
     WorkKind,
 )
-from app.schemas.readiness import VerdictStatus
+from app.schemas.readiness import TrendDirection, VerdictStatus
 from app.services.attendance import counts_for_attendance, in_zone
 from app.services.class_readiness import LearnerSnapshot, latest_learner_snapshots
 from app.services.class_verdicts import class_verdicts
@@ -93,7 +92,7 @@ from app.services.today_overview import SlotRow, _slot_rows, _slot_select, missi
 
 logger = logging.getLogger(__name__)
 
-Direction = Literal["up", "flat", "down"]
+Direction = TrendDirection
 
 #: Days between the two ends of "readiness since last week".
 COMPARISON_DAYS = 7
@@ -734,11 +733,8 @@ def _direction(pairs: list[tuple[float, float]]) -> Direction | None:
     run at both ends is not a week of history and is left out."""
     if not pairs:
         return None
-    return cast(
-        Direction | None,
-        trend_direction(
-            [sum(o for o, _ in pairs) / len(pairs), sum(n for _, n in pairs) / len(pairs)]
-        ),
+    return trend_direction(
+        [sum(o for o, _ in pairs) / len(pairs), sum(n for _, n in pairs) / len(pairs)]
     )
 
 

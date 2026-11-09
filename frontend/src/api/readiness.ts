@@ -1,88 +1,15 @@
-import type { ReadinessStatus } from "../components/ui";
-import type { StudentVerdict } from "../lib/studentVerdict";
 import { api } from "./client";
 import type { components } from "./schema";
 
-export interface TopicReadiness {
-  topic_id: number;
-  topic_code: string;
-  topic_title: string;
-  score: number;
-  confidence: string;
-  evidence_count: number;
-  /** Whether this score rests partly or wholly on the tutor's self-declared
-      starting estimate rather than marked work — labelled wherever shown,
-      never blended in silently (PROD-8, UX-20). */
-  tutor_estimate: boolean;
-}
-
-export interface WeakTopic {
-  topic_id: number;
-  topic_code: string;
-  topic_title: string;
-  score: number;
-  /** An AI-picked weak topic can be estimate-only itself — labelled the same
-      way the topic bar it matches is (fix round 1, PROD-8, UX-20). */
-  tutor_estimate: boolean;
-}
-
-export interface SubjectReadiness {
-  subject_id: number;
-  subject_name: string;
-  exam_board: string;
-  grade_scale: string;
-  score: number | null;
-  predicted_grade: string | null;
-  /** Readiness band from the predicted grade's boundary position — the one
-      source of the colour surfaces show. null when there is no grade or no
-      boundaries, and is then rendered as absent, never a defaulted colour. */
-  status: ReadinessStatus | null;
-  /** The one verdict for this subject — identical for tutor, student and
-      parent; each role words it differently (lib/studentVerdict.ts). */
-  verdict: StudentVerdict;
-  /** The plain mean of marked work, mapped through the same boundaries as
-      predicted_grade — backward-looking where the prediction looks forward.
-      null when nothing is marked yet, never 0. */
-  averaging_score: number | null;
-  averaging_grade: string | null;
-  /** How many marked pieces the averaging value came from; 0 exactly when
-      averaging_score is null. */
-  marked_piece_count: number;
-  /** Direction of travel over the trend series. null means too little history
-      to say — render no arrow at all, never "→", which would be a claim. */
-  direction: "up" | "flat" | "down" | null;
-  /** Net movement over the last 30 days, from the same series as `direction` —
-      so a surface can never print an up arrow beside a negative number. null
-      when the series does not span the window; never 0 standing in for that. */
-  month_delta: number | null;
-  /** Coverage: topics carrying evidence over topics that exist. The pair is
-      what lets a surface show `9/11` rather than implying the score speaks
-      for the whole subject. */
-  topics_with_evidence: number;
-  topic_count: number;
-  /** Handed-in count over how many assignments exist — a fact shown beside
-      readiness, never blended into the score (AV-32). Both null when the
-      run has no homework evidence to count, never 0 (PROD-2). */
-  homework_assignment_count: number | null;
-  homework_submitted_count: number | null;
-  topics: TopicReadiness[];
-  weak_topics: WeakTopic[];
-  /** A recompute is queued or running — the score shown is the last known one. */
-  is_updating: boolean;
-  /** The newest run failed: with a score, that score is the last one that
-      worked; without one, the subject couldn't be calculated — not "not
-      enough data yet". */
-  calculation_failed: boolean;
-  computed_at: string | null;
-  rationale: string | null;
-  recommended_revision: string | null;
-}
-
-export interface ReadinessSummary {
-  student_id: number;
-  student_name: string;
-  subjects: SubjectReadiness[];
-}
+// Aliases of the generated schema, never hand-written copies (FE-4, T-044). What
+// each field means, and why an absent value is null rather than 0, is documented
+// once, on the server's schema (backend/app/schemas/readiness.py). Fields the
+// server gives a default are optional here, so a page reads them as possibly
+// missing as well as possibly null.
+export type TopicReadiness = components["schemas"]["TopicReadinessOut"];
+export type WeakTopic = components["schemas"]["WeakTopic"];
+export type SubjectReadiness = components["schemas"]["SubjectReadiness"];
+export type ReadinessSummary = components["schemas"]["StudentReadinessSummary"];
 
 export interface EvidenceItem {
   source_type: string;

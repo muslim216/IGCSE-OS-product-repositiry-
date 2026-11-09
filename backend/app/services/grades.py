@@ -2,6 +2,8 @@
 grade boundaries, and map that predicted grade to a readiness band (the colour
 a surface shows). Both are always presented to users as estimates."""
 
+from app.schemas.readiness import ReadinessBand
+
 
 def predict_grade(score_pct: float, grade_boundaries: list[dict]) -> str:
     """grade_boundaries is an ordered list of {"grade": str, "min": number},
@@ -27,7 +29,7 @@ _ON_TRACK_MAX_INDEX = 2  # indices 0-2 — e.g. 9 8 7, or A* A B
 _NEEDS_ATTENTION_MAX_INDEX = 4  # indices 3-4 — e.g. 6 5, or C D
 
 
-def grade_band(grade: str | None, grade_boundaries: list[dict]) -> str | None:
+def grade_band(grade: str | None, grade_boundaries: list[dict]) -> ReadinessBand | None:
     """The readiness band for a predicted grade, derived from that grade's
     position in the subject's ordered boundary list (highest grade first).
 

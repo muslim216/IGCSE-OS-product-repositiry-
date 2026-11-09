@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AiSynthesisStatus, FactorConfidence, ReadinessSnapshot
+from app.schemas.readiness import TrendDirection
 
 # Evidence at this confidence or better counts as real for a class: only such a
 # Topic Mastery row enters its topic's class mean (services/class_readiness.py).
@@ -32,7 +33,7 @@ DIRECTION_NOISE_BAND = 3.0
 MONTH_WINDOW_DAYS = 30
 
 
-def trend_direction(scores: Sequence[float]) -> str | None:
+def trend_direction(scores: Sequence[float]) -> TrendDirection | None:
     """Direction of travel from an ordered (oldest-first) score series.
 
     Returns "up" | "flat" | "down", or None when there are fewer than two
