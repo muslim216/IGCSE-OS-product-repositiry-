@@ -131,6 +131,7 @@ from app.models import (
 from app.models.base import utcnow
 from app.models.integrations import MeetingParticipant, MeetingProvider
 from app.services import storage
+from app.services.timezones import now_in
 from app.services.work import create_work
 from tests.factories import (
     link_parent,
@@ -143,6 +144,17 @@ from tests.factories import (
     submit_work,
 )
 from tests.test_authorization import _dependency_calls, _iter_api_routes
+
+
+def _today() -> date:
+    """The server's today for an organization with no zone set: the UTC date.
+
+    Not `date.today()`: that is the machine's local date, which east of UTC runs a
+    day ahead of the server's after local midnight, so rows seeded for "today" were
+    "tomorrow" to /today/overview and /me/attendance, and the sweep failed (T-035).
+    """
+    return now_in(None).date()
+
 
 PREFIX = "/api/v1"
 PDF = b"%PDF-1.4 fake"
@@ -649,7 +661,7 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             assignment=assignment,
             student_id=student_id,
             status=SubmissionStatus.needs_review,
-            submitted_at=date.today(),
+            submitted_at=_today(),
         )
         ids["submission_id"] = submission.id
         file = SubmissionFile(
@@ -698,7 +710,7 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             subject_id=subject_id,
             title=f"Test {marker}",
             type=AssessmentType.test,
-            date=date.today(),
+            date=_today(),
         )
         s.add(assessment)
         await s.flush()
@@ -738,11 +750,11 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             **await _stored(organization_id, "file_"),
             **await _stored(organization_id, "mark_scheme_"),
         )
-        lesson = Lesson(organization_id=organization_id, group_id=group_id, date=date.today())
+        lesson = Lesson(organization_id=organization_id, group_id=group_id, date=_today())
         # Never today's weekday: /me/today-lessons must see no slot, whichever day
         # the suite runs (on a Tuesday, weekday=1 made it list one).
         slot = ScheduleSlot(
-            group_id=group_id, weekday=(date.today().weekday() + 3) % 7, start_time=_time()
+            group_id=group_id, weekday=(_today().weekday() + 3) % 7, start_time=_time()
         )
         resource = GroupResource(
             group_id=group_id,
@@ -771,8 +783,8 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
             organization_id=organization_id,
             recipient_user_id=uid,
             audience=WeeklySendAudience.tutor,
-            week_start=date.today(),
-            week_end=date.today() + timedelta(days=6),
+            week_start=_today(),
+            week_end=_today() + timedelta(days=6),
             facts={
                 "window_start": "2026-01-05T00:00:00+00:00",
                 "window_end": "2026-01-12T00:00:00+00:00",
@@ -790,7 +802,7 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
         plan = TeachingPlan(
             organization_id=organization_id,
             group_id=group_id,
-            exam_date=date.today() + timedelta(days=90),
+            exam_date=_today() + timedelta(days=90),
             lessons_per_week=1,
             lesson_minutes=60,
         )
@@ -811,10 +823,10 @@ async def _seed_org(client, tutor, *, code: str, tag: str) -> dict:
         )
         await s.flush()
         plan_slot = PlanSlot(
-            plan_id=plan.id, chapter_id=chapter_id, scheduled_date=date.today(), sequence=1
+            plan_id=plan.id, chapter_id=chapter_id, scheduled_date=_today(), sequence=1
         )
         plan_break = PlanBreak(
-            plan_id=plan.id, start_date=date.today(), end_date=date.today(), label=f"Break {marker}"
+            plan_id=plan.id, start_date=_today(), end_date=_today(), label=f"Break {marker}"
         )
         participant = MeetingParticipant(
             organization_id=organization_id,
