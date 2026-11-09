@@ -118,6 +118,8 @@ test("with no score and a retry queued, both facts are shown", () => {
 
 test("an older API without the field reads as before", () => {
   const { calculation_failed: _omitted, ...old } = base;
+  // The cast is the point: it stands in for a response from before the field
+  // existed, which the current type rightly no longer allows.
   render(<SubjectReadinessCard subject={old as SubjectReadiness} />);
   expect(screen.queryByText(NOT_CALCULATED)).not.toBeInTheDocument();
   expect(screen.getAllByText("Not enough data yet").length).toBeGreaterThan(0);

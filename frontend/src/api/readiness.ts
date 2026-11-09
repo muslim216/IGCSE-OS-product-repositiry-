@@ -3,9 +3,9 @@ import type { components } from "./schema";
 
 // Aliases of the generated schema, never hand-written copies (FE-4, T-044). What
 // each field means, and why an absent value is null rather than 0, is documented
-// once, on the server's schema (backend/app/schemas/readiness.py). Fields the
-// server gives a default are optional here, so a page reads them as possibly
-// missing as well as possibly null.
+// once, on the server's schema (backend/app/schemas/readiness.py). The server
+// marks every SubjectReadiness field as always sent, so a page guards against
+// null where the server says null, and never against a missing field.
 export type TopicReadiness = components["schemas"]["TopicReadinessOut"];
 export type WeakTopic = components["schemas"]["WeakTopic"];
 export type SubjectReadiness = components["schemas"]["SubjectReadiness"];
