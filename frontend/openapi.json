@@ -22059,7 +22059,12 @@
           "status": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "on_track",
+                  "needs_attention",
+                  "at_risk"
+                ]
               },
               {
                 "type": "null"
@@ -22100,7 +22105,12 @@
           "direction": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "up",
+                  "flat",
+                  "down"
+                ]
               },
               {
                 "type": "null"
@@ -22218,9 +22228,24 @@
           "grade_scale",
           "score",
           "predicted_grade",
+          "status",
           "verdict",
+          "averaging_score",
+          "averaging_grade",
+          "marked_piece_count",
+          "direction",
+          "month_delta",
+          "topics_with_evidence",
+          "topic_count",
+          "homework_assignment_count",
+          "homework_submitted_count",
           "topics",
-          "weak_topics"
+          "weak_topics",
+          "is_updating",
+          "calculation_failed",
+          "computed_at",
+          "rationale",
+          "recommended_revision"
         ],
         "title": "SubjectReadiness"
       },

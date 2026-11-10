@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TopicReadinessOut(BaseModel):
@@ -29,6 +29,12 @@ class WeakTopic(BaseModel):
 
 
 VerdictStatus = Literal["on_track", "needs_attention", "at_risk", "not_enough_data"]
+#: The band `grades.grade_band` derives from a predicted grade. Declared as a
+#: closed set, not `str`, so the generated frontend type carries the three
+#: values and a page cannot be written against a fourth (FE-4, T-044).
+ReadinessBand = Literal["on_track", "needs_attention", "at_risk"]
+#: What `readiness_shared.trend_direction` returns; closed for the same reason.
+TrendDirection = Literal["up", "flat", "down"]
 
 
 class SubjectVerdict(BaseModel):
@@ -43,6 +49,11 @@ class SubjectVerdict(BaseModel):
 
 
 class SubjectReadiness(BaseModel):
+    # Every field is always sent, defaults included; without this the published
+    # schema calls the defaulted ones optional, and the generated frontend type
+    # then has a page guard against `undefined` the server never sends (T-044).
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
     subject_id: int
     subject_name: str
     exam_board: str
@@ -53,7 +64,7 @@ class SubjectReadiness(BaseModel):
     # the predicted grade's position in the subject's boundary list — the one
     # source of the colour every surface shows (UX-28). None when there is no
     # grade or no boundaries, so an absent band renders as absent (PROD-2).
-    status: str | None = None
+    status: ReadinessBand | None = None
     # The shared verdict built from this subject's status and weak topics.
     verdict: SubjectVerdict
     # The plain mean of marked work, mapped through the same boundaries as the
@@ -68,7 +79,7 @@ class SubjectReadiness(BaseModel):
     # Direction of travel over the trend series: "up" | "flat" | "down", or
     # None when there is too little history to say (UX-31). None renders as no
     # arrow — a "→" would claim a movement that was never measured (PROD-2).
-    direction: str | None = None
+    direction: TrendDirection | None = None
     # How far the score has moved over the last 30 days, from the *same* series
     # as `direction` above — so a surface can never print "up" beside "-4".
     # None when the series does not span the window (a student in their first
