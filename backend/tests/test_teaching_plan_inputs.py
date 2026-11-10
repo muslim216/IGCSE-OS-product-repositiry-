@@ -1,6 +1,6 @@
 """Task 6.2 (AV-15): the teaching-plan inputs on a class."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -8,21 +8,9 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import PlanBreak, TeachingPlan, TeachingPlanStatus
 from app.services.teaching_plan import accepted_plan_for_group
-from app.services.timezones import now_in
-from tests.factories import org_id
+from tests.factories import org_id, server_today
 
-
-def _today() -> date:
-    """The server's today for an organization with no zone set: the UTC date.
-
-    Not `date.today()`: that is the machine's local date, which east of UTC runs a
-    day ahead of the server's after local midnight, so a case written as "today"
-    became "tomorrow" to the server and these tests failed late at night (T-035).
-    """
-    return now_in(None).date()
-
-
-EXAM = (_today() + timedelta(days=120)).isoformat()
+EXAM = (server_today() + timedelta(days=120)).isoformat()
 
 
 def _inputs(**over):
@@ -32,7 +20,7 @@ def _inputs(**over):
 
 
 def _day(offset: int) -> str:
-    return (_today() + timedelta(days=offset)).isoformat()
+    return (server_today() + timedelta(days=offset)).isoformat()
 
 
 @pytest.fixture
@@ -64,13 +52,15 @@ async def _make_accepted(group, tutor):
             organization_id=await org_id(s),
             group_id=group["id"],
             status=TeachingPlanStatus.accepted,
-            exam_date=_today() + timedelta(days=200),
+            exam_date=server_today() + timedelta(days=200),
             lessons_per_week=3,
             lesson_minutes=90,
             accepted_at=datetime.now(timezone.utc),
             accepted_by_id=tutor["user"]["id"],
         )
-        plan.breaks = [PlanBreak(start_date=_today(), end_date=_today(), label="Half term")]
+        plan.breaks = [
+            PlanBreak(start_date=server_today(), end_date=server_today(), label="Half term")
+        ]
         s.add(plan)
         await s.commit()
         return plan.id
@@ -173,7 +163,7 @@ async def test_only_the_accepted_plan_is_returned_by_the_reader(client, tutor, g
         {"lessons_per_week": 15},
         {"lesson_minutes": 14},
         {"lesson_minutes": 301},
-        {"exam_date": _today().isoformat()},
+        {"exam_date": server_today().isoformat()},
         {"exam_date": _day(-3)},
         {"past_paper_start_date": _day(121)},
     ],
@@ -359,7 +349,7 @@ async def test_losing_the_create_race_updates_the_winners_draft(client, tutor, g
                         organization_id=await org_id(other),
                         group_id=group_id,
                         status=TeachingPlanStatus.draft,
-                        exam_date=_today() + timedelta(days=50),
+                        exam_date=server_today() + timedelta(days=50),
                         lessons_per_week=1,
                         lesson_minutes=30,
                     )
@@ -381,3 +371,12 @@ async def test_losing_the_create_race_updates_the_winners_draft(client, tutor, g
             )
         ).all()
     assert len(drafts) == 1
+
+
+def test_validate_inputs_default_today_is_the_utc_date():
+    """Tomorrow (UTC) is accepted whatever the machine's local date is (T-046)."""
+    from app.services.teaching_plan import PlanInputError, validate_inputs
+
+    validate_inputs(server_today() + timedelta(days=1), 2, 60, None)
+    with pytest.raises(PlanInputError):
+        validate_inputs(server_today(), 2, 60, None)

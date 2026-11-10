@@ -6,7 +6,7 @@ that stays one edit next time rather than twenty-five.
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import select
 
@@ -39,7 +39,18 @@ from app.models import (
 from app.models.base import utcnow
 from app.security import hash_password
 from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
+from app.services.timezones import now_in
 from app.services.work import create_work
+
+
+def server_today() -> date:
+    """The server's today for an organization with no zone set: the UTC date.
+
+    Not `date.today()`: that is the machine's local date, which east of UTC runs a
+    day ahead of the server's after local midnight, so a case written as "today"
+    becomes "tomorrow" to the server and the test fails late at night (T-035).
+    """
+    return now_in(None).date()
 
 
 async def org_id(session) -> int:

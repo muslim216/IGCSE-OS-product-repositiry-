@@ -22,7 +22,7 @@ from app.models import (
 )
 from app.services import plan_lessons
 from tests.conftest import sqlite_only_race
-from tests.factories import make_subject, org_id
+from tests.factories import make_subject, org_id, server_today
 
 EXAM = date.today() + timedelta(days=120)
 
@@ -76,7 +76,7 @@ def _next(group):
 
 
 async def _post_lesson(client, tutor, group, **over):
-    body = {"group_id": group["id"], "date": date.today().isoformat(), **over}
+    body = {"group_id": group["id"], "date": server_today().isoformat(), **over}
     return await client.post("/api/v1/lessons", json=body, headers=tutor["headers"])
 
 
@@ -224,7 +224,7 @@ async def test_a_slot_in_another_organization_is_404(client, tutor, group, chapt
         "/api/v1/lessons",
         json={
             "group_id": other_group.json()["id"],
-            "date": date.today().isoformat(),
+            "date": server_today().isoformat(),
             "plan_slot_id": slots[0],
         },
         headers=headers,
@@ -439,7 +439,9 @@ async def test_a_slot_taken_between_the_read_and_the_claim_is_409_and_creates_no
     async def read_then_lose_the_race(session, grp, slot_id):
         slot = await real(session, grp, slot_id)  # the read sees it free...
         async with async_session() as other:  # ...then another request takes it
-            rival = Lesson(organization_id=grp.organization_id, group_id=grp.id, date=date.today())
+            rival = Lesson(
+                organization_id=grp.organization_id, group_id=grp.id, date=server_today()
+            )
             other.add(rival)
             await other.flush()
             (await other.get(PlanSlot, slot_id)).lesson_id = rival.id

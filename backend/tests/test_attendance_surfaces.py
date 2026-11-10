@@ -1,6 +1,6 @@
 """Attendance read surfaces for student, parent and tutor (task 7.2, AV-44)."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import update
@@ -14,6 +14,7 @@ from app.models import (
     Organization,
     User,
 )
+from tests.factories import server_today
 from tests.test_attendance import _lesson, _other_tutor, _put
 from tests.test_custom_criteria import _parent_of, _second_student
 
@@ -21,7 +22,7 @@ API = "/api/v1"
 
 
 def _day(offset: int) -> str:
-    return (date.today() - timedelta(days=offset)).isoformat()
+    return (server_today() - timedelta(days=offset)).isoformat()
 
 
 async def _mark(client, tutor, group, sid, offset, state):
@@ -151,7 +152,7 @@ async def test_service_never_reads_another_organizations_lessons(client, history
 
 
 async def _today_lesson(client, tutor, group, **extra):
-    return await _lesson(client, tutor, group, date=date.today().isoformat(), **extra)
+    return await _lesson(client, tutor, group, date=server_today().isoformat(), **extra)
 
 
 async def _attendance_at(student_id, group_org, now):
@@ -217,7 +218,7 @@ async def _second_tutor_class(group, student_id, mark_state):
         s.add(b)
         await s.flush()
         s.add(GroupMember(group_id=b.id, student_id=student_id))
-        # Yesterday in UTC, not the machine's local `date.today()`: east of UTC that is
+        # Yesterday in UTC, not the machine's local `server_today()`: east of UTC that is
         # already tomorrow for a UTC organization, and a future lesson is not counted.
         held = datetime.now(timezone.utc).date() - timedelta(days=1)
         lesson = Lesson(organization_id=a.organization_id, group_id=b.id, date=held)
@@ -256,7 +257,7 @@ async def test_a_tutor_sees_only_the_classes_they_teach(client, tutor, group, st
 
 async def test_join_cutoff_uses_the_organizations_timezone(client, tutor, group, student):
     sid = student["user"]["id"]
-    boundary = date.today() - timedelta(days=5)
+    boundary = server_today() - timedelta(days=5)
     # 20:00 UTC on `boundary` is already the next morning in Auckland (UTC+12/13).
     joined_utc = datetime(boundary.year, boundary.month, boundary.day, 20, 0)
     async with async_session() as s:

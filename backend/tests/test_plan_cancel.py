@@ -13,6 +13,7 @@ from app.models import (
     TeachingPlanStatus,
 )
 from app.services.plan_reflow import reflow_plan_slots
+from tests.factories import server_today
 from tests.plan_world import (
     add_timetable,
     lessons,
@@ -191,7 +192,7 @@ async def test_cancelling_a_lesson_that_has_a_lesson_is_409(client, tutor, group
     ch, dates, plan_id, ids = await _world(group, tutor, subject)
     made = await client.post(
         "/api/v1/lessons",
-        json={"group_id": group["id"], "date": date.today().isoformat(), "plan_slot_id": ids[0]},
+        json={"group_id": group["id"], "date": server_today().isoformat(), "plan_slot_id": ids[0]},
         headers=tutor["headers"],
     )
     assert made.status_code == 201, made.text

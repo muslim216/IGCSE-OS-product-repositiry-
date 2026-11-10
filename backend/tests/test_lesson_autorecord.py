@@ -28,6 +28,7 @@ from app.services.lesson_autorecord import (
     record_planned_lesson,
 )
 from app.workers.jobs import process_one_job
+from tests.factories import server_today
 from tests.plan_world import (
     add_timetable,
     lesson_topic_ids,
@@ -65,7 +66,7 @@ async def _pending_sweeps() -> list[Job]:
 
 
 def _past_week():
-    today = date.today()
+    today = server_today()
     return [today - timedelta(days=d) for d in (6, 4, 2)]
 
 
@@ -313,11 +314,11 @@ async def test_a_tutor_recorded_lesson_deleted_frees_its_slot_as_before(
 ):
     ch = await make_chapters(subject)
     plan_id, (slot_id,) = await make_plan(
-        group, tutor, [(ch["c1"], date.today() + timedelta(days=3), time(16, 0))]
+        group, tutor, [(ch["c1"], server_today() + timedelta(days=3), time(16, 0))]
     )
     resp = await client.post(
         "/api/v1/lessons",
-        json={"group_id": group["id"], "date": date.today().isoformat(), "plan_slot_id": slot_id},
+        json={"group_id": group["id"], "date": server_today().isoformat(), "plan_slot_id": slot_id},
         headers=tutor["headers"],
     )
     lesson_id = resp.json()["id"]
@@ -430,7 +431,7 @@ async def test_a_slot_moved_since_the_listing_is_not_recorded(client, tutor, gro
     now = datetime.now(timezone.utc)
     async with async_session() as s:
         assert await due_slot_ids(s, now) == [slot_id]
-    moved = date.today() + timedelta(days=5)
+    moved = server_today() + timedelta(days=5)
     edit = await client.patch(
         f"/api/v1/groups/{group['id']}/plan/slots/{slot_id}",
         json={"scheduled_date": moved.isoformat()},
@@ -498,7 +499,7 @@ async def test_pre_acceptance_gaps_do_not_crowd_the_batch(
 ):
     monkeypatch.setattr(lesson_autorecord, "MAX_PER_SWEEP", 2)  # SQL limit is 8
     ch = await make_chapters(subject)
-    today = date.today()
+    today = server_today()
     old = [(ch["c1"], today - timedelta(days=60 + i), time(9, 0)) for i in range(10)]
     recent = (ch["c1"], today - timedelta(days=1), time(9, 0))
     _, ids = await make_plan(
@@ -588,7 +589,7 @@ async def test_paging_reaches_due_slots_behind_backed_off_ones(
 ):
     monkeypatch.setattr(lesson_autorecord, "PAGE_SIZE", 2)
     ch = await make_chapters(subject)
-    today = date.today()
+    today = server_today()
     _, ids = await make_plan(
         group, tutor, [(ch["c1"], today - timedelta(days=9 - i), time(9, 0)) for i in range(4)]
     )
