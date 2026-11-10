@@ -46,7 +46,6 @@ from app.services.plan_drafting import PLAN_DRAFT_JOB, enqueue_plan_draft, renum
 from app.services.plan_start_times import timetable_start_times
 from app.services.plan_timing import split_topics, timetable_default
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
-from app.services.timezones import now_in
 
 
 class PlanInputError(ValueError):
@@ -226,11 +225,10 @@ def validate_inputs(
     lesson_minutes: int,
     past_paper_start_date: date | None,
     *,
-    today: date | None = None,
+    today: date,
 ) -> None:
-    # The UTC date, as `now_in(None)` gives it: the machine's local date runs a day ahead
-    # east of UTC, so an exam date that is today to the server would read as already past.
-    today = today or now_in(None).date()
+    # Required, no default: the server's date is not the tutor's calendar date, so every caller
+    # passes the organization's own "today" and mypy catches one that forgets.
     lo, hi = LESSONS_PER_WEEK_RANGE
     if not lo <= lessons_per_week <= hi:
         raise PlanInputError(f"Lessons per week must be between {lo} and {hi}")
@@ -266,7 +264,7 @@ async def save_plan_inputs(
     lessons_per_week: int,
     lesson_minutes: int,
     past_paper_start_date: date | None,
-    today: date | None = None,
+    today: date,
 ) -> TeachingPlan:
     """Create or update the class's draft. An accepted plan is never touched here:
     changing a live plan's inputs is a re-plan (task 6.6)."""

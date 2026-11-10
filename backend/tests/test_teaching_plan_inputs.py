@@ -371,12 +371,3 @@ async def test_losing_the_create_race_updates_the_winners_draft(client, tutor, g
             )
         ).all()
     assert len(drafts) == 1
-
-
-def test_validate_inputs_default_today_is_the_utc_date():
-    """Tomorrow (UTC) is accepted whatever the machine's local date is (T-046)."""
-    from app.services.teaching_plan import PlanInputError, validate_inputs
-
-    validate_inputs(server_today() + timedelta(days=1), 2, 60, None)
-    with pytest.raises(PlanInputError):
-        validate_inputs(server_today(), 2, 60, None)

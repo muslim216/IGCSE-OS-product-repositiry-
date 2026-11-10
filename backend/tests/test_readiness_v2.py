@@ -55,7 +55,7 @@ from app.services.readiness_v2 import (
 )
 from app.services.readiness_v2_ai import ReadinessSynthesis, compute_readiness_v2
 from app.services.work import create_work
-from tests.factories import make_mistake_category, make_past_paper
+from tests.factories import make_mistake_category, make_past_paper, server_today
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 NOW = datetime.now(timezone.utc)
@@ -1511,7 +1511,7 @@ async def test_an_accepted_plan_past_its_start_date_scores(client, tutor, world)
         tutor,
         world,
         status=TeachingPlanStatus.accepted,
-        start=date.today() - timedelta(days=1),
+        start=server_today() - timedelta(days=1),
     )
     row = await _past_paper_row(world, "pp-gate-past")
     assert row.score == 90.0
