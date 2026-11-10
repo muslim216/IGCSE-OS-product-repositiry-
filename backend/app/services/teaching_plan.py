@@ -225,9 +225,10 @@ def validate_inputs(
     lesson_minutes: int,
     past_paper_start_date: date | None,
     *,
-    today: date | None = None,
+    today: date,
 ) -> None:
-    today = today or date.today()
+    # Required, no default: the server's date is not the tutor's calendar date, so every caller
+    # passes the organization's own "today" and mypy catches one that forgets.
     lo, hi = LESSONS_PER_WEEK_RANGE
     if not lo <= lessons_per_week <= hi:
         raise PlanInputError(f"Lessons per week must be between {lo} and {hi}")
@@ -263,7 +264,7 @@ async def save_plan_inputs(
     lessons_per_week: int,
     lesson_minutes: int,
     past_paper_start_date: date | None,
-    today: date | None = None,
+    today: date,
 ) -> TeachingPlan:
     """Create or update the class's draft. An accepted plan is never touched here:
     changing a live plan's inputs is a re-plan (task 6.6)."""

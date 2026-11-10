@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 from app.db import async_session
 from app.models import Lesson, PlanSlot, PlanSlotProvenance, TeachingPlan, TeachingPlanStatus
 from app.services import teaching_plan as service
+from tests.factories import server_today
 from tests.test_teaching_plan_accept import (
     _accepted_plan,
     _edit,
@@ -103,7 +104,7 @@ async def test_a_slot_confirmed_during_an_edit_keeps_its_lesson_and_is_not_demot
     plan_id, ids = await _accepted_plan(group, tutor, chapters)
     async with async_session() as s:
         org = (await s.get(TeachingPlan, plan_id)).organization_id
-        lesson = Lesson(organization_id=org, group_id=group["id"], date=date.today())
+        lesson = Lesson(organization_id=org, group_id=group["id"], date=server_today())
         s.add(lesson)
         await s.commit()
         lesson_id = lesson.id

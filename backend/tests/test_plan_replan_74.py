@@ -16,6 +16,7 @@ from app.models import (
 )
 from app.services.plan_replan import replan
 from app.services.teaching_plan import accept_plan
+from tests.factories import server_today
 from tests.plan_world import make_chapters, make_plan, slot_rows
 
 FUTURE = date.today() + timedelta(days=14)
@@ -54,7 +55,7 @@ async def test_replan_does_not_carry_a_cancelled_slot_and_copies_start_times(
 
     async with async_session() as s:
         g = await s.get(Group, group["id"])
-        await replan(s, group=g, today=date.today())
+        await replan(s, group=g, today=server_today())
 
     carried = await _draft_of(group["id"])
     assert [(r.scheduled_date, r.start_time) for r in carried] == [(FUTURE, time(18, 30))]

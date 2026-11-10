@@ -8,7 +8,7 @@ retry is given only where it can help, and the summary says which state it is.
 """
 
 import asyncio
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select, update
@@ -27,7 +27,7 @@ from app.services import readiness_v2_ai
 from app.services.ai import AIOutputTruncatedError, AITimeoutError
 from app.services.readiness_v2_ai import ReadinessSynthesis, compute_readiness_v2
 from app.workers.jobs import enqueue, process_one_job
-from tests.factories import subject_defaults
+from tests.factories import server_today, subject_defaults
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 JOB = "compute_readiness_v2"
@@ -43,7 +43,7 @@ async def _marked_work(client, tutor, world) -> None:  # noqa: F811
             "subject_id": world["subject_id"],
             "title": "Mock",
             "type": "mock",
-            "date": date.today().isoformat(),
+            "date": server_today().isoformat(),
             "scores": [score | {"marks": 10, "max_marks": 20}],
         },
         headers=tutor["headers"],
