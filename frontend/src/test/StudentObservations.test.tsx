@@ -34,7 +34,7 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/tutor/students/2"]}>
+      <MemoryRouter initialEntries={["/tutor/students/2?tab=notes"]}>
         <Routes>
           <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
         </Routes>
