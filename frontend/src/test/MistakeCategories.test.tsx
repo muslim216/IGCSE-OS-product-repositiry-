@@ -181,18 +181,23 @@ test("a saved category keeps its id, so a second save edits rather than duplicat
   await screen.findByDisplayValue("Careless");
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
-  await waitFor(() => expect(saved).toHaveLength(1));
+  await waitFor(() => expect(saved).toHaveLength(1), { timeout: 5000 });
   // First save: the offered defaults carry no id, so they are new.
   expect((saved[0] as { categories: { id?: number }[] }).categories.every((c) => !c.id)).toBe(true);
 
   // The request body is recorded before the reply lands. Clicking again in that
   // gap hits a button still disabled by the save in flight and is dropped, which
   // on a slow runner left this waiting for a second save that was never sent.
-  await waitFor(() =>
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: /save/i }).disabled).toBe(false),
+  // Wait for the success toast (the reply has been applied) with a generous
+  // timeout, since the 1s default is shorter than a loaded runner's save.
+  await screen.findByText("Mistake categories saved.", {}, { timeout: 5000 });
+  await waitFor(
+    () =>
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: /save/i }).disabled).toBe(false),
+    { timeout: 5000 },
   );
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
-  await waitFor(() => expect(saved).toHaveLength(2));
+  await waitFor(() => expect(saved).toHaveLength(2), { timeout: 5000 });
   // Second save: every row now carries the id the first reply gave it.
   expect((saved[1] as { categories: { id?: number }[] }).categories.every((c) => !!c.id)).toBe(
     true,
