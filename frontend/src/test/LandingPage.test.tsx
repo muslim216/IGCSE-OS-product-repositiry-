@@ -82,3 +82,10 @@ test("the page does not call the pilot closed while sign-up is open", () => {
     /closed pilot|small (number|group) of tutors/i,
   );
 });
+
+test("the hero says what happens when there is no official mark scheme", () => {
+  renderPage();
+  expect(screen.getByRole("main").textContent).toMatch(
+    /isn't sure of, or every mark when there's no official scheme/,
+  );
+});

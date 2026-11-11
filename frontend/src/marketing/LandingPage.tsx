@@ -195,9 +195,10 @@ export default function LandingPage() {
               Hand back marked homework without spending your evening on it.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-ink-500">
-              Students photograph their handwritten work. avora marks each answer against the
-              official mark scheme and asks you only about the ones it isn't sure of. Every mark
-              adds to a readiness picture that you, the student and the parent all see.
+              Students photograph their handwritten work. avora marks each answer against the mark
+              scheme and asks you only about the ones it isn't sure of, or every mark when there's
+              no official scheme to check against. Every mark adds to a readiness picture that you,
+              the student and the parent all see.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link to="/signup" className={buttonClasses("primary", "lg")}>
