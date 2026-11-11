@@ -73,7 +73,7 @@ const LOOP = [
 
 const FACTS = [
   { icon: Camera, text: "Marks handwritten work from a phone photo" },
-  { icon: ScrollText, text: "Checks every answer against the mark scheme" },
+  { icon: ScrollText, text: "Checks each answer against the mark scheme" },
   { icon: Eye, text: "Asks you when it isn't sure" },
   { icon: Gauge, text: "Every number traces back to the work" },
 ];
@@ -191,13 +191,13 @@ export default function LandingPage() {
           <GhostMark className="-right-20 top-10" />
           <div className="relative mx-auto max-w-6xl px-6 pt-16 sm:pt-24">
             <p className="avora-label">For IGCSE tutors</p>
-            <h1 className="mt-5 max-w-3xl text-[2.5rem] leading-[1.08] tracking-[-0.02em] text-ink-900 sm:text-6xl">
+            <h1 className="mt-5 max-w-3xl text-balance text-[2.5rem] leading-[1.08] tracking-[-0.02em] text-ink-900 sm:text-6xl">
               Hand back marked homework without spending your evening on it.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-ink-500">
-              Students photograph their handwritten work. avora marks each answer against the mark
-              scheme and asks you only about the ones it isn't sure of. Every mark adds to a
-              readiness picture that you, the student and the parent all see.
+              Students photograph their handwritten work. avora marks each answer against the
+              official mark scheme and asks you only about the ones it isn't sure of. Every mark
+              adds to a readiness picture that you, the student and the parent all see.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link to="/signup" className={buttonClasses("primary", "lg")}>
@@ -325,24 +325,25 @@ export default function LandingPage() {
                   answer.
                 </p>
                 <p>
-                  It's in a closed pilot with a small number of tutors. There are no logos or
-                  testimonials on this page because there aren't any yet. When there are, they'll be
-                  real.
+                  It's in its pilot, and free while it is. There are no logos or testimonials on
+                  this page because there aren't any yet. When there are, they'll be real.
                 </p>
                 <p>
-                  Everything on this page is something the product does today. If you use it and
-                  something is wrong or missing, tell me. That is what the pilot is for.
+                  Everything on this page is something the product does today.
+                  {/* Asks for contact only when there is an inbox to send it to. */}
+                  {SITE.contactEmail &&
+                    ` If you use it and something is wrong or missing, email ${SITE.contactEmail}. That is what the pilot is for.`}
                 </p>
               </div>
               <p className="mt-8 font-display text-xl italic text-ink-900">Anas</p>
               <p className="text-sm text-ink-500">Building avora</p>
             </div>
             <div className="mt-14 border-t border-line pt-8">
-              <p className="avora-label">What the pilot is</p>
+              <h3 className="avora-label">What the pilot is</h3>
               <ul className="mt-4 grid gap-4 text-ink-700 sm:grid-cols-3">
                 <li>Free, every feature, for every class you teach.</li>
-                <li>A small group of tutors, so each one is heard.</li>
-                <li>In return, tell us when something is wrong.</li>
+                <li>Open to any IGCSE tutor, in any subject.</li>
+                <li>Paid plans come later, with 40% off a pilot tutor's first 12 months.</li>
               </ul>
             </div>
           </div>
@@ -508,7 +509,7 @@ export default function LandingPage() {
             <div className="divide-y divide-line border-y border-line">
               {faqItems().map(({ q, a }) => (
                 <details key={q} className="group py-5">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium text-ink-900">
+                  <summary className="flex cursor-pointer list-none [&::-webkit-details-marker]:hidden items-center justify-between gap-4 font-medium text-ink-900">
                     {q}
                     <span
                       aria-hidden

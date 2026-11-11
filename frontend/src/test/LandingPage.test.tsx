@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 
 /* The public landing page's copy rules: the exact headline, the two entry
    points, the founder's note, no em-dashes, and a contact FAQ entry that only
@@ -30,7 +30,6 @@ function renderPage() {
 beforeEach(() => {
   site.SITE.contactEmail = null;
 });
-afterEach(() => vi.restoreAllMocks());
 
 test("the headline is the human one", () => {
   renderPage();
@@ -67,9 +66,19 @@ test("the page copy has no em-dashes", () => {
 test("the contact FAQ entry appears only when a contact email is set", () => {
   const first = renderPage();
   expect(screen.queryByText("Can I talk to a person?")).toBeNull();
+  // With no inbox, the page must not ask the reader to get in touch.
+  expect(screen.getByRole("main").textContent).not.toMatch(/tell me|tell us|email /i);
   first.unmount();
 
   site.SITE.contactEmail = "hello@example.com";
   renderPage();
   expect(screen.getByText("Can I talk to a person?")).toBeTruthy();
+  expect(screen.getByRole("main").textContent).toContain("email hello@example.com");
+});
+
+test("the page does not call the pilot closed while sign-up is open", () => {
+  renderPage();
+  expect(screen.getByRole("main").textContent).not.toMatch(
+    /closed pilot|small (number|group) of tutors/i,
+  );
 });
