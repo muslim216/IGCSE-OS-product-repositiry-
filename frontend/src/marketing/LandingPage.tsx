@@ -14,6 +14,7 @@ import {
 import { AvoraGrain, GhostMark, SectionOrnament } from "../components/brand";
 import { buttonClasses } from "../components/controls";
 import { useDocumentTitle } from "../components/page";
+import { SITE } from "../lib/site";
 import { SiteFooter, SiteHeader } from "./SiteChrome";
 
 /* Every claim on this page has to be true of the product as built — a
@@ -23,25 +24,25 @@ import { SiteFooter, SiteHeader } from "./SiteChrome";
    behaviour CLAUDE.md binds the code to. No customer logos, counts or quotes
    appear until real ones exist. */
 
-/* The work that isn't teaching — the pain avora exists to remove. Each line is
+/* The work around the lesson — the pain avora exists to remove. Each line is
    grounded in the actual product: the homework-marking pipeline, the readiness
    engine, the traceable predicted grade, and the shared parent record. */
 const PAIN = [
   {
     title: "Marking eats your evenings",
-    body: "Every set of homework is a stack of photos to work through by hand, question by question, against the scheme. It has to be done, and it is always you who does it.",
+    body: "A set of homework is a stack of phone photos to work through question by question against the scheme. It has to be done, and it's always you who does it.",
   },
   {
     title: "You can't see who's slipping until it shows",
-    body: "Readiness lives in your head and a spreadsheet. There's no topic-level picture of which student is quietly falling behind, or in what.",
+    body: "Readiness lives in your head and a spreadsheet. There's no topic-by-topic view of which student is quietly falling behind, or in what.",
   },
   {
     title: "Predicted grades are a gut feeling",
-    body: "Boundaries in one place, marks in another, and an estimate in between that you can't really show your working for.",
+    body: "Boundaries in one place, marks in another, and an estimate in between that you can't show your working for.",
   },
   {
-    title: "Parents need updating — separately",
-    body: "Another report to write each time, drawn from information you already hold but have to reassemble by hand.",
+    title: "Parents need updating, separately",
+    body: "Another message to write each time, built from things you already know but have to put together again by hand.",
   },
 ];
 
@@ -51,40 +52,40 @@ const LOOP = [
   {
     icon: ClipboardCheck,
     title: "Set homework in one step",
-    body: "Drop in a past paper. The questions are pulled out automatically and it goes straight to your class — no second pass.",
+    body: "Drop in a past paper. avora pulls out the questions and sends it to your class.",
   },
   {
     icon: Camera,
     title: "Marking comes back done",
-    body: "Students photograph their handwritten work on their phone. Each question is marked against the mark scheme, and you review only what the AI wasn't sure about — or every mark, when there's no official scheme to check against.",
+    body: "Students photograph their work on their phone. avora marks each question against the mark scheme. You review only the marks it wasn't sure of, or every mark when there's no official scheme to check against.",
   },
   {
     icon: Gauge,
     title: "Readiness and grades keep themselves",
-    body: "Every mark becomes evidence behind a topic-level readiness score and a predicted grade read through your own grade boundaries.",
+    body: "Every mark becomes evidence behind a topic-level readiness score and a predicted grade, read through the grade boundaries you set.",
   },
   {
     icon: Users,
     title: "Parents see the same picture",
-    body: "Plain-language progress, drawn from the same record. No separate reporting to keep up with.",
+    body: "Plain-language progress from the same record. No separate reporting.",
   },
 ];
 
 const FACTS = [
   { icon: Camera, text: "Marks handwritten work from a phone photo" },
-  { icon: ScrollText, text: "Checks each answer against the mark scheme" },
-  { icon: Eye, text: "Uncertain marks wait for you" },
+  { icon: ScrollText, text: "Checks every answer against the mark scheme" },
+  { icon: Eye, text: "Asks you when it isn't sure" },
   { icon: Gauge, text: "Every number traces back to the work" },
 ];
 
-const FAQ: { q: string; a: string }[] = [
+const FAQ_BASE: { q: string; a: string }[] = [
   {
     q: "Does the AI decide my students' grades?",
-    a: "No. A mark only counts on its own when the AI is confident and there is an official mark scheme to check against — everything else waits in your review queue. You can change any mark, every change is recorded, and predicted grades come from the grade boundaries you set, never from the AI.",
+    a: "No. A mark only counts on its own when the AI is confident and there is an official mark scheme to check against. Everything else waits in your review queue. You can change any mark, every change is recorded, and predicted grades come from the grade boundaries you set, never from the AI.",
   },
   {
     q: "What if a student thinks a mark is wrong?",
-    a: "They can ask for any question to be looked at again. The request always comes to you, with the AI's reasoning attached — it is never settled by the AI.",
+    a: "They can ask for any question to be looked at again. The request always comes to you, with the AI's reasoning attached. The AI never settles it.",
   },
   {
     q: "Which subjects and exam boards does it work with?",
@@ -100,9 +101,23 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What does it cost?",
-    a: "Nothing while avora is in its pilot. After it, $19 a month plus $5 for each student who had work marked that month — a tutor with 15 students pays $94. Pilot tutors get 40% off for their first 12 months, and students and parents never pay.",
+    a: "Nothing while avora is in its pilot. After it, $19 a month plus $5 for each student who had work marked that month. A tutor with 15 students pays $94. Pilot tutors get 40% off for their first 12 months, and students and parents never pay.",
   },
 ];
+
+/* The contact entry is added only once SITE.contactEmail is set, the same guard
+   the footer uses, so the page never points at an unmonitored inbox. */
+function faqItems() {
+  return SITE.contactEmail
+    ? [
+        ...FAQ_BASE,
+        {
+          q: "Can I talk to a person?",
+          a: `Yes. Email ${SITE.contactEmail} and you'll get a reply from the person building avora, not a bot.`,
+        },
+      ]
+    : FAQ_BASE;
+}
 
 /** A real screenshot of the product in a quiet browser frame. */
 /* Both shots carry their intrinsic size so the browser reserves the space
@@ -175,25 +190,26 @@ export default function LandingPage() {
         <section className="relative overflow-hidden">
           <GhostMark className="-right-20 top-10" />
           <div className="relative mx-auto max-w-6xl px-6 pt-16 sm:pt-24">
-            <p className="avora-label">The operating system for IGCSE tutors</p>
+            <p className="avora-label">For IGCSE tutors</p>
             <h1 className="mt-5 max-w-3xl text-[2.5rem] leading-[1.08] tracking-[-0.02em] text-ink-900 sm:text-6xl">
-              Marking, readiness and reports — run for you.
+              Hand back marked homework without spending your evening on it.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-ink-500">
-              avora marks your students' handwritten homework against the mark scheme, keeps every
-              student's exam readiness up to date, and shows parents the same picture. You check
-              only what the AI wasn't sure about. The teaching stays yours.
+              Students photograph their handwritten work. avora marks each answer against the mark
+              scheme and asks you only about the ones it isn't sure of. Every mark adds to a
+              readiness picture that you, the student and the parent all see.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link to="/signup" className={buttonClasses("primary", "lg")}>
                 Start free as a tutor
               </Link>
-              <a href="#how-it-works" className={buttonClasses("secondary", "lg")}>
-                See how it works
+              <a href="#marked-paper" className={buttonClasses("secondary", "lg")}>
+                See a marked paper
               </a>
             </div>
             <p className="mt-4 text-sm text-ink-500">
-              Free during the pilot. Students and parents join with an invite from their tutor.
+              Free during the pilot, no card needed. Students and parents join with an invite from
+              you.
             </p>
 
             <div className="relative mt-16 pb-10 sm:mt-20">
@@ -227,9 +243,9 @@ export default function LandingPage() {
           {/* Pain before resolution: the reader has to feel the problem before the
               loop below can read as the answer to it. */}
           <section className="border-b border-line py-20">
-            <p className="avora-label">The work that isn't teaching</p>
+            <p className="avora-label">The part of tutoring nobody signed up for</p>
             <h2 className="mt-4 max-w-3xl text-3xl leading-tight text-ink-900 sm:text-4xl">
-              A good tutor's time disappears into everything around the lesson.
+              Good tutors lose their evenings to everything around the lesson.
             </h2>
             <div className="mt-12 grid gap-x-12 gap-y-10 sm:grid-cols-2">
               {PAIN.map(({ title, body }, i) => (
@@ -250,7 +266,7 @@ export default function LandingPage() {
           <section id="how-it-works" className="scroll-mt-20 py-20">
             <p className="avora-label">How it works</p>
             <h2 className="mt-4 max-w-3xl text-3xl leading-tight text-ink-900 sm:text-4xl">
-              The loop you already run — with the busywork taken out.
+              The same loop you run now, with the busywork taken out.
             </h2>
             <ol className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {LOOP.map(({ icon: Icon, title, body }, i) => (
@@ -270,15 +286,19 @@ export default function LandingPage() {
               ))}
             </ol>
 
-            <div className="mt-16 grid items-center gap-10 lg:grid-cols-[1fr_1.4fr]">
+            {/* The hero's secondary button lands here. */}
+            <div
+              id="marked-paper"
+              className="mt-16 grid scroll-mt-20 items-center gap-10 lg:grid-cols-[1fr_1.4fr]"
+            >
               <div>
                 <h3 className="font-display text-2xl leading-snug text-ink-900">
-                  Review in minutes, not evenings.
+                  This is what a marked paper looks like.
                 </h3>
                 <p className="mt-3 leading-relaxed text-ink-500">
-                  Each answer arrives marked against the scheme, with the AI's reasoning and how
-                  sure it was. Confident marks count straight away; the rest wait for you. Change
-                  any mark and the record keeps both — yours always wins.
+                  Each answer arrives marked against the scheme, with the reasoning and how sure
+                  avora was. Confident marks count straight away. The rest wait for you. Change any
+                  mark and both versions are kept. Yours always wins.
                 </p>
               </div>
               <ProductShot
@@ -288,6 +308,45 @@ export default function LandingPage() {
             </div>
           </section>
         </div>
+
+        {/* A plain note from the builder. No card, no logo, no quote: the page
+            has none to show yet, and says so. Wording is the owner's to confirm. */}
+        <section id="note" aria-labelledby="note-heading" className="bg-surface-muted/60">
+          <div className="mx-auto max-w-6xl px-6 py-20">
+            <div className="max-w-[60ch]">
+              <h2 id="note-heading" className="avora-label">
+                A note from the person building avora
+              </h2>
+              <div className="mt-6 space-y-5 font-display text-xl leading-relaxed text-ink-900">
+                <p>
+                  avora exists because marking by hand is the part of tutoring that eats the
+                  evening. It is built around how a tutor actually works: a phone photo of
+                  handwritten work, the exam board's mark scheme, and a parent who wants a straight
+                  answer.
+                </p>
+                <p>
+                  It's in a closed pilot with a small number of tutors. There are no logos or
+                  testimonials on this page because there aren't any yet. When there are, they'll be
+                  real.
+                </p>
+                <p>
+                  Everything on this page is something the product does today. If you use it and
+                  something is wrong or missing, tell me. That is what the pilot is for.
+                </p>
+              </div>
+              <p className="mt-8 font-display text-xl italic text-ink-900">Anas</p>
+              <p className="text-sm text-ink-500">Building avora</p>
+            </div>
+            <div className="mt-14 border-t border-line pt-8">
+              <p className="avora-label">What the pilot is</p>
+              <ul className="mt-4 grid gap-4 text-ink-700 sm:grid-cols-3">
+                <li>Free, every feature, for every class you teach.</li>
+                <li>A small group of tutors, so each one is heard.</li>
+                <li>In return, tell us when something is wrong.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
 
         {/* Students and parents */}
         <section id="students-and-parents" className="scroll-mt-20 border-t border-line bg-surface">
@@ -300,7 +359,7 @@ export default function LandingPage() {
               <ul className="mt-6 space-y-3 text-ink-700">
                 <li className="flex gap-3">
                   <GraduationCap aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
-                  Hand in homework by taking a photo — no scanning, no printing.
+                  Hand in homework by taking a photo. No scanning, no printing.
                 </li>
                 <li className="flex gap-3">
                   <BookOpenCheck aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
@@ -315,7 +374,7 @@ export default function LandingPage() {
             <div>
               <p className="avora-label">For parents</p>
               <h2 className="mt-4 text-3xl leading-tight text-ink-900">
-                A clear, honest picture — without chasing anyone for it.
+                A clear, honest picture, without chasing anyone for it.
               </h2>
               <ul className="mt-6 space-y-3 text-ink-700">
                 <li className="flex gap-3">
@@ -328,7 +387,7 @@ export default function LandingPage() {
                 </li>
                 <li className="flex gap-3">
                   <ShieldCheck aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
-                  When there isn't enough marked work yet, avora says so — it never guesses.
+                  When there isn't enough marked work yet, avora says so. It never guesses.
                 </li>
               </ul>
             </div>
@@ -340,7 +399,7 @@ export default function LandingPage() {
           <div className="mx-auto max-w-6xl px-6 py-24">
             <SectionOrnament className="max-w-xs" />
             <h2 className="mt-8 max-w-2xl text-3xl leading-tight text-surface sm:text-4xl">
-              The tutor has the last word.
+              You have the last word.
             </h2>
             <div className="mt-10 grid gap-8 sm:grid-cols-3">
               {[
@@ -350,7 +409,7 @@ export default function LandingPage() {
                 },
                 {
                   t: "Every change is on the record.",
-                  b: "When you change a mark, the original and your decision are both kept — nothing is silently overwritten.",
+                  b: "When you change a mark, the original and your decision are both kept. Nothing is silently overwritten.",
                 },
                 {
                   t: "No evidence, no number.",
@@ -387,7 +446,7 @@ export default function LandingPage() {
                 <ul className="mt-6 space-y-2.5 text-sm text-ink-700">
                   {[
                     "Every feature, for every class you teach",
-                    "AI marking of handwritten homework and past papers",
+                    "Marking of handwritten homework and past papers",
                     "Topic readiness and predicted grades for each student",
                     "Student and parent accounts included",
                   ].map((f) => (
@@ -425,14 +484,14 @@ export default function LandingPage() {
                   ))}
                 </dl>
                 <p className="mt-4 text-sm leading-relaxed text-ink-700">
-                  An active student is one who had work marked that month — students who take a
-                  month off cost you nothing.
+                  An active student is one who had work marked that month. Students who take a month
+                  off cost you nothing.
                 </p>
                 <p className="mt-4 rounded-lg bg-brand-50 p-3 text-sm text-brand-700">
                   Pilot tutors get 40% off for their first 12 months on a paid plan.
                 </p>
                 <p className="mt-4 text-sm text-ink-500">
-                  Students and parents never pay — they join through their tutor.
+                  Students and parents never pay. They join through their tutor.
                 </p>
               </div>
             </div>
@@ -447,7 +506,7 @@ export default function LandingPage() {
               <h2 className="mt-4 text-3xl leading-tight text-ink-900">What tutors ask first.</h2>
             </div>
             <div className="divide-y divide-line border-y border-line">
-              {FAQ.map(({ q, a }) => (
+              {faqItems().map(({ q, a }) => (
                 <details key={q} className="group py-5">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium text-ink-900">
                     {q}
