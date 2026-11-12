@@ -27,6 +27,7 @@ import argparse
 import asyncio
 import datetime as dt
 import json
+import re
 import sys
 import uuid
 from typing import Any
@@ -38,6 +39,19 @@ from app.config import get_settings
 
 # Alembic's bookkeeping table is not data.
 SKIP_TABLES = {"alembic_version"}
+
+# Tables allowed to end the seed with no rows, each with the reason. Anything else
+# empty means the generator silently failed to cover a table, which is the exact
+# hole this check exists to close, so it fails the run.
+EMPTY_OK: dict[str, str] = {
+    "narratives": "CHECK ck_narratives_exactly_one_target needs exactly one target column set; the generator cannot know that",
+}
+
+# A PR that must lose rows says so in a migration it adds, e.g.
+#   # realistic-data: may-drop-rows <table>
+#   # realistic-data: may-drop-table <table>
+# Destructive migrations are High-risk and need the owner's sign-off.
+MARKER = re.compile(r"#\s*realistic-data:\s*may-drop-(rows|table)\s+(\w+)")
 
 # One generated row per variant, per table.
 VARIANTS = ("max", "unicode", "empty", "nulls", "dupe_a", "dupe_b")
@@ -72,17 +86,37 @@ def awkward_string(length: int | None, variant: str, n: int) -> str:
     return text
 
 
-def compare_counts(before: dict[str, int], after: dict[str, int]) -> tuple[list[str], list[str]]:
-    """Return (report lines, failures). A table that vanished is a drop and fine."""
+def parse_markers(texts: list[str]) -> tuple[set[str], set[str]]:
+    """(tables allowed to lose rows, tables allowed to vanish) from migration text."""
+    found = [m.groups() for t in texts for m in MARKER.finditer(t)]
+    return {n for k, n in found if k == "rows"}, {n for k, n in found if k == "table"}
+
+
+def compare_counts(
+    before: dict[str, int],
+    after: dict[str, int],
+    may_lose_rows: set[str] | frozenset[str] = frozenset(),
+    may_drop: set[str] | frozenset[str] = frozenset(),
+) -> tuple[list[str], list[str]]:
+    """Return (report lines, failures).
+
+    A row count cannot see an UPDATE that blanks or truncates values; it only
+    catches rows deleted or tables dropped. An empty table that disappears is
+    harmless; a populated one needs a marker (see MARKER).
+    """
     lines = [f"{'table':<44}{'before':>9}{'after':>9}"]
     failures: list[str] = []
     for table in sorted(set(before) | set(after)):
         b, a = before.get(table), after.get(table)
         if a is None:
-            lines.append(f"{table:<44}{b!s:>9}{'dropped':>9}")
+            flag = ""
+            if b and table not in may_drop:
+                flag = "  <-- POPULATED TABLE DROPPED"
+                failures.append(f"{table}: dropped with {b} rows")
+            lines.append(f"{table:<44}{b!s:>9}{'dropped':>9}{flag}")
             continue
         flag = ""
-        if b is not None and a < b:
+        if b is not None and a < b and table not in may_lose_rows:
             flag = "  <-- ROWS LOST"
             failures.append(f"{table}: {b} -> {a}")
         lines.append(f"{table:<44}{b if b is not None else 'new'!s:>9}{a:>9}{flag}")
@@ -133,7 +167,37 @@ async def _parent_value(conn: Any, col: Any, offset: int) -> Any:
     return None if row is None else row[0]
 
 
-async def seed(conn: Any, metadata: MetaData) -> tuple[int, int, dict[str, int]]:
+async def _existing_value(conn: Any, col: Any, offset: int) -> Any:
+    """A value already stored in this column, or None."""
+    row = (
+        await conn.execute(
+            select(col).where(col.is_not(None)).distinct().order_by(col).limit(1).offset(offset)
+        )
+    ).first()
+    if row is None and offset:
+        return await _existing_value(conn, col, 0)
+    return None if row is None else row[0]
+
+
+def is_numbered_by_db(table: Any, col: Any) -> bool:
+    """A lone integer primary key with no foreign key: the database numbers it.
+
+    A composite-key link table's integer columns are the parent ids and must be
+    given one (they are often PK and FK at once).
+    """
+    return (
+        col.primary_key
+        and isinstance(col.type, types.Integer)
+        and not col.foreign_keys
+        and len(table.primary_key.columns) == 1
+    )
+
+
+async def seed(
+    conn: Any, metadata: MetaData, notes: dict[str, set[str]] | None = None
+) -> tuple[int, int, dict[str, int]]:
+    """Insert awkward rows. `notes` collects, per table, why rows were skipped."""
+    notes = notes if notes is not None else {}
     inserted_total = failed_total = 0
     per_table: dict[str, int] = {}
     # sorted_tables puts parents before children, so FK targets exist by the
@@ -146,8 +210,8 @@ async def seed(conn: Any, metadata: MetaData) -> tuple[int, int, dict[str, int]]
             values: dict[str, Any] = {}
             skip = False
             for col in table.columns:
-                if col.primary_key and isinstance(col.type, types.Integer):
-                    continue  # the database numbers these
+                if is_numbered_by_db(table, col):
+                    continue
                 parent = None
                 if col.foreign_keys:
                     parent = await _parent_value(conn, col, n)
@@ -156,11 +220,26 @@ async def seed(conn: Any, metadata: MetaData) -> tuple[int, int, dict[str, int]]
                             values[col.name] = None
                             continue
                         skip = True  # no parent row exists to point at
+                        notes.setdefault(table.name, set()).add(f"no parent row for {col.name}")
                         break
+                if (
+                    parent is None
+                    and isinstance(col.type, types.String)
+                    and not isinstance(col.type, types.Text)
+                    and 0 < (col.type.length or 0) <= 32
+                    and not (variant == "nulls" and col.nullable)
+                ):
+                    # Short strings are enum-like (DB-5): reuse a real value so a
+                    # migration adding a CHECK is not failed by rows production
+                    # cannot hold.
+                    parent = await _existing_value(conn, col, n)
                 value = _value(col, variant, n, parent)
                 if value is ...:
                     if not col.nullable and col.server_default is None:
                         skip = True
+                        notes.setdefault(table.name, set()).add(
+                            f"unhandled required column type {col.name}: {col.type!r}"
+                        )
                         break
                     continue
                 values[col.name] = value
@@ -172,8 +251,8 @@ async def seed(conn: Any, metadata: MetaData) -> tuple[int, int, dict[str, int]]
                 done += 1
             except Exception as exc:  # noqa: BLE001 - anything the DB refuses is just a skipped row
                 failed_total += 1
-                print(
-                    f"  skipped {table.name}/{variant}: {type(exc).__name__}: {str(exc).splitlines()[0][:120]}"
+                notes.setdefault(table.name, set()).add(
+                    f"{variant} refused: {type(exc).__name__}: {str(exc).splitlines()[0][:100]}"
                 )
         inserted_total += done
         per_table[table.name] = done
@@ -188,18 +267,31 @@ async def _reflect(conn: Any) -> MetaData:
 
 async def run_seed() -> int:
     engine = create_async_engine(get_settings().database_url)
+    notes: dict[str, set[str]] = {}
     try:
         async with engine.begin() as conn:
             metadata = await _reflect(conn)
-            inserted, failed, per_table = await seed(conn, metadata)
+            inserted, failed, per_table = await seed(conn, metadata, notes)
+            totals = {
+                t.name: (await conn.execute(select(sql.func.count()).select_from(t))).scalar_one()
+                for t in metadata.sorted_tables
+                if t.name not in SKIP_TABLES
+            }
     finally:
         await engine.dispose()
+    for name in sorted(notes):
+        for note in sorted(notes[name]):
+            print(f"  {name}: {note}")
     covered = sum(1 for v in per_table.values() if v)
     print(
         f"Awkward rows: {inserted} inserted, {failed} refused, {covered}/{len(per_table)} tables covered."
     )
     if inserted == 0:
         print("::error::no awkward rows could be inserted; the check would prove nothing")
+        return 1
+    empty = sorted(t for t, c in totals.items() if c == 0 and t not in EMPTY_OK)
+    if empty:
+        print(f"::error::tables still empty after seeding (add rows or list in EMPTY_OK): {empty}")
         return 1
     return 0
 
@@ -229,15 +321,23 @@ def run_counts(out: str) -> int:
     return 0
 
 
-def run_compare(before_path: str, after_path: str) -> int:
+def run_compare(before_path: str, after_path: str, migrations: list[str]) -> int:
     with open(before_path) as fh:
         before = json.load(fh)
     with open(after_path) as fh:
         after = json.load(fh)
-    lines, failures = compare_counts(before, after)
+    texts = []
+    for path in migrations:
+        with open(path) as fh:
+            texts.append(fh.read())
+    lines, failures = compare_counts(before, after, *parse_markers(texts))
     print("\n".join(lines))
     if failures:
-        print(f"::error::row counts fell after the migrations: {', '.join(failures)}")
+        print(
+            f"::error::row counts fell after the migrations: {', '.join(failures)}. If the loss "
+            "is intended, add '# realistic-data: may-drop-rows <table>' (or may-drop-table) to a "
+            "migration this PR adds; destructive migrations need the owner's sign-off."
+        )
         return 1
     print("No table lost rows.")
     return 0
@@ -251,12 +351,13 @@ def main(argv: list[str] | None = None) -> int:
     cmp_ = sub.add_parser("compare")
     cmp_.add_argument("before")
     cmp_.add_argument("after")
+    cmp_.add_argument("migrations", nargs="*", help="migration files this PR adds")
     args = parser.parse_args(argv)
     if args.cmd == "seed":
         return asyncio.run(run_seed())
     if args.cmd == "counts":
         return run_counts(args.out)
-    return run_compare(args.before, args.after)
+    return run_compare(args.before, args.after, args.migrations)
 
 
 if __name__ == "__main__":

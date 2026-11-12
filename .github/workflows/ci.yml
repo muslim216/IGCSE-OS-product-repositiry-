@@ -411,17 +411,28 @@ jobs:
       # compare, and says so instead of silently passing.
       - name: Realistic data - check out the base branch's code
         id: base
+        timeout-minutes: 5
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            echo "::notice::Realistic-data check skipped: no base commit to compare against"
+          # A pull request always has a base, so failing to get it must fail the
+          # job rather than quietly turn the check off. Only a push (a new branch
+          # has an all-zero `before`; a force-push can orphan it) may skip.
+          skip() {
+            if [ "$EVENT" = "pull_request" ]; then
+              echo "::error::Realistic-data check cannot run: $1"
+              exit 1
+            fi
+            echo "::notice::Realistic-data check skipped: $1"
             exit 0
+          }
+          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            skip "no base commit to compare against"
           fi
           if ! git fetch --no-tags --depth=1 origin "$BASE_SHA"; then
-            echo "::notice::Realistic-data check skipped: base commit $BASE_SHA could not be fetched"
-            exit 0
+            skip "base commit $BASE_SHA could not be fetched"
           fi
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
@@ -449,7 +460,11 @@ jobs:
           # branch; the assert fails loudly if it ever stops doing so.
           cd "$RUNNER_TEMP/base/backend"
           export PYTHONPATH=.
-          python -c "import app, pathlib, sys; p = pathlib.Path(app.__file__).resolve(); assert str(p).startswith(sys.argv[1]), p" "$RUNNER_TEMP/base"
+          # `seed` is checked too: it is not in the editable install's way today,
+          # but it is the code that must match the base schema. Note the base code
+          # still runs on THIS branch's installed packages, so a dependency bump
+          # in the PR can skew this check's result.
+          python -c "import app, seed, pathlib, sys; [sys.exit(f'{m.__name__} resolved outside the base tree: {m.__file__}') for m in (app, seed) if not str(pathlib.Path(m.__file__).resolve()).startswith(sys.argv[1])]" "$RUNNER_TEMP/base"
           python -m alembic upgrade head
           python -m seed.demo
           cd "$GITHUB_WORKSPACE/backend"
@@ -461,12 +476,17 @@ jobs:
         timeout-minutes: 10
         env:
           DATABASE_URL: postgresql://igcse:igcse@localhost:5432/igcse_realistic
+          BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
           set -euo pipefail
           python -m alembic upgrade head
           python -m scripts.check_schema_drift
           python -m scripts.seed_awkward_rows counts "$RUNNER_TEMP/counts-after.json"
-          python -m scripts.seed_awkward_rows compare "$RUNNER_TEMP/counts-before.json" "$RUNNER_TEMP/counts-after.json"
+          # Intended row loss is declared by a marker comment in a migration this
+          # change adds (see MARKER in the script), so it is visible in review.
+          # Row counts cannot see an UPDATE that blanks or truncates values.
+          python -m scripts.seed_awkward_rows compare "$RUNNER_TEMP/counts-before.json" "$RUNNER_TEMP/counts-after.json" \
+            $(git diff --relative --name-only --diff-filter=A "$BASE_SHA" HEAD -- alembic/versions)
 
       # The multi-worker claim tests (task 1.3, AV-82) run here rather than in
       # the `backend` job because that one forces SQLite, which silently DROPS
