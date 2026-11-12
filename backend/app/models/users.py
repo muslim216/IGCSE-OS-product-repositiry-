@@ -38,7 +38,6 @@ class User(TimestampMixin, Base):
     email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     username: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    t051_proof: Mapped[str] = mapped_column(String(10), nullable=False)  # TEMP T-051
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, native_enum=False, length=16), nullable=False
     )
