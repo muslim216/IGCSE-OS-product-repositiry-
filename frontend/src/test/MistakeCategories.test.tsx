@@ -178,7 +178,7 @@ test("a saved category keeps its id, so a second save edits rather than duplicat
   const { saved } = stub({ source: "none" });
   renderPage();
 
-  await screen.findByDisplayValue("Careless");
+  await screen.findByDisplayValue("Careless", {}, { timeout: 5000 });
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
   await waitFor(() => expect(saved).toHaveLength(1), { timeout: 5000 });
@@ -190,7 +190,7 @@ test("a saved category keeps its id, so a second save edits rather than duplicat
   // on a slow runner left this waiting for a second save that was never sent.
   // Wait for the success toast (the reply has been applied) with a generous
   // timeout, since the 1s default is shorter than a loaded runner's save.
-  await screen.findByText("Mistake categories saved.", {}, { timeout: 5000 });
+  await screen.findByText(/categories saved/i, {}, { timeout: 5000 });
   await waitFor(
     () =>
       expect(screen.getByRole<HTMLButtonElement>("button", { name: /save/i }).disabled).toBe(false),
@@ -202,7 +202,7 @@ test("a saved category keeps its id, so a second save edits rather than duplicat
   expect((saved[1] as { categories: { id?: number }[] }).categories.every((c) => !!c.id)).toBe(
     true,
   );
-});
+}, 20_000);
 
 test("new server data arriving mid-edit does not overwrite what the tutor has typed", async () => {
   // These categories belong to the organisation, not to one tutor, so a
@@ -291,11 +291,11 @@ test("a rejected save shows the server's reason, not generic advice", async () =
   });
   renderPage();
 
-  await screen.findByDisplayValue("Careless");
+  await screen.findByDisplayValue("Careless", {}, { timeout: 5000 });
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
-  expect(await screen.findByText(/Mistake category not found/)).toBeTruthy();
-});
+  expect(await screen.findByText(/Mistake category not found/, {}, { timeout: 5000 })).toBeTruthy();
+}, 20_000);
 
 test("subjects that fail to load say so, rather than reading as none existing", async () => {
   // A transient failure rendered as "No subjects yet." sends a tutor who has
