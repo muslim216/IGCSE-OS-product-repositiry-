@@ -129,8 +129,7 @@ export function SiteFooter() {
         <div>
           <AvoraLockup />
           <p className="mt-4 max-w-xs text-sm leading-relaxed text-ink-500">
-            The operating system for IGCSE tutors — marking, readiness and reporting, with the tutor
-            in charge.
+            Marking, readiness and reporting for IGCSE tutors, with the tutor in charge.
           </p>
           {SITE.contactEmail && (
             <a
