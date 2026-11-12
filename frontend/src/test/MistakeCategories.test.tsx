@@ -178,26 +178,31 @@ test("a saved category keeps its id, so a second save edits rather than duplicat
   const { saved } = stub({ source: "none" });
   renderPage();
 
-  await screen.findByDisplayValue("Careless");
+  await screen.findByDisplayValue("Careless", {}, { timeout: 5000 });
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
-  await waitFor(() => expect(saved).toHaveLength(1));
+  await waitFor(() => expect(saved).toHaveLength(1), { timeout: 5000 });
   // First save: the offered defaults carry no id, so they are new.
   expect((saved[0] as { categories: { id?: number }[] }).categories.every((c) => !c.id)).toBe(true);
 
   // The request body is recorded before the reply lands. Clicking again in that
   // gap hits a button still disabled by the save in flight and is dropped, which
   // on a slow runner left this waiting for a second save that was never sent.
-  await waitFor(() =>
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: /save/i }).disabled).toBe(false),
+  // Wait for the success toast (the reply has been applied) with a generous
+  // timeout, since the 1s default is shorter than a loaded runner's save.
+  await screen.findByText(/categories saved/i, {}, { timeout: 5000 });
+  await waitFor(
+    () =>
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: /save/i }).disabled).toBe(false),
+    { timeout: 5000 },
   );
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
-  await waitFor(() => expect(saved).toHaveLength(2));
+  await waitFor(() => expect(saved).toHaveLength(2), { timeout: 5000 });
   // Second save: every row now carries the id the first reply gave it.
   expect((saved[1] as { categories: { id?: number }[] }).categories.every((c) => !!c.id)).toBe(
     true,
   );
-});
+}, 20_000);
 
 test("new server data arriving mid-edit does not overwrite what the tutor has typed", async () => {
   // These categories belong to the organisation, not to one tutor, so a
@@ -286,11 +291,11 @@ test("a rejected save shows the server's reason, not generic advice", async () =
   });
   renderPage();
 
-  await screen.findByDisplayValue("Careless");
+  await screen.findByDisplayValue("Careless", {}, { timeout: 5000 });
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
-  expect(await screen.findByText(/Mistake category not found/)).toBeTruthy();
-});
+  expect(await screen.findByText(/Mistake category not found/, {}, { timeout: 5000 })).toBeTruthy();
+}, 20_000);
 
 test("subjects that fail to load say so, rather than reading as none existing", async () => {
   // A transient failure rendered as "No subjects yet." sends a tutor who has
