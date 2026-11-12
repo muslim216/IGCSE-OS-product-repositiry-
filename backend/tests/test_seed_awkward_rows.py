@@ -1,10 +1,12 @@
 """The realistic-data CI check's helpers: the cell generator and the count comparison."""
 
+import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from scripts.seed_awkward_rows import (
     awkward_string,
+    checked_path,
     compare_counts,
     is_numbered_by_db,
     parse_markers,
@@ -29,12 +31,14 @@ def test_unbounded_text_is_long_and_empty_is_empty():
 
 def test_dupe_pair_differs_only_by_case_and_whitespace():
     a, b = awkward_string(50, "dupe_a", 1), awkward_string(50, "dupe_b", 2)
-    assert a != b and a.lower() == b.strip().lower()
+    assert a != b
+    assert a.lower() == b.strip().lower()
 
 
 def test_unicode_variant_carries_arabic_and_emoji():
     text = awkward_string(100, "unicode", 1)
-    assert "مرحبا" in text and "🧪" in text
+    assert "مرحبا" in text
+    assert "🧪" in text
 
 
 def test_compare_counts_fails_on_a_fall_and_allows_a_dropped_or_new_table():
@@ -55,7 +59,8 @@ def test_markers_are_read_from_migration_text():
     rows, drops = parse_markers(
         ["# realistic-data: may-drop-rows foo\n", "x\n# realistic-data: may-drop-table bar"]
     )
-    assert rows == {"foo"} and drops == {"bar"}
+    assert rows == {"foo"}
+    assert drops == {"bar"}
 
 
 def _link_schema() -> sa.MetaData:
@@ -92,3 +97,12 @@ async def test_seed_fills_link_tables_and_copies_short_enum_like_values():
     await engine.dispose()
     assert statuses == {"active"}  # no junk in an enum-like column
     assert per_table["l"] > 0
+
+
+def test_cli_paths_outside_the_allowed_directory_are_refused(tmp_path):
+    inside = checked_path(str(tmp_path / "counts.json"), tmp_path)
+    assert inside == (tmp_path / "counts.json").resolve()
+    with pytest.raises(SystemExit):
+        checked_path("../escape.json", tmp_path)
+    with pytest.raises(SystemExit):
+        checked_path("/etc/passwd", tmp_path)

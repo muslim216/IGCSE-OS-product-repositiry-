@@ -14,8 +14,9 @@ nothing from `app.models` for the same reason: the schema being filled is the
 base branch's, and the models describe the PR's.
 
 Everything is synthetic. Failed inserts (a CHECK or UNIQUE the generator cannot
-know about) are rolled back to a savepoint and counted, never fatal; the run
-fails only if it could not insert anything at all.
+know about) are rolled back to a savepoint and reported, never fatal; the run
+fails if nothing at all was inserted, or if any table is still empty and not
+named in EMPTY_OK.
 
 Usage (from backend/, DATABASE_URL set as for the app):
   python -m scripts.seed_awkward_rows seed
@@ -27,9 +28,12 @@ import argparse
 import asyncio
 import datetime as dt
 import json
+import os
 import re
 import sys
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import JSON, MetaData, insert, select, sql, types
@@ -123,21 +127,21 @@ def compare_counts(
     return lines, failures
 
 
-def _value(col: Any, variant: str, n: int, parent_value: Any) -> Any:
-    """A value for a reflected column, or the sentinel `...` to leave it out."""
-    if parent_value is not None:
-        return parent_value
-    t = col.type
-    if variant == "nulls" and col.nullable:
-        return None
+def _simple_value(t: Any, variant: str, n: int) -> Any:
+    """Values for text, numbers and booleans, or `...` for any other type."""
     if isinstance(t, types.Boolean):
         return n % 2 == 0
     if isinstance(t, (types.String, types.Text)):
         return awkward_string(getattr(t, "length", None), variant, n)
-    if isinstance(t, (types.Integer,)):
+    if isinstance(t, types.Integer):
         return 1 + n % 7
     if isinstance(t, (types.Numeric, types.Float)):
         return 0.5
+    return ...
+
+
+def _other_value(t: Any, n: int) -> Any:
+    """Values for dates, times, uuids, binary and JSON, or `...` if unhandled."""
     if isinstance(t, types.DateTime):
         now = dt.datetime.now(dt.timezone.utc)
         return now if t.timezone else now.replace(tzinfo=None)
@@ -152,6 +156,16 @@ def _value(col: Any, variant: str, n: int, parent_value: Any) -> Any:
     if isinstance(t, JSON) or type(t).__name__ in {"JSONB", "JSON"}:
         return {"note": awkward_string(2000, "unicode", n), "empty": "", "none": None}
     return ...
+
+
+def _value(col: Any, variant: str, n: int, parent_value: Any) -> Any:
+    """A value for a reflected column, or the sentinel `...` to leave it out."""
+    if parent_value is not None:
+        return parent_value
+    if variant == "nulls" and col.nullable:
+        return None
+    value = _simple_value(col.type, variant, n)
+    return _other_value(col.type, n) if value is ... else value
 
 
 async def _parent_value(conn: Any, col: Any, offset: int) -> Any:
@@ -193,12 +207,78 @@ def is_numbered_by_db(table: Any, col: Any) -> bool:
     )
 
 
+_SKIP = object()  # this row cannot be built
+_OMIT = object()  # leave this column to the database
+
+
+def _skip(notes: dict[str, set[str]], table: Any, why: str) -> object:
+    notes.setdefault(table.name, set()).add(why)
+    return _SKIP
+
+
+def _is_enum_like(col: Any, variant: str) -> bool:
+    return (
+        isinstance(col.type, types.String)
+        and not isinstance(col.type, types.Text)
+        and 0 < (col.type.length or 0) <= 32
+        and not (variant == "nulls" and col.nullable)
+    )
+
+
+async def _column_value(
+    conn: Any, table: Any, col: Any, variant: str, n: int, notes: dict[str, set[str]]
+) -> Any:
+    """The value for one column, `_OMIT` to leave it out or `_SKIP` to drop the row."""
+    if is_numbered_by_db(table, col):
+        return _OMIT
+    parent = None
+    if col.foreign_keys:
+        parent = await _parent_value(conn, col, n)
+        if parent is None:
+            if col.nullable:
+                return None
+            return _skip(notes, table, f"no parent row for {col.name}")
+    if parent is None and _is_enum_like(col, variant):
+        # Short strings are enum-like (DB-5): reuse a real value so a migration
+        # adding a CHECK is not failed by rows production cannot hold.
+        parent = await _existing_value(conn, col, n)
+    value = _value(col, variant, n, parent)
+    if value is ...:
+        if not col.nullable and col.server_default is None:
+            return _skip(notes, table, f"unhandled required column type {col.name}: {col.type!r}")
+        return _OMIT
+    return value
+
+
+async def _row_values(
+    conn: Any, table: Any, variant: str, n: int, notes: dict[str, set[str]]
+) -> dict[str, Any] | None:
+    values: dict[str, Any] = {}
+    for col in table.columns:
+        value = await _column_value(conn, table, col, variant, n, notes)
+        if value is _SKIP:
+            return None
+        if value is not _OMIT:
+            values[col.name] = value
+    return values
+
+
+async def _insert_row(conn: Any, table: Any, values: dict[str, Any]) -> str | None:
+    """Insert in a savepoint; return why the database refused, or None."""
+    try:
+        async with conn.begin_nested():
+            await conn.execute(insert(table).values(**values))
+    except Exception as exc:  # noqa: BLE001 - anything the DB refuses is just a skipped row
+        return f"{type(exc).__name__}: {str(exc).splitlines()[0][:100]}"
+    return None
+
+
 async def seed(
     conn: Any, metadata: MetaData, notes: dict[str, set[str]] | None = None
 ) -> tuple[int, int, dict[str, int]]:
     """Insert awkward rows. `notes` collects, per table, why rows were skipped."""
     notes = notes if notes is not None else {}
-    inserted_total = failed_total = 0
+    failed_total = 0
     per_table: dict[str, int] = {}
     # sorted_tables puts parents before children, so FK targets exist by the
     # time a child is filled.
@@ -207,56 +287,17 @@ async def seed(
             continue
         done = 0
         for n, variant in enumerate(VARIANTS, start=1):
-            values: dict[str, Any] = {}
-            skip = False
-            for col in table.columns:
-                if is_numbered_by_db(table, col):
-                    continue
-                parent = None
-                if col.foreign_keys:
-                    parent = await _parent_value(conn, col, n)
-                    if parent is None:
-                        if col.nullable:
-                            values[col.name] = None
-                            continue
-                        skip = True  # no parent row exists to point at
-                        notes.setdefault(table.name, set()).add(f"no parent row for {col.name}")
-                        break
-                if (
-                    parent is None
-                    and isinstance(col.type, types.String)
-                    and not isinstance(col.type, types.Text)
-                    and 0 < (col.type.length or 0) <= 32
-                    and not (variant == "nulls" and col.nullable)
-                ):
-                    # Short strings are enum-like (DB-5): reuse a real value so a
-                    # migration adding a CHECK is not failed by rows production
-                    # cannot hold.
-                    parent = await _existing_value(conn, col, n)
-                value = _value(col, variant, n, parent)
-                if value is ...:
-                    if not col.nullable and col.server_default is None:
-                        skip = True
-                        notes.setdefault(table.name, set()).add(
-                            f"unhandled required column type {col.name}: {col.type!r}"
-                        )
-                        break
-                    continue
-                values[col.name] = value
-            if skip:
+            values = await _row_values(conn, table, variant, n, notes)
+            if values is None:
                 continue
-            try:
-                async with conn.begin_nested():
-                    await conn.execute(insert(table).values(**values))
+            refused = await _insert_row(conn, table, values)
+            if refused is None:
                 done += 1
-            except Exception as exc:  # noqa: BLE001 - anything the DB refuses is just a skipped row
+            else:
                 failed_total += 1
-                notes.setdefault(table.name, set()).add(
-                    f"{variant} refused: {type(exc).__name__}: {str(exc).splitlines()[0][:100]}"
-                )
-        inserted_total += done
+                notes.setdefault(table.name, set()).add(f"{variant} refused: {refused}")
         per_table[table.name] = done
-    return inserted_total, failed_total, per_table
+    return sum(per_table.values()), failed_total, per_table
 
 
 async def _reflect(conn: Any) -> MetaData:
@@ -313,22 +354,37 @@ async def collect_counts() -> dict[str, int]:
     return counts
 
 
+def checked_path(raw: str, root: Path | None = None) -> Path:
+    """Resolve a CLI path and refuse anything outside `root`.
+
+    The default root is the runner's temp directory, where CI keeps the count
+    files; this stops a stray argument reading or overwriting other files.
+    """
+    base = (root or Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir())).resolve()
+    resolved = Path(raw).resolve()
+    if not resolved.is_relative_to(base):
+        raise SystemExit(f"::error::refusing path outside {base}: {raw}")
+    return resolved
+
+
 def run_counts(out: str) -> int:
+    target = checked_path(out)
     counts = asyncio.run(collect_counts())
-    with open(out, "w") as fh:
+    with open(target, "w") as fh:
         json.dump(counts, fh)
     print(f"Counted {len(counts)} tables, {sum(counts.values())} rows -> {out}")
     return 0
 
 
 def run_compare(before_path: str, after_path: str, migrations: list[str]) -> int:
-    with open(before_path) as fh:
+    with open(checked_path(before_path)) as fh:
         before = json.load(fh)
-    with open(after_path) as fh:
+    with open(checked_path(after_path)) as fh:
         after = json.load(fh)
+    versions = Path.cwd() / "alembic" / "versions"
     texts = []
     for path in migrations:
-        with open(path) as fh:
+        with open(checked_path(path, versions)) as fh:
             texts.append(fh.read())
     lines, failures = compare_counts(before, after, *parse_markers(texts))
     print("\n".join(lines))
