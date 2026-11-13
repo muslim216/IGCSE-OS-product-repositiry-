@@ -33,6 +33,15 @@ services:
     # database blip into a restart loop. Deep state is for a human to read, not
     # for the platform to react to.
     healthCheckPath: /api/v1/health
+    # Database changes run here, on a separate instance, before the swap. With
+    # the disk below Render stops the old instance before starting the new one,
+    # so a migration that failed in the start command left the API down; here a
+    # failure cancels the deploy and the old version keeps serving. The disk is
+    # not mounted on this instance, so a migration must never read or write
+    # files. Never use a dashboard rollback across a migration: the old code
+    # would run against the new schema. Roll forward with a revert PR instead.
+    # The Dockerfile's start command still migrates, as a backstop.
+    preDeployCommand: alembic upgrade head
     # Uploaded booklets, mark schemes and submissions are written to the local
     # filesystem (services/storage.py), and DB rows store paths relative to
     # UPLOAD_DIR. Without a persistent disk every deploy replaces the container
