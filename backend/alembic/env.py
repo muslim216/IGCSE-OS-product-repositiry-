@@ -50,9 +50,11 @@ async def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        # A failing statement's error would otherwise print its row values, which
-        # can be children's data, into the deploy logs. Only this engine: the app
-        # builds its own.
+        # Keeps bound parameter values, which can be children's data, out of a
+        # failing statement's error in the deploy logs. It cannot hide values
+        # Postgres writes into its own error text (a unique violation names the
+        # key) or literals written inline in op.execute() SQL, so data-touching
+        # migrations bind their values. Only this engine: the app builds its own.
         hide_parameters=True,
     )
     async with connectable.connect() as connection:
