@@ -8,6 +8,7 @@ import { AuthProvider } from "../auth/AuthContext";
 import AppShell from "../components/AppShell";
 import { PageHeader } from "../components/page";
 import { Modal, SectionCard } from "../components/ui";
+import LandingPage from "../marketing/LandingPage";
 import ParentDashboard from "../parent/ParentDashboard";
 import StudentHomePage from "../student/StudentHomePage";
 import { axeViolations } from "./axe";
@@ -265,6 +266,15 @@ test("the parent dashboard has no violations", async () => {
   await screen.findAllByText("Chemistry");
   await settled(qc);
   expect(await axeViolations(baseElement, NO_SHELL)).toEqual([]);
+});
+
+test("the public landing page has no violations", async () => {
+  const { baseElement } = render(
+    <MemoryRouter>
+      <LandingPage />
+    </MemoryRouter>,
+  );
+  expect(await axeViolations(baseElement)).toEqual([]);
 });
 
 test("the check can fail: an image with no text alternative is reported", async () => {
