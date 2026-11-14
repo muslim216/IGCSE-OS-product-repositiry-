@@ -33,5 +33,6 @@ def test_api_service_migrates_in_pre_deploy():
 
 def test_dockerfile_still_migrates_before_uvicorn():
     cmd = next(line for line in DOCKERFILE.read_text().splitlines() if line.startswith("CMD "))
-    assert "alembic upgrade head" in cmd and "uvicorn" in cmd, cmd
+    assert "alembic upgrade head" in cmd, cmd
+    assert "uvicorn" in cmd, cmd
     assert cmd.index("alembic upgrade head") < cmd.index("uvicorn"), cmd
