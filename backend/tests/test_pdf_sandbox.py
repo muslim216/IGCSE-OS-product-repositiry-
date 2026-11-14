@@ -306,11 +306,12 @@ def test_the_output_cap_allows_twice_the_largest_upload():
 
 def _fake_child(monkeypatch, code: str) -> None:
     monkeypatch.setattr(
-        pdf_sandbox, "_child_argv", lambda test_args=(): [sys.executable, "-I", "-c", code]
+        pdf_sandbox, "_child_argv", lambda *a, **k: [sys.executable, "-I", "-c", code]
     )
 
 
-_READY = pdf_child.READY
+#: What a child writes once it has read its request, before any result.
+_READY = pdf_child.READY + pdf_child.REQUEST_OK
 
 
 @pytest.mark.parametrize(
@@ -431,7 +432,7 @@ def test_a_root_parent_hands_the_child_the_sandbox_account(monkeypatch):
         "getpwnam",
         lambda name: SimpleNamespace(pw_uid=4242, pw_gid=4343) if name == "pdfsandbox" else None,
     )
-    argv = pdf_sandbox._child_argv(())
+    argv = pdf_sandbox._child_argv(pdf_child.Kind.pdf)
     assert argv[argv.index("--uid") + 1] == "4242"
     assert argv[argv.index("--gid") + 1] == "4343"
 
@@ -488,8 +489,8 @@ def test_the_child_sets_itself_up_before_it_reads_the_file(monkeypatch):
     steps: list[str] = []
     monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: steps.append("oom"))
     monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: steps.append("drop"))
-    monkeypatch.setattr(pdf_child, "_set_limits", lambda: steps.append("limits"))
-    monkeypatch.setattr(pdf_child, "_load_library", lambda: steps.append("library"))
+    monkeypatch.setattr(pdf_child, "_set_limits", lambda kind: steps.append("limits"))
+    monkeypatch.setattr(pdf_child, "_load_library", lambda kind: steps.append("library"))
 
     request = pdf_child.encode_request(pdf_child.Op.count, [], _pdf(2))
 
@@ -515,7 +516,7 @@ def test_the_child_sets_soft_equal_to_hard(monkeypatch):
     monkeypatch.setattr(
         pdf_child.resource, "setrlimit", lambda res, lim: calls.__setitem__(res, lim)
     )
-    pdf_child._set_limits()
+    pdf_child._set_limits(pdf_child.Kind.pdf)
     r = pdf_child.resource
     assert calls[r.RLIMIT_AS] == (256 * 1024 * 1024, 256 * 1024 * 1024)
     assert calls[r.RLIMIT_CPU] == (60, 65)
@@ -570,9 +571,11 @@ def test_memory_and_recursion_are_too_complex_not_unreadable(monkeypatch):
         request = pdf_child.encode_request(pdf_child.Op.count, [], b"%PDF-1.4")
         monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: None)
         monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: None)
-        monkeypatch.setattr(pdf_child, "_set_limits", lambda: None)
+        monkeypatch.setattr(pdf_child, "_set_limits", lambda kind: None)
         assert pdf_child.main([], stdin=BytesIO(request), stdout=out) == 0
-        head = pdf_child.RESULT_HEAD.unpack_from(out.getvalue(), len(pdf_child.READY))
+        head = pdf_child.RESULT_HEAD.unpack_from(
+            out.getvalue(), len(pdf_child.READY + pdf_child.REQUEST_OK)
+        )
         assert head[2] == pdf_child.Code.too_complex
 
 
@@ -727,11 +730,13 @@ def _serve_in_process(monkeypatch, op, ranges, data) -> tuple:
     the result header it wrote."""
     monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: None)
     monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: None)
-    monkeypatch.setattr(pdf_child, "_set_limits", lambda: None)
+    monkeypatch.setattr(pdf_child, "_set_limits", lambda kind: None)
     out = BytesIO()
     request = pdf_child.encode_request(op, ranges, data)
     assert pdf_child.main([], stdin=BytesIO(request), stdout=out) == 0
-    return pdf_child.RESULT_HEAD.unpack_from(out.getvalue(), len(pdf_child.READY))
+    return pdf_child.RESULT_HEAD.unpack_from(
+        out.getvalue(), len(pdf_child.READY + pdf_child.REQUEST_OK)
+    )
 
 
 @pytest.mark.parametrize("exc", [TypeError("boom"), KeyError("/Root"), AttributeError("x")])
@@ -762,7 +767,7 @@ def test_the_child_tells_encrypted_by_type_not_by_cause():
 def _stub_setup(monkeypatch) -> None:
     monkeypatch.setattr(pdf_child, "_raise_oom_score", lambda: None)
     monkeypatch.setattr(pdf_child, "_drop_privileges", lambda uid, gid: None)
-    monkeypatch.setattr(pdf_child, "_set_limits", lambda: None)
+    monkeypatch.setattr(pdf_child, "_set_limits", lambda kind: None)
 
 
 def test_a_library_that_will_not_import_stops_the_child_before_ready(monkeypatch):
@@ -770,7 +775,7 @@ def test_a_library_that_will_not_import_stops_the_child_before_ready(monkeypatch
     final "too complex"."""
     _stub_setup(monkeypatch)
 
-    def _broken():
+    def _broken(kind):
         raise ImportError("no module named pypdf")
 
     monkeypatch.setattr(pdf_child, "_load_library", _broken)
@@ -809,9 +814,9 @@ def test_the_child_takes_only_its_account_unless_in_test_mode():
     with pytest.raises(pdf_child.SetupFailed):
         pdf_child._options(["--anything", "1"])
     assert pdf_child._options(["--test-mode", "1", "--test-hold", "1"])["test-hold"] == "1"
-    argv = pdf_sandbox._child_argv(("--test-hold", "1"))
+    argv = pdf_sandbox._child_argv(pdf_child.Kind.pdf, ("--test-hold", "1"))
     assert argv[argv.index("--test-mode") + 1] == "1"
-    assert "--test-mode" not in pdf_sandbox._child_argv(())
+    assert "--test-mode" not in pdf_sandbox._child_argv(pdf_child.Kind.pdf)
 
 
 def test_a_header_claiming_too_much_is_refused_before_it_is_read(run, monkeypatch, caplog):
@@ -890,7 +895,7 @@ def test_a_root_parent_will_not_start_a_child_while_the_uploads_are_open(
     assert "upload" in caplog.text
 
     root.chmod(0o700)
-    argv = pdf_sandbox._child_argv(())
+    argv = pdf_sandbox._child_argv(pdf_child.Kind.pdf)
     assert argv[argv.index("--uid") + 1] == "4242"
 
 
@@ -903,7 +908,7 @@ def test_a_root_parent_with_object_storage_does_not_check_a_local_folder(monkeyp
     monkeypatch.setattr(get_settings(), "upload_dir", str(root))
     monkeypatch.setattr(get_settings(), "storage_backend", "s3")
     _as_root(monkeypatch)
-    assert "--uid" in pdf_sandbox._child_argv(())
+    assert "--uid" in pdf_sandbox._child_argv(pdf_child.Kind.pdf)
 
 
 def test_a_child_killed_mid_write_is_logged_by_how_it_died(run, monkeypatch, caplog):

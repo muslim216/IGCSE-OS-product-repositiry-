@@ -205,3 +205,141 @@ def test_the_api_process_never_loads_the_pdf_library(tmp_path):
     assert report["count"] == 4
     assert report["papers"] == 2
     assert report["loaded"] == []
+
+
+# --- T-030: the photo libraries -------------------------------------------------
+#
+# The same two guards for Pillow and the HEIF decoder, which since T-030 run
+# only in the photo child: `services/photo.py` is the one module that imports
+# them, and `pdf_child.py` the one that imports it.
+
+PHOTO_ALLOWED = {
+    BACKEND / "app" / "services" / "photo.py",
+    BACKEND / "app" / "services" / "pdf_child.py",
+}
+_PHOTO_LIBRARY = re.compile(r"^(PIL|pillow_heif)(\.|$)")
+_PHOTO_MODULE = re.compile(r"^app\.services\.photo(\.|$)")
+_PHOTO_QUOTED = re.compile(r"""["'](PIL|pillow_heif|app\.services\.photo)(\.[\w.]*)?["']""")
+
+
+def _photo_offences(path: Path, root: Path = BACKEND) -> list[str]:
+    source = path.read_text()
+    found = []
+    tree = ast.parse(source, filename=str(path))
+    package = ".".join(path.relative_to(root).with_suffix("").parts[:-1])
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if _PHOTO_LIBRARY.match(alias.name) or _PHOTO_MODULE.match(alias.name):
+                    found.append(f"line {node.lineno}: import {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level:
+                base = package.split(".")[: len(package.split(".")) - (node.level - 1)]
+                module = ".".join([*base, module] if module else base)
+            if _PHOTO_LIBRARY.match(module) or _PHOTO_MODULE.match(module):
+                found.append(f"line {node.lineno}: from {module} import ...")
+            elif module == "app.services" and any(a.name == "photo" for a in node.names):
+                found.append(f"line {node.lineno}: from app.services import photo")
+    for match in _PHOTO_QUOTED.finditer(source):
+        line = source.count("\n", 0, match.start()) + 1
+        found.append(f"line {line}: the string {match.group(0)}")
+    return found
+
+
+def test_nothing_outside_the_photo_child_imports_the_photo_libraries():
+    offences = {}
+    for root in SCANNED:
+        for path in sorted((BACKEND / root).rglob("*.py")):
+            if path in PHOTO_ALLOWED:
+                continue
+            if problems := _photo_offences(path):
+                offences[str(path.relative_to(BACKEND))] = problems
+    assert not offences, (
+        "Decode photos through app.services.pdf_sandbox, never in the API process: "
+        f"{json.dumps(offences, indent=2)}"
+    )
+
+
+def test_the_photo_scan_catches_every_spelling(tmp_path):
+    spellings = [
+        "import PIL",
+        "from PIL import Image",
+        "import PIL.Image as I",
+        "import pillow_heif",
+        "from pillow_heif import options",
+        "from app.services import photo",
+        "from app.services import storage, photo as p",
+        "from app.services.photo import to_jpeg",
+        "import importlib\nimportlib.import_module('PIL.Image')",
+        '__import__("pillow_heif")',
+    ]
+    services = tmp_path / "app" / "services"
+    services.mkdir(parents=True)
+    for n, spelling in enumerate(spellings):
+        module = services / f"m{n}.py"
+        module.write_text(spelling + "\n")
+        assert _photo_offences(module, tmp_path), spelling
+    relative = services / "rel.py"
+    relative.write_text("from . import photo\n")
+    assert _photo_offences(relative, tmp_path)
+    fine = services / "fine.py"
+    fine.write_text(
+        "from app.services import pdf_sandbox\nfrom app.services.pdf_child import Kind\n"
+    )
+    assert not _photo_offences(fine, tmp_path)
+
+
+_PHOTO_PROBE = r"""
+import asyncio, json, sys
+sys.path.insert(0, sys.argv[1])
+import app.main  # noqa: F401  the whole app, every router and service
+import app.workers.handlers  # noqa: F401  and every job handler
+
+from app.services import storage
+
+data = open(sys.argv[2], "rb").read()
+
+
+async def go():
+    key, _name, mime = await storage.save_bytes(data, "image/heic", "page.heic", organization_id=1)
+    stored = await storage.read_file(key)
+    return mime, stored[:3] == b"\xff\xd8\xff"
+
+
+mime, is_jpeg = asyncio.run(go())
+print(json.dumps({
+    "mime": mime,
+    "jpeg": is_jpeg,
+    "loaded": sorted(m for m in sys.modules
+                     if m.split(".")[0] in ("PIL", "pillow_heif") or m == "app.services.photo"),
+}))
+"""
+
+
+def test_the_api_process_never_loads_the_photo_libraries(tmp_path):
+    """A photo upload, converted through the real sandbox, from a fresh
+    interpreter that has imported the whole app: neither library is loaded."""
+    from tests.test_storage import _heic
+
+    photo = tmp_path / "page.heic"
+    photo.write_bytes(_heic(64, 48))
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+        "JWT_SECRET": "test-secret-key-0123456789-abcdefghijklmnop",
+        "UPLOAD_DIR": str(tmp_path / "uploads"),
+    }
+    done = subprocess.run(
+        [sys.executable, "-I", "-c", _PHOTO_PROBE, str(BACKEND), str(photo)],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr.decode()[-2000:]
+    report = json.loads(done.stdout.decode().strip().splitlines()[-1])
+    assert report["mime"] == "image/jpeg"
+    assert report["jpeg"] is True
+    assert report["loaded"] == []

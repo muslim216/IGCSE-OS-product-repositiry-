@@ -1,10 +1,10 @@
 """One memory-heavy piece of work at a time in this process.
 
 The API runs on one 512 MB instance, and two kinds of work there can each take
-most of it: decoding an iPhone photo (about 330 MB at the pixel ceiling in
-`storage.py`) and a PDF read in its child process (up to 256 MB, the limit
-`pdf_child.py` sets). Each fits beside the app on its own; both at once do not.
-So both take this lock, and their peaks never overlap.
+most of it, both in a child process (`pdf_child.py`): decoding an iPhone photo
+(up to 448 MB of address space, about 330 MB used at the pixel ceiling) and
+reading a PDF (up to 256 MB). Each fits beside the app on its own; both at once
+do not. So both take this lock, and their peaks never overlap.
 
 The two wait differently. A PDF read is a background job and waits as long as
 it takes; its own deadline starts only once it holds the lock, so waiting in
@@ -62,10 +62,11 @@ async def acquire(*, wait: float | None = None) -> Callable[[], None]:
     """Take the lock, waiting at most `wait` seconds (for ever if None), and
     return the function that gives it back.
 
-    A function rather than only a context manager because the photo decode
-    must give it back when its thread finishes, which can be after the request
-    that started it was cancelled. Calling the function twice does nothing the
-    second time: a double release would let two holders in at once.
+    A function rather than only a context manager because a photo upload
+    takes the lock in one place (before it spends any allowance) and the
+    sandbox gives it back in another, once the photo's child has ended.
+    Calling the function twice does nothing the second time: a double release
+    would let two holders in at once.
 
     Raises `HeavyWorkBusy` if the wait runs out, holding nothing."""
     lock = lock_for_this_loop()

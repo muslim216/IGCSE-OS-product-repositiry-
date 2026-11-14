@@ -578,6 +578,20 @@ essential_platform_daily_limiter = RateLimiter(
 #: The one identifier the platform cap counts under.
 PLATFORM_IDENTIFIER = "platform"
 
+#: Photos one student sent today that the photo reader had to stop: each ran
+#: into a limit of its child (`services/pdf_sandbox.py`), holding the one
+#: heavy-work slot every upload and booklet shares while it did. After this
+#: many, that student's photos are refused without being read until the day
+#: turns, so one student cannot keep the slot busy for everyone else. Keyed
+#: by student inside their workspace. A photo that is merely unreadable, or
+#: too high a resolution, is not counted: those stop at once.
+PHOTO_STRIKE_LIMIT = 2
+photo_strike_daily_limiter = RateLimiter(
+    purpose="photo_strike_daily",
+    limit=PHOTO_STRIKE_LIMIT,
+    window_seconds=DAY_SECONDS,
+)
+
 #: Every limiter the app defines. A list rather than one global so a new
 #: limiter joins the health report without changing its shape.
 ALL_LIMITERS: list[RateLimiter] = [
@@ -590,6 +604,7 @@ ALL_LIMITERS: list[RateLimiter] = [
     syllabus_daily_limiter,
     plan_daily_limiter,
     essential_platform_daily_limiter,
+    photo_strike_daily_limiter,
 ]
 
 

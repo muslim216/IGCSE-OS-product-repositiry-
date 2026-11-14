@@ -7,11 +7,10 @@ seconds and then asks them to try again.
 """
 
 import asyncio
-import threading
 
 import pytest
 
-from app.services import heavy_work, storage
+from app.services import heavy_work, pdf_sandbox, storage
 from app.services.heavy_work import HeavyWorkBusy
 from app.workers.jobs import is_permanent
 from tests.test_storage import _heic
@@ -96,32 +95,40 @@ async def test_a_job_saving_a_photo_while_busy_is_retried_not_refused(monkeypatc
     assert not is_permanent(caught.value)
 
 
-async def test_a_photo_holds_the_lock_until_its_decode_ends_even_if_cancelled(monkeypatch):
-    """A thread cannot be stopped. If a cancelled request let go of the lock
-    while its photo was still decoding, a PDF child could start beside it."""
-    started = threading.Event()
-    finish = threading.Event()
-    real = storage._to_jpeg
+async def test_a_photo_holds_the_lock_while_its_child_runs_and_frees_it_once_killed(monkeypatch):
+    """The photo decodes in a child process, which, unlike a thread, can be
+    stopped. While it runs it holds the lock, so no PDF child starts beside
+    it; a cancelled request kills it and only then gives the lock back."""
+    from tests.test_photo_sandbox import _gone, _held_photo
 
-    def _slow(data):
-        started.set()
-        finish.wait(10)
-        return real(data)
+    spawned: list[int] = []
+    real_spawn = asyncio.create_subprocess_exec
 
-    monkeypatch.setattr(storage, "_to_jpeg", _slow)
+    async def _spy(*args, **kwargs):
+        proc = await real_spawn(*args, **kwargs)
+        spawned.append(proc.pid)
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _spy)
+    monkeypatch.setattr(pdf_sandbox, "photo_to_jpeg", _held_photo(("--test-hold", "60")))
     task = asyncio.create_task(storage._normalize(_heic(50, 50), "image/heic"))
-    await asyncio.to_thread(started.wait, 10)
+    for _ in range(200):
+        if spawned:
+            break
+        await asyncio.sleep(0.05)
+    assert spawned, "no photo child started"
+    await asyncio.sleep(0.3)
+    assert heavy_work.lock_for_this_loop().locked(), "a running photo child must hold the lock"
+
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert heavy_work.lock_for_this_loop().locked(), "released while the decode still ran"
-
-    finish.set()
+    assert not heavy_work.lock_for_this_loop().locked()
     for _ in range(200):
-        if not heavy_work.lock_for_this_loop().locked():
+        if _gone(spawned[0]):
             break
         await asyncio.sleep(0.02)
-    assert not heavy_work.lock_for_this_loop().locked()
+    assert _gone(spawned[0])
 
 
 async def test_the_lock_is_one_at_a_time():

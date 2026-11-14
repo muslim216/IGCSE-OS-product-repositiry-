@@ -1,11 +1,12 @@
-"""Reading an uploaded PDF in a separate, limited process.
+"""Reading an uploaded PDF or photo in a separate, limited process.
 
-Every page count and every split goes through here. Each call starts
-`services/pdf_child.py`, hands it the file, and reads back a small framed
-result. The child is the only process that runs the PDF library, so a file
-that makes the library run away costs that child and nothing else: before
-this, it ran inside the API process, where it could hold the interpreter or
-get the whole instance killed for memory, stopping every request and job.
+Every page count, every split and every iPhone photo goes through here. Each
+call starts `services/pdf_child.py` with the kind it reads (`--kind pdf` or
+`--kind photo`), hands it the file, and reads back a small framed result. The
+child is the only process that runs the PDF library or the photo decoder, so a
+file that makes one run away costs that child and nothing else: before this,
+they ran inside the API process, where they could hold the interpreter or get
+the whole instance killed for memory, stopping every request and job.
 
 **What the parent guarantees, whatever the child does:**
 
@@ -17,20 +18,23 @@ get the whole instance killed for memory, stopping every request and job.
   T-009 must keep a separate account for this child when it gives the API one.
 - It writes the request and reads the result at the same time, so neither
   side can block the other, and it caps what it reads.
-- It allows `DEADLINE_SECONDS` per child, counted from when it holds the
+- It allows `deadline_for(kind)` per child, counted from when it holds the
   heavy-work lock (`services/heavy_work.py`), so waiting in line behind
   another file is never the file's fault.
 - However the call ends (result, deadline, too much output, cancellation),
   `finally` kills the child's process group and waits for it, shielded, so
   no child is ever left running or unreaped.
-- **The child sends codes; every message is written here.**
+- **The child sends codes; every message is written by its callers.** A
+  result is accepted only in the shape the child writes for that operation;
+  a photo's JPEG is checked again before it is handed back.
 
 **What a failure means.** A file that hits a limit, is killed by a signal,
 overruns the deadline or the output cap, or sends a malformed result is
-`PdfTooComplex`, which is never retried: the same file would do the same
-again. A child that could not be started, or died before saying it was ready
-(before it had read any of the file), is `PdfSandboxUnavailable`, which is
-ours and is retried. The log names the reason, the exit status and the limit,
+`PdfTooComplex` (or `PhotoTooComplex`), which is never retried: the same file
+would do the same again. A child that could not be started, died before
+saying it was ready (before it had read any of the file), or could not read
+the request it was sent, is `PdfSandboxUnavailable`, which is ours and is
+retried. The log names the kind, the reason, the exit status and the limit,
 never the child's output or the file.
 """
 
@@ -44,7 +48,7 @@ import signal
 import stat
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,25 +57,36 @@ from app.services import heavy_work
 from app.services.job_errors import DocumentProblem
 from app.services.pdf_child import (
     EXIT_BAD_REQUEST,
+    MAX_IMAGE_PIXELS,
+    MAX_INPUT_BYTES,
     MAX_RANGES,
     PIECE_LENGTH,
     READY,
+    REQUEST_OK,
     RESULT_HEAD,
     RESULT_MAGIC,
     VERSION,
     Code,
     Detail,
+    Kind,
     Op,
     request_head,
 )
-from app.services.storage import MAX_FILE_BYTES
 
 log = logging.getLogger(__name__)
 
-#: Wall-clock time one child may take once it holds the heavy-work lock. Above
-#: the child's 65-second CPU limit, so a CPU-bound child is stopped by that
-#: first and the log says so; this catches one that waits instead of working.
+#: Wall-clock time one PDF child may take once it holds the heavy-work lock.
+#: Above the child's 65-second CPU limit, so a CPU-bound child is stopped by
+#: that first and the log says so; this catches one that waits instead of
+#: working. The job worker's own timeout for a booklet job is built from it
+#: (`workers/handlers.py`).
 DEADLINE_SECONDS = 90.0
+#: The same for a photo child, above its 12-second CPU limit. A photo arrives
+#: in a student's request, so its deadline is short.
+PHOTO_DEADLINE_SECONDS = 20.0
+#: How long a photo waits for the heavy-work lock when its caller has not
+#: taken it already: a student's request does not queue behind a booklet.
+PHOTO_LOCK_WAIT_SECONDS = 5.0
 #: How long to wait for a killed child to be reaped. SIGKILL cannot be caught,
 #: so this is a ceiling for a pathological kernel, not an expected wait.
 REAP_SECONDS = 5.0
@@ -94,7 +109,18 @@ _CHILD_ENV = {
     "PYTHONHASHSEED": "random",
 }
 
+#: The ISO base-media major brands of a HEIF still image or sequence, exactly
+#: the ones the photo decoder's own plugin claims (pillow-heif). The AVIF
+#: brands are deliberately absent, so nothing reaches an AVIF decoder.
+HEIF_BRANDS = frozenset(
+    {b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs", b"mif1", b"msf1"}
+)
+#: The largest JPEG accepted back from a photo child, the same as the largest
+#: upload: `storage` would refuse anything bigger anyway.
+PHOTO_OUTPUT_CAP = MAX_INPUT_BYTES
+
 _said_same_user = False
+_warned_photo_same_user = False
 
 
 class PdfTooComplex(DocumentProblem):
@@ -112,7 +138,28 @@ class PdfTooComplex(DocumentProblem):
 
 class PdfSandboxUnavailable(RuntimeError):
     """The child could not be started, or died before it read the file. Ours,
-    not the file's: retried, and the tutor sees the generic sentence."""
+    not the file's: retried, and the person sees a generic or busy sentence.
+    The same for photos as for PDFs."""
+
+
+class PhotoProblem(Exception):
+    """A photo the child would not turn into a JPEG. Carries no sentence:
+    `storage` writes what the student reads, from the type."""
+
+    job_retryable = False
+
+
+class PhotoUnreadable(PhotoProblem):
+    """Not a HEIF photo, or one the decoder could not read."""
+
+
+class PhotoTooLarge(PhotoProblem):
+    """More pixels than the ceiling, read from the photo's header."""
+
+
+class PhotoTooComplex(PhotoProblem):
+    """The photo hit one of the child's limits, or made it misbehave. Never
+    retried, for the same reason as `PdfTooComplex`."""
 
 
 @dataclass(frozen=True)
@@ -151,8 +198,76 @@ async def split(data: bytes, ranges: Sequence[tuple[int, int]]) -> Split:
     return Split(pieces=pieces, failure=failure)
 
 
-def _child_argv(test_args: Sequence[str]) -> list[str]:
-    argv = [sys.executable, "-I", "-B", "-m", "app.services.pdf_child"]
+def looks_like_heif(data: bytes) -> bool:
+    """Whether the bytes open as a HEIF photo would: an ISO base-media `ftyp`
+    box first, of a plausible size, naming a HEIF brand (`SEC-15`). Checked
+    before any lock or child, so a file that is anything else, whatever type
+    it was sent as, never reaches a decoder."""
+    if len(data) < 16 or data[4:8] != b"ftyp":
+        return False
+    size = int.from_bytes(data[:4], "big")
+    return 16 <= size <= len(data) and data[8:12] in HEIF_BRANDS
+
+
+async def photo_to_jpeg(
+    data: bytes,
+    *,
+    max_pixels: int = MAX_IMAGE_PIXELS,
+    held: Callable[[], None] | None = None,
+    wait: float = PHOTO_LOCK_WAIT_SECONDS,
+) -> bytes:
+    """The photo as a JPEG, decoded by a photo child.
+
+    `held` is the heavy-work lock if the caller already took it; from here
+    this owns it and gives it back on every way out. Without it the lock is
+    taken here, waiting at most `wait` seconds (`HeavyWorkBusy` after that).
+    `max_pixels` may lower the child's pixel ceiling, never raise it.
+
+    Raises `PhotoUnreadable`, `PhotoTooLarge` or `PhotoTooComplex` for the
+    photo, `PdfSandboxUnavailable` when no child could read it."""
+    return await _photo(data, max_pixels=max_pixels, held=held, wait=wait)
+
+
+async def _photo(
+    data: bytes,
+    *,
+    max_pixels: int = MAX_IMAGE_PIXELS,
+    held: Callable[[], None] | None = None,
+    wait: float = PHOTO_LOCK_WAIT_SECONDS,
+    test_args: Sequence[str] = (),
+) -> bytes:
+    """`photo_to_jpeg`, with the child's test-only hooks for the tests."""
+    release = held
+    try:
+        if not looks_like_heif(data):
+            raise PhotoUnreadable()
+        argv = _child_argv(Kind.photo, test_args, max_pixels=max_pixels)
+        if release is None:
+            release = await heavy_work.acquire(wait=wait)
+        head = request_head(Op.photo_to_jpeg, [], len(data))
+        exchange = await _exchange_with_child(Kind.photo, argv, head, data, Op.photo_to_jpeg, 0)
+    finally:
+        # Every way out, the spawn refused included. A cancellation that
+        # arrives while the killed child is still being reaped (shielded, in
+        # `_kill_and_reap`) gives the lock back before that reap ends. That is
+        # safe: the child has already been sent SIGKILL, which it cannot
+        # catch, so it is not decoding any more.
+        if release is not None:
+            release()
+    return _photo_outcome(exchange)
+
+
+def deadline_for(kind: Kind) -> float:
+    """Each kind's wall-clock deadline, looked up when a child starts."""
+    return {Kind.pdf: DEADLINE_SECONDS, Kind.photo: PHOTO_DEADLINE_SECONDS}[kind]
+
+
+def _child_argv(
+    kind: Kind, test_args: Sequence[str] = (), *, max_pixels: int | None = None
+) -> list[str]:
+    argv = [sys.executable, "-I", "-B", "-m", "app.services.pdf_child", "--kind", kind.value]
+    if max_pixels is not None:
+        argv += ["--max-pixels", str(max_pixels)]
     if os.geteuid() == 0:
         try:
             account = pwd.getpwnam(SANDBOX_USER)
@@ -166,6 +281,8 @@ def _child_argv(test_args: Sequence[str]) -> list[str]:
         argv += ["--uid", str(account.pw_uid), "--gid", str(account.pw_gid)]
     else:
         _say_same_user_once()
+        if kind is Kind.photo:
+            _warn_photo_same_user_once()
     if test_args:
         argv += ["--test-mode", "1"]
     return [*argv, *test_args]
@@ -202,13 +319,30 @@ def _say_same_user_once() -> None:
         log.info("pdf sandbox: the API is not root, so the child runs as the same user")
 
 
+def _warn_photo_same_user_once() -> None:
+    """On the server, a child that runs as the API's own user can read the
+    uploads on its disk, which the separate account exists to prevent. Today
+    the API runs as root, so this does not happen; if it ever runs as another
+    user before the child has an account of its own (T-009), say so loudly,
+    once. Not a refusal: a student's photo still converts."""
+    global _warned_photo_same_user
+    settings = get_settings()
+    if _warned_photo_same_user or not settings.render or settings.storage_backend != "local":
+        return
+    _warned_photo_same_user = True
+    log.error(
+        "pdf sandbox: photo child runs as the API's own user on the server, "
+        "so it is not kept out of the stored uploads"
+    )
+
+
 def _output_cap(n_ranges: int) -> int:
-    """The most piece bytes the parent accepts from one child. Ranges may
+    """The most piece bytes the parent accepts from one PDF child. Ranges may
     overlap, but a booklet's slices sum to roughly its own size, so twice the
     largest upload is room for every genuine split. Checked against the
     lengths the child announces, before any piece is read."""
     del n_ranges  # the same for every split; kept so a test can narrow it
-    return 2 * MAX_FILE_BYTES
+    return 2 * MAX_INPUT_BYTES
 
 
 class _Refused(Exception):
@@ -221,27 +355,41 @@ class _Refused(Exception):
 
 class _Result:
     """What has been read from the child so far. Filled in place, so that
-    after a deadline the caller can still tell whether it ever got ready."""
+    after a deadline the caller can still tell how far it got."""
 
     def __init__(self) -> None:
         self.ready = False
+        #: The child had read its whole request and checked it.
+        self.request_ok = False
         self.parsed: tuple[Code, Detail, int, int, list[bytes]] | None = None
+
+
+@dataclass
+class _Exchange:
+    """How one child ended, for the outcome functions."""
+
+    kind: Kind
+    returncode: int | None
+    result: _Result
+    refused: str | None
+    killed: bool
 
 
 async def _run(
     op: Op, data: bytes, ranges: list[tuple[int, int]], *, test_args: Sequence[str] = ()
 ) -> tuple[list[bytes], DocumentProblem | None, int]:
-    """One child, start to finish. `test_args` turns on the child's test-only
-    hooks; nothing but the tests passes it."""
-    argv = _child_argv(test_args)
+    """One PDF child, start to finish. `test_args` turns on the child's
+    test-only hooks; nothing but the tests passes it."""
+    argv = _child_argv(Kind.pdf, test_args)
     head = request_head(op, ranges, len(data))
     async with heavy_work.held():
-        return await _exchange_with_child(argv, head, data, ranges)
+        exchange = await _exchange_with_child(Kind.pdf, argv, head, data, op, len(ranges))
+    return _outcome(exchange, ranges)
 
 
 async def _exchange_with_child(
-    argv: list[str], head: bytes, data: bytes, ranges: list[tuple[int, int]]
-) -> tuple[list[bytes], DocumentProblem | None, int]:
+    kind: Kind, argv: list[str], head: bytes, data: bytes, op: Op, n_ranges: int
+) -> _Exchange:
     cwd = await asyncio.to_thread(tempfile.mkdtemp, prefix="pdf-sandbox-")
     try:
         try:
@@ -259,14 +407,16 @@ async def _exchange_with_child(
             # EAGAIN, ENOMEM: the instance could not start a process. Ours. The
             # traceback is the spawn's own: it holds no file content and no
             # child output, so it is safe to log in full.
-            log.exception("pdf sandbox: could not start the child (errno %s)", exc.errno)
+            log.exception(
+                "pdf sandbox: could not start the child (kind=%s, errno %s)", kind.value, exc.errno
+            )
             raise PdfSandboxUnavailable("could not start the child") from exc
 
         result = _Result()
         refused: str | None = None
         try:
-            async with asyncio.timeout(DEADLINE_SECONDS):
-                await _talk(proc, head, data, result, len(ranges))
+            async with asyncio.timeout(deadline_for(kind)):
+                await _talk(proc, head, data, result, op, n_ranges)
                 await proc.wait()
         except TimeoutError:
             refused = "deadline"
@@ -283,11 +433,16 @@ async def _exchange_with_child(
     finally:
         await asyncio.to_thread(shutil.rmtree, cwd, True)
 
-    return _outcome(proc.returncode, result, refused, ranges, killed=killed)
+    return _Exchange(kind, proc.returncode, result, refused, killed)
 
 
 async def _talk(
-    proc: asyncio.subprocess.Process, head: bytes, data: bytes, result: _Result, n_ranges: int
+    proc: asyncio.subprocess.Process,
+    head: bytes,
+    data: bytes,
+    result: _Result,
+    op: Op,
+    n_ranges: int,
 ) -> None:
     """Write the request and read the result concurrently, so a child that
     answers before it has read everything cannot deadlock against a parent
@@ -295,7 +450,7 @@ async def _talk(
     assert proc.stdin is not None and proc.stdout is not None
     feeder = asyncio.ensure_future(_feed(proc.stdin, head, data))
     try:
-        await _receive(proc.stdout, result, n_ranges)
+        await _receive(proc.stdout, result, op, n_ranges)
         await feeder
     finally:
         feeder.cancel()
@@ -308,15 +463,47 @@ async def _exactly(stream: asyncio.StreamReader, n: int) -> bytes:
         raise _Refused("bad_framing") from None
 
 
-async def _receive(stream: asyncio.StreamReader, result: _Result, n_ranges: int) -> None:
+#: The codes a child may answer each operation with. Anything else, even a
+#: code that exists, is a result that child would not have written.
+_CODES: dict[Op, frozenset[Code]] = {
+    Op.count: frozenset({Code.ok, Code.unreadable, Code.encrypted, Code.too_complex}),
+    Op.split: frozenset(
+        {Code.ok, Code.unreadable, Code.encrypted, Code.range_invalid, Code.too_complex}
+    ),
+    Op.photo_to_jpeg: frozenset({Code.ok, Code.unreadable, Code.too_large, Code.too_complex}),
+}
+
+
+def _expected_pieces(op: Op, code: Code, index: int, n_ranges: int) -> int | None:
+    """How many pieces an answer of this shape carries, exactly, or None for
+    a shape the child never writes: all of them on success, those before the
+    failing range on a range failure, none otherwise. A photo's success is
+    one JPEG."""
+    if code not in _CODES[op]:
+        return None
+    if code is Code.ok:
+        if index != -1:
+            return None
+        return 1 if op is Op.photo_to_jpeg else n_ranges
+    if op is Op.split and code in (Code.range_invalid, Code.unreadable) and index >= 0:
+        return index if index < n_ranges else None
+    if code is Code.range_invalid or index != -1:
+        return None
+    return 0
+
+
+async def _receive(stream: asyncio.StreamReader, result: _Result, op: Op, n_ranges: int) -> None:
     """The child's result, read as it arrives and checked field by field: the
-    ready byte, the header, every piece's length, then the pieces. Nothing is
-    buffered whole and copied, and the announced lengths are held to the cap
-    before a single piece is read. Anything the child would not have written
-    is refused, never repaired."""
+    ready byte, the request marker, the header, every piece's length, then the
+    pieces. Nothing is buffered whole and copied, and the announced lengths
+    are held to the cap before a single piece is read. Anything the child
+    would not have written is refused, never repaired."""
     if await stream.read(len(READY)) != READY:
-        return  # exited (or wrote nonsense) before it was ready: see `_outcome`
+        return  # exited (or wrote nonsense) before it was ready: see `_settle`
     result.ready = True
+    if await stream.read(len(REQUEST_OK)) != REQUEST_OK:
+        raise _Refused("bad_framing")  # or an early exit: `_settle` tells which
+    result.request_ok = True
     head = await _exactly(stream, RESULT_HEAD.size)
     magic, version, raw_code, raw_detail, index, total, n_pieces = RESULT_HEAD.unpack(head)
     if magic != RESULT_MAGIC or version != VERSION:
@@ -325,19 +512,12 @@ async def _receive(stream: asyncio.StreamReader, result: _Result, n_ranges: int)
         code, detail = Code(raw_code), Detail(raw_detail)
     except ValueError:
         raise _Refused("bad_framing") from None
-    # How many pieces each outcome carries, exactly: all of them on success,
-    # those before the failing range on a range failure, none otherwise.
-    if code is Code.ok:
-        expected, valid_index = n_ranges, index == -1
-    elif code in (Code.range_invalid, Code.unreadable) and index >= 0:
-        expected, valid_index = index, index < n_ranges
-    else:
-        expected, valid_index = 0, index == -1
-    if n_pieces != expected or not valid_index:
+    if n_pieces != _expected_pieces(op, code, index, n_ranges):
         raise _Refused("bad_framing")
     raw = await _exactly(stream, PIECE_LENGTH.size * n_pieces)
     lengths = [PIECE_LENGTH.unpack_from(raw, i * PIECE_LENGTH.size)[0] for i in range(n_pieces)]
-    if sum(lengths) > _output_cap(n_ranges):
+    cap = PHOTO_OUTPUT_CAP if op is Op.photo_to_jpeg else _output_cap(n_ranges)
+    if sum(lengths) > cap:
         raise _Refused("output_cap")
     pieces = [await _exactly(stream, length) for length in lengths]
     if await stream.read(1):
@@ -380,48 +560,80 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> bool:
     return killed
 
 
-def _outcome(
-    returncode: int | None,
-    result: _Result,
-    refused: str | None,
-    ranges: list[tuple[int, int]],
-    *,
-    killed: bool = False,
-) -> tuple[list[bytes], DocumentProblem | None, int]:
+class _TooComplex(Exception):
+    """`_settle` found the file at fault. Turned into the kind's own error."""
+
+
+def _settle(exchange: _Exchange) -> tuple[Code, Detail, int, int, list[bytes]]:
+    """Whose fault an ended child was, the same for every kind. Raises
+    `PdfSandboxUnavailable` when it was ours, `_TooComplex` when it was the
+    file's, and otherwise returns the parsed result."""
+    kind, returncode, result = exchange.kind, exchange.returncode, exchange.result
+    refused, killed = exchange.refused, exchange.killed
     if not result.ready:
         # Nothing of the file was read before READY, so whatever stopped the
         # child here (a missing account, a broken image) is ours.
-        _log("not_ready", returncode, refused=refused)
+        _log(kind, "not_ready", returncode, refused=refused)
         raise PdfSandboxUnavailable("the child did not start")
-    if returncode == EXIT_BAD_REQUEST:
-        # The child could not read what this side sent it: ours, retried. First,
-        # because its early exit also leaves the result short, which would
-        # otherwise read as bad framing.
-        _log("bad_request", returncode)
+    if returncode == EXIT_BAD_REQUEST and not result.request_ok:
+        # The child could not read what this side sent it: ours, retried. Only
+        # before the marker: after it the library had the file, and an exit
+        # with this number is no longer the child's word about the request.
+        # First, because the early exit also leaves the result short, which
+        # would otherwise read as bad framing.
+        _log(kind, "bad_request", returncode)
         raise PdfSandboxUnavailable("the child could not read its request")
     if refused == "bad_framing" and not killed and returncode not in (0, None):
         # It ended itself, mid-write: say how, with the framing as the context.
         reason = "signal" if returncode < 0 else "exit_status"
-        _log(reason, returncode, refused=refused)
-        raise PdfTooComplex()
+        _log(kind, reason, returncode, refused=refused)
+        raise _TooComplex()
     if refused is not None:
         # Named after itself, not after the SIGKILL the parent sent to end it.
-        _log(refused, returncode, limit=refused)
-        raise PdfTooComplex()
+        _log(kind, refused, returncode, limit=refused)
+        raise _TooComplex()
     if returncode != 0:
         reason = "signal" if returncode is not None and returncode < 0 else "exit_status"
-        _log(reason, returncode)
-        raise PdfTooComplex()
+        _log(kind, reason, returncode)
+        raise _TooComplex()
     if result.parsed is None:
-        _log("bad_framing", returncode)
-        raise PdfTooComplex()
-    code, detail, index, total, pieces = result.parsed
+        _log(kind, "bad_framing", returncode)
+        raise _TooComplex()
+    code, detail = result.parsed[0], result.parsed[1]
     if code is Code.too_complex:
-        _log("too_complex", returncode, limit=detail.name)
-        raise PdfTooComplex()
+        _log(kind, "too_complex", returncode, limit=detail.name)
+        raise _TooComplex()
+    return result.parsed
+
+
+def _outcome(
+    exchange: _Exchange, ranges: list[tuple[int, int]]
+) -> tuple[list[bytes], DocumentProblem | None, int]:
+    try:
+        code, _detail, index, total, pieces = _settle(exchange)
+    except _TooComplex:
+        raise PdfTooComplex() from None
     if code is Code.ok:
         return pieces, None, total
     return pieces, _problem(code, index=index, total=total, ranges=ranges), total
+
+
+def _photo_outcome(exchange: _Exchange) -> bytes:
+    try:
+        code, _detail, _index, _total, pieces = _settle(exchange)
+    except _TooComplex:
+        raise PhotoTooComplex() from None
+    if code is Code.too_large:
+        raise PhotoTooLarge()
+    if code is Code.unreadable:
+        raise PhotoUnreadable()
+    (jpeg,) = pieces  # exactly one, checked by `_receive`
+    # The child's output is as untrusted as its input: a JPEG, whole, and no
+    # bigger than an upload may be, or nothing is stored.
+    if not (jpeg.startswith(b"\xff\xd8\xff") and jpeg.endswith(b"\xff\xd9")):
+        _log(Kind.photo, "bad_output", exchange.returncode)
+        raise PhotoTooComplex()
+    return jpeg
 
 
 def _problem(
@@ -463,20 +675,23 @@ def _limit_for_signal(signum: int) -> str:
 
 
 def _log(
+    kind: Kind,
     reason: str,
     returncode: int | None,
     *,
     refused: str | None = None,
     limit: str | None = None,
 ) -> None:
-    """One line per refusal: why, how the child ended, and which limit. Never
-    the child's output and never the file, which are the uploader's."""
+    """One line per refusal: which kind, why, how the child ended, and which
+    limit. Never the child's output and never the file, which are the
+    uploader's."""
     name = _signal_name(returncode)
     if limit is None and returncode is not None and returncode < 0:
         with contextlib.suppress(ValueError):
             limit = _limit_for_signal(-returncode)
     log.warning(
-        "pdf sandbox refused a file: reason=%s exit=%s signal=%s limit=%s%s",
+        "pdf sandbox refused a file: kind=%s reason=%s exit=%s signal=%s limit=%s%s",
+        kind.value,
         reason,
         returncode,
         name,
