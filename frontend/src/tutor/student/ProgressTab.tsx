@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { topicEvidence, type ReadinessSummary } from "../../api/readiness";
-import { studentMistakes, type MistakeTally } from "../../api/students";
+import { topicEvidence, type ReadinessSummary, type TopicEvidence } from "../../api/readiness";
+import { studentMistakes, type MistakeTally, type StudentMistakeRollup } from "../../api/students";
 import { SubjectReadinessCard } from "../../components/ReadinessView";
 import CustomCriteriaPanel from "../../components/CustomCriteriaPanel";
 import AttendancePanel from "../../components/AttendancePanel";
@@ -15,12 +15,12 @@ export default function ProgressTab({
   readiness: r,
   selectedTopic,
   setSelectedTopic,
-}: {
+}: Readonly<{
   studentId: number;
   readiness: ReadinessSummary;
   selectedTopic: number | null;
   setSelectedTopic: (id: number | null) => void;
-}) {
+}>) {
   const evidence = useQuery({
     queryKey: ["topic-evidence", sid, selectedTopic],
     queryFn: () => topicEvidence(sid, selectedTopic!),
@@ -29,6 +29,8 @@ export default function ProgressTab({
 
   return (
     <div className="space-y-6">
+      {/* One full-width card per subject, stacked: a two-column grid left a
+          single subject at half width above full-width cards. */}
       {r.subjects.map((s) => (
         <SubjectReadinessCard key={s.subject_id} subject={s} onTopicClick={setSelectedTopic} />
       ))}
@@ -68,64 +70,7 @@ export default function ProgressTab({
               Close
             </Button>
           </div>
-          {evidence.isLoading ? (
-            <div className="mt-3">
-              <SectionSkeleton rows={3} label="Loading evidence" />
-            </div>
-          ) : evidence.isError || !evidence.data ? (
-            // A retry here rather than "refresh the page", which would also
-            // close this panel and drop the topic the tutor had opened.
-            <div className="mt-2 flex flex-wrap items-center gap-3">
-              <p role="alert" className="text-sm text-ink-500">
-                {ABSENT.loadFailedRetry}
-              </p>
-              <Button
-                variant="secondary"
-                size="sm"
-                loading={evidence.isFetching}
-                onClick={() => evidence.refetch()}
-              >
-                Try again
-              </Button>
-            </div>
-          ) : (
-            <>
-              <p className="mt-1 text-sm text-ink-500">
-                {evidence.data.score !== null ? (
-                  <>
-                    Readiness {Math.round(evidence.data.score)}% ({evidence.data.confidence}{" "}
-                    confidence)
-                    {evidence.data.tutor_estimate && (
-                      <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
-                    )}{" "}
-                    —{" "}
-                  </>
-                ) : (
-                  "Not enough data yet — "
-                )}
-                every score is explainable by the evidence below.
-              </p>
-              <ul className="mt-3 divide-y divide-line text-sm">
-                {evidence.data.evidence.map((e, i) => (
-                  <li key={i} className="flex items-center justify-between gap-3 py-2">
-                    <span className="min-w-0 text-ink-700">
-                      {e.label ?? sourceLabel(e.source_type)}{" "}
-                      <span className="text-xs text-ink-500">({sourceLabel(e.source_type)})</span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-3 tabular-nums">
-                      <span className="text-ink-900">{Math.round(e.score_pct)}%</span>
-                      <span className="text-xs text-ink-500">
-                        {new Date(e.occurred_at).toLocaleDateString()}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-                {evidence.data.evidence.length === 0 && (
-                  <li className="py-2 text-ink-500">No evidence yet.</li>
-                )}
-              </ul>
-            </>
-          )}
+          <EvidenceBody evidence={evidence} />
         </SectionCard>
       )}
 
@@ -149,6 +94,74 @@ export default function ProgressTab({
   );
 }
 
+function EvidenceBody({ evidence }: Readonly<{ evidence: UseQueryResult<TopicEvidence> }>) {
+  if (evidence.isLoading) {
+    return (
+      <div className="mt-3">
+        <SectionSkeleton rows={3} label="Loading evidence" />
+      </div>
+    );
+  }
+  if (evidence.isError || !evidence.data) {
+    // A retry here rather than "refresh the page", which would also
+    // close this panel and drop the topic the tutor had opened.
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <p role="alert" className="text-sm text-ink-500">
+          {ABSENT.loadFailedRetry}
+        </p>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={evidence.isFetching}
+          onClick={() => evidence.refetch()}
+        >
+          Try again
+        </Button>
+      </div>
+    );
+  }
+  const d = evidence.data;
+  return (
+    <>
+      <p className="mt-1 text-sm text-ink-500">
+        {d.score === null ? (
+          "Not enough data yet — "
+        ) : (
+          <>
+            Readiness {Math.round(d.score)}% ({d.confidence} confidence)
+            {d.tutor_estimate && (
+              <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
+            )}{" "}
+            —{" "}
+          </>
+        )}
+        every score is explainable by the evidence below.
+      </p>
+      <ul className="mt-3 divide-y divide-line text-sm">
+        {d.evidence.map((e) => (
+          <li
+            key={`${e.source_type}|${e.occurred_at}|${e.label ?? ""}|${e.score_pct}`}
+            className="flex items-center justify-between gap-3 py-2"
+          >
+            <span className="min-w-0 text-ink-700">
+              {e.label ?? sourceLabel(e.source_type)}{" "}
+              <span className="text-xs text-ink-500">({sourceLabel(e.source_type)})</span>
+            </span>
+            <span className="flex shrink-0 items-center gap-3 tabular-nums">
+              <span className="text-ink-900">{Math.round(e.score_pct)}%</span>
+              <span className="text-xs text-ink-500">
+                {new Date(e.occurred_at).toLocaleDateString()}
+              </span>
+            </span>
+          </li>
+        ))}
+        {d.evidence.length === 0 && <li className="py-2 text-ink-500">No evidence yet.</li>}
+      </ul>
+    </>
+  );
+}
+
 /* The mistake rollup (4.4).
 
    Two failures this section exists to not commit. First, a student nobody has
@@ -163,7 +176,7 @@ export default function ProgressTab({
    never branched on, because they can be renamed tomorrow. */
 const countMistakes = (n: number) => `${n} mistake${n === 1 ? "" : "s"}`;
 
-function CategoryChips({ categories }: { categories: MistakeTally["categories"] }) {
+function CategoryChips({ categories }: Readonly<{ categories: MistakeTally["categories"] }>) {
   return (
     <>
       {categories.map((c) => (
@@ -178,7 +191,7 @@ function CategoryChips({ categories }: { categories: MistakeTally["categories"] 
   );
 }
 
-function TallyDetail({ tally }: { tally: MistakeTally }) {
+function TallyDetail({ tally }: Readonly<{ tally: MistakeTally }>) {
   return (
     <span className="flex flex-wrap items-baseline gap-2 text-sm text-ink-500">
       <span>{countMistakes(tally.mistakes)}</span>
@@ -192,11 +205,11 @@ function TallyList({
   title,
   note,
   rows,
-}: {
+}: Readonly<{
   title: string;
   note: string;
   rows: { key: string; label: string; tally: MistakeTally }[];
-}) {
+}>) {
   return (
     <div className="mt-4">
       <h3 className="text-sm font-medium text-ink-900">{title}</h3>
@@ -220,82 +233,101 @@ function MistakeRollupSection({
   studentId,
   subjectId,
   subjectName,
-}: {
+}: Readonly<{
   studentId: number;
   subjectId: number;
   subjectName: string;
-}) {
+}>) {
   const rollup = useQuery({
     queryKey: ["student-mistakes", studentId, subjectId],
     queryFn: () => studentMistakes(studentId, subjectId),
   });
 
-  const d = rollup.data;
   return (
     <SectionCard>
       <h2 className="text-lg text-ink-900">Mistakes in {subjectName}</h2>
-      {rollup.isPending ? (
-        <div className="mt-3">
-          <SectionSkeleton rows={2} label={`Loading mistakes in ${subjectName}`} />
-        </div>
-      ) : rollup.isError || !d ? (
-        // Never the clean-record line and never an empty table: a request that
-        // failed knows nothing about this student's work (PROD-2).
-        <p role="alert" className="mt-1 text-sm text-risk-600">
-          Could not load mistakes. {ABSENT.loadFailed}
-        </p>
-      ) : d.analysed_questions === 0 ? (
-        <p className="mt-1 max-w-prose text-sm text-ink-500">
-          Nobody has examined this student's work for mistakes — {ABSENT.noEvidence}. An empty
-          record here is not a clean one.
-        </p>
-      ) : d.total.mistakes === 0 ? (
-        <p className="mt-1 max-w-prose text-sm text-ink-500">
-          No mistakes recorded in the {d.analysed_questions} questions examined so far.
-        </p>
-      ) : (
-        <>
-          <p className="mt-1 flex flex-wrap items-baseline gap-2 text-sm text-ink-700">
-            <span>
-              {countMistakes(d.total.mistakes)} across {d.analysed_questions} examined questions
-            </span>
-            <span className="text-xs text-ink-500">severity {d.total.severity_total}</span>
-            <CategoryChips categories={d.total.categories} />
-          </p>
-          <TallyList
-            title="By topic"
-            note={`Mistakes touching each topic. One mistake on a question that tests several topics is counted under each of them, so these do not add up to ${d.total.mistakes}.`}
-            rows={[
-              ...d.topics.map((t) => ({
-                key: `topic-${t.topic_id}`,
-                label: t.topic_title,
-                tally: t.tally,
-              })),
-              {
-                key: "topicless",
-                label: "Not linked to any topic",
-                tally: d.topicless,
-              },
-            ]}
-          />
-          <TallyList
-            title="By chapter"
-            note="Mistakes touching each chapter, on the same counting — a mistake spanning two chapters is in both."
-            rows={[
-              ...d.chapters.map((c) => ({
-                key: `chapter-${c.chapter_id}`,
-                label: c.chapter_title,
-                tally: c.tally,
-              })),
-              {
-                key: "chapterless",
-                label: "Topics with no chapter",
-                tally: d.chapterless,
-              },
-            ]}
-          />
-        </>
-      )}
+      <MistakeRollupBody rollup={rollup} subjectName={subjectName} />
     </SectionCard>
+  );
+}
+
+function MistakeRollupBody({
+  rollup,
+  subjectName,
+}: Readonly<{ rollup: UseQueryResult<StudentMistakeRollup>; subjectName: string }>) {
+  if (rollup.isPending) {
+    return (
+      <div className="mt-3">
+        <SectionSkeleton rows={2} label={`Loading mistakes in ${subjectName}`} />
+      </div>
+    );
+  }
+  const d = rollup.data;
+  if (rollup.isError || !d) {
+    // Never the clean-record line and never an empty table: a request that
+    // failed knows nothing about this student's work (PROD-2).
+    return (
+      <p role="alert" className="mt-1 text-sm text-risk-600">
+        Could not load mistakes. {ABSENT.loadFailed}
+      </p>
+    );
+  }
+  if (d.analysed_questions === 0) {
+    return (
+      <p className="mt-1 max-w-prose text-sm text-ink-500">
+        Nobody has examined this student's work for mistakes — {ABSENT.noEvidence}. An empty record
+        here is not a clean one.
+      </p>
+    );
+  }
+  if (d.total.mistakes === 0) {
+    return (
+      <p className="mt-1 max-w-prose text-sm text-ink-500">
+        No mistakes recorded in the {d.analysed_questions} questions examined so far.
+      </p>
+    );
+  }
+  return (
+    <>
+      <p className="mt-1 flex flex-wrap items-baseline gap-2 text-sm text-ink-700">
+        <span>
+          {countMistakes(d.total.mistakes)} across {d.analysed_questions} examined questions
+        </span>
+        <span className="text-xs text-ink-500">severity {d.total.severity_total}</span>
+        <CategoryChips categories={d.total.categories} />
+      </p>
+      <TallyList
+        title="By topic"
+        note={`Mistakes touching each topic. One mistake on a question that tests several topics is counted under each of them, so these do not add up to ${d.total.mistakes}.`}
+        rows={[
+          ...d.topics.map((t) => ({
+            key: `topic-${t.topic_id}`,
+            label: t.topic_title,
+            tally: t.tally,
+          })),
+          {
+            key: "topicless",
+            label: "Not linked to any topic",
+            tally: d.topicless,
+          },
+        ]}
+      />
+      <TallyList
+        title="By chapter"
+        note="Mistakes touching each chapter, on the same counting — a mistake spanning two chapters is in both."
+        rows={[
+          ...d.chapters.map((c) => ({
+            key: `chapter-${c.chapter_id}`,
+            label: c.chapter_title,
+            tally: c.tally,
+          })),
+          {
+            key: "chapterless",
+            label: "Topics with no chapter",
+            tally: d.chapterless,
+          },
+        ]}
+      />
+    </>
   );
 }

@@ -1,11 +1,6 @@
-import { type FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import {
-  createObservation,
-  listObservations,
-  seedStudentReadiness,
-  type Observation,
-} from "../../api/readiness";
+import { type FormEvent, type ReactNode } from "react";
+import { useQuery, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
+import { listObservations, type Observation } from "../../api/readiness";
 import { listTopics } from "../../api/syllabus";
 import { SectionCard } from "../../components/ui";
 import { Button, Field, Input, Select, Textarea } from "../../components/controls";
@@ -15,7 +10,7 @@ export type ObsDraft = { topic_id: string; comment: string; rating: string };
 export type SeedDraft = { topic_id: string; score_pct: string };
 
 /** A card's title and the sentence under it, at the page's h2 level. */
-function CardTitle({ title, description }: { title: string; description?: string }) {
+function CardTitle({ title, description }: Readonly<{ title: string; description?: string }>) {
   return (
     <div>
       <h2 className="text-lg text-ink-900">{title}</h2>
@@ -24,7 +19,19 @@ function CardTitle({ title, description }: { title: string; description?: string
   );
 }
 
-// The drafts live in the page, so text typed here survives a switch to another tab.
+// The drafts and the two saves live in the page, so text typed here and a save
+// still in flight both survive a switch to another tab.
+type NotesTabProps = Readonly<{
+  studentId: number;
+  subjectId: number | undefined;
+  obs: ObsDraft;
+  setObs: (v: ObsDraft) => void;
+  seed: SeedDraft;
+  setSeed: (v: SeedDraft) => void;
+  addObservation: UseMutationResult<Observation, Error, void>;
+  seedReadiness: UseMutationResult<{ seeded: number }, Error, void>;
+}>;
+
 export default function NotesTab({
   studentId: sid,
   subjectId,
@@ -32,15 +39,9 @@ export default function NotesTab({
   setObs,
   seed,
   setSeed,
-}: {
-  studentId: number;
-  subjectId: number | undefined;
-  obs: ObsDraft;
-  setObs: (v: ObsDraft) => void;
-  seed: SeedDraft;
-  setSeed: (v: SeedDraft) => void;
-}) {
-  const queryClient = useQueryClient();
+  addObservation,
+  seedReadiness,
+}: NotesTabProps) {
   const topics = useQuery({
     queryKey: ["topics", subjectId],
     queryFn: () => listTopics(subjectId!),
@@ -50,50 +51,34 @@ export default function NotesTab({
     queryKey: ["observations", sid],
     queryFn: () => listObservations(sid),
   });
-  const addObservation = useMutation({
-    mutationFn: () =>
-      createObservation({
-        student_id: sid,
-        topic_id: obs.topic_id ? Number(obs.topic_id) : null,
-        comment: obs.comment,
-        rating: obs.rating ? Number(obs.rating) : null,
-      }),
-    onSuccess: () => {
-      setObs({ topic_id: "", comment: "", rating: "" });
-      // An observation changes the profile's list, never readiness (PROD-15).
-      queryClient.invalidateQueries({ queryKey: ["observations", sid] });
-    },
-  });
 
   function onObserve(e: FormEvent) {
     e.preventDefault();
     if (obs.comment) addObservation.mutate();
   }
 
-  const seedReadiness = useMutation({
-    mutationFn: () =>
-      seedStudentReadiness(sid, [
-        { topic_id: Number(seed.topic_id), score_pct: Number(seed.score_pct) },
-      ]),
-    onSuccess: () => {
-      setSeed({ topic_id: "", score_pct: "" });
-      queryClient.invalidateQueries({ queryKey: ["student-readiness", sid] });
-    },
-  });
-
   function onSeed(e: FormEvent) {
     e.preventDefault();
     if (seed.topic_id && seed.score_pct !== "") seedReadiness.mutate();
+  }
+
+  let seedOutcome: ReactNode = null;
+  if (seedReadiness.isError) {
+    seedOutcome = <span className="text-risk-600">Could not save the estimate.</span>;
+  } else if (seedReadiness.isSuccess) {
+    seedOutcome = <span className="text-ink-500">Estimate saved.</span>;
   }
 
   const topicLabel = (t: { code: string; title: string }) => `${t.title} (${t.code})`;
 
   return (
     <div className="space-y-6">
-      {/* Seeding (spec §7.3). Optional, and deliberately late: it exists so a class
-          that has just filled shows something on day one instead of "not enough
-          data yet" everywhere. Labelled self-declared wherever it lands (PROD-8),
-          and it gives way as marked work arrives. */}
+      {/* Seeding (spec §7.3). Optional, and deliberately late: students attach
+          themselves by invite code, so a tutor finishing setup has no students
+          to rate. It exists so a class that has just filled shows something on
+          day one instead of "not enough data yet" everywhere for three weeks —
+          and it is labelled self-declared wherever it lands (PROD-8), and gives
+          way as marked work arrives, so a first impression corrects itself. */}
       <SectionCard>
         <CardTitle
           title="Starting estimate"
@@ -139,14 +124,10 @@ export default function NotesTab({
               Save estimate
             </Button>
             {/* A live region so assistive technology announces the outcome — the
-                  form otherwise signals success only by resetting its fields, which
-                  a screen reader does not surface (CodeRabbit). */}
+                form otherwise signals success only by resetting its fields, which
+                a screen reader does not surface (CodeRabbit). */}
             <p className="text-sm" aria-live="polite">
-              {seedReadiness.isError ? (
-                <span className="text-risk-600">Could not save the estimate.</span>
-              ) : seedReadiness.isSuccess ? (
-                <span className="text-ink-500">Estimate saved.</span>
-              ) : null}
+              {seedOutcome}
             </p>
           </div>
         </form>
@@ -221,10 +202,10 @@ export default function NotesTab({
 function ObservationList({
   observations,
   topicName,
-}: {
+}: Readonly<{
   observations: UseQueryResult<Observation[]>;
   topicName: (topicId: number) => string | null;
-}) {
+}>) {
   return (
     <section aria-labelledby="saved-observations" className="mt-6 border-t border-line pt-4">
       <h3 id="saved-observations" className="text-sm font-medium text-ink-900">
@@ -238,10 +219,10 @@ function ObservationList({
 function ObservationRows({
   observations,
   topicName,
-}: {
+}: Readonly<{
   observations: UseQueryResult<Observation[]>;
   topicName: (topicId: number) => string | null;
-}) {
+}>) {
   if (observations.isLoading) {
     return (
       <div className="mt-3">

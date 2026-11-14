@@ -7,15 +7,48 @@ import { axeViolations } from "./axe";
 
 afterEach(() => vi.unstubAllGlobals());
 
-test.each(["progress", "work", "notes", "about"])("the %s tab has no axe violations", async (t) => {
+const subject = {
+  subject_id: 5,
+  subject_name: "Chemistry",
+  exam_board: "CIE",
+  grade_scale: "9-1",
+  score: 60,
+  predicted_grade: "5",
+  status: "on_track",
+  verdict: { status: "needs_attention", reason_topics: [], next_step: "n" },
+  averaging_score: null,
+  averaging_grade: null,
+  marked_piece_count: 3,
+  direction: "up",
+  month_delta: null,
+  topics_with_evidence: 1,
+  topic_count: 2,
+  homework_assignment_count: null,
+  is_updating: false,
+  calculation_failed: false,
+  topics: [],
+  weak_topics: [],
+};
+
+// Real content in every tab, so axe sees the cards and forms and not only the
+// skeletons they show while loading.
+const CONTENT: Record<string, RegExp> = {
+  progress: /Mistakes in Chemistry/,
+  work: /^Reports$/,
+  notes: /Starting estimate/,
+  about: /Linked parents/,
+};
+
+test.each(Object.keys(CONTENT))("the %s tab has no axe violations", async (t) => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), "http://localhost");
-      const body =
-        url.pathname === "/api/v1/readiness/students/2"
-          ? { student_id: 2, student_name: "Sara", subjects: [] }
-          : [];
+      let body: unknown = [];
+      if (url.pathname === "/api/v1/readiness/students/2")
+        body = { student_id: 2, student_name: "Sara", subjects: [subject] };
+      else if (url.pathname.includes("/mistakes")) body = { analysed_questions: 0 };
+      else if (url.pathname.endsWith("/erasure")) body = null;
       return new Response(JSON.stringify(body), { status: 200 });
     }),
   );
@@ -31,5 +64,6 @@ test.each(["progress", "work", "notes", "about"])("the %s tab has no axe violati
   );
   await screen.findByRole("tab", { name: "Progress" });
   await screen.findByRole("tabpanel");
+  expect((await screen.findAllByText(CONTENT[t], {}, { timeout: 2000 })).length).toBeGreaterThan(0);
   expect(await axeViolations(container)).toEqual([]);
 });

@@ -6,7 +6,10 @@ import DeleteChildData from "../../components/DeleteChildData";
 import { SectionCard, SectionHeader } from "../../components/ui";
 
 // Every account and destructive control lives here and nowhere else.
-export default function AboutTab({ studentId: sid, name }: { studentId: number; name: string }) {
+export default function AboutTab({
+  studentId: sid,
+  name,
+}: Readonly<{ studentId: number; name: string }>) {
   return (
     <div className="space-y-6">
       <RenameStudent studentId={sid} name={name} />
