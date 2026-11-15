@@ -191,6 +191,8 @@ test("leads with the plan: countdown, position against it, lessons left and what
   // The plan is the first section, ahead of every other.
   const sections = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
   expect(sections.slice(0, 2)).toEqual(["Plan & countdown", "Class readiness"]);
+  // A stray ");" once rendered as text at the foot of the report.
+  expect(document.body.textContent).not.toContain(");");
 });
 
 test("frames chapters against the plan and flags weak topics at the shared threshold", async () => {

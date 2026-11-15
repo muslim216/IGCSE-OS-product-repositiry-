@@ -420,7 +420,6 @@ export default function ClassReportPage({ groupId }: { groupId: number }) {
           <AttendanceSection attendance={data.attendance} />
         </div>
       </div>
-      );
     </EmbeddedPageContext.Provider>
   );
 }

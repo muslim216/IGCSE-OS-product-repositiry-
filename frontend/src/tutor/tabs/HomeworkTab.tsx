@@ -48,10 +48,13 @@ export default function HomeworkTab() {
   );
 }
 
-/** In the same zone a student sees the due date in, so both name the same day:
-    the tutor's own, else the organization's. */
+/** In the tutor's own zone, else the organization's, so a date near midnight
+    names the same day on every tutor screen. `null` means the organization's
+    zone is still loading: show nothing rather than a day in the browser's zone
+    that then changes. */
 function dueLabel(dueAt: string | null, timeZone: string | null): string {
   if (!dueAt) return "No due date";
+  if (timeZone === null) return "";
   return `Due ${formatDayMonth(new Date(dueAt), timeZone)}`;
 }
 
@@ -121,8 +124,8 @@ function HomeworkList() {
               <span className="min-w-0">
                 <span className="block truncate font-medium text-ink-900">{a.title}</span>
                 <span className="text-sm text-ink-500">
-                  {dueLabel(a.due_at, timeZone)} · {a.total_marks}{" "}
-                  {a.total_marks === 1 ? "mark" : "marks"}
+                  {dueLabel(a.due_at, timeZone) && `${dueLabel(a.due_at, timeZone)} · `}
+                  {a.total_marks} {a.total_marks === 1 ? "mark" : "marks"}
                 </span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
