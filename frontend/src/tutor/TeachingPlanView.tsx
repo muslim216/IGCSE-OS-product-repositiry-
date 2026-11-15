@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   acceptPlan,
@@ -14,6 +14,7 @@ import {
   type PlanSlot,
 } from "../api/teachingPlan";
 import { listChapters, type Chapter } from "../api/syllabus";
+import { Check, MoreHorizontal } from "lucide-react";
 import { friendlyError } from "../lib/errors";
 import { shortDay } from "../lib/planDates";
 import { SectionCard } from "../components/ui";
@@ -59,18 +60,52 @@ function groupByWeek(slots: PlanSlot[]): [string, PlanSlot[]][] {
     const key = weekStart(slot.scheduled_date);
     weeks.set(key, [...(weeks.get(key) ?? []), slot]);
   }
-  return [...weeks.entries()];
+  return [...weeks.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** ISO date plus whole days (UTC arithmetic, so no timezone drift). */
+function addDays(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Today as the tutor's browser sees it, as an ISO calendar date. */
+function todayIso(): string {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${mm}-${dd}`;
+}
+
+/** Splits weeks into earlier / open / later: this week and the next three stay
+ *  open. A plan with nothing in that window (a draft for next term, or one that
+ *  is wholly past) still opens on something rather than showing a bare fold. */
+function splitWeeks(weeks: [string, PlanSlot[]][]) {
+  const thisWeek = weekStart(todayIso());
+  const lastOpen = addDays(thisWeek, 21);
+  let open = weeks.filter(([k]) => k >= thisWeek && k <= lastOpen);
+  if (open.length === 0) {
+    const firstFuture = weeks.find(([k]) => k >= thisWeek);
+    open = firstFuture
+      ? weeks.filter(([k]) => k >= firstFuture[0] && k <= addDays(firstFuture[0], 21))
+      : weeks.slice(-1);
+  }
+  const first = open[0][0];
+  const last = open[open.length - 1][0];
+  return {
+    earlier: weeks.filter(([k]) => k < first),
+    open,
+    later: weeks.filter(([k]) => k > last),
+  };
 }
 
 /** Says plainly when the weights did not come from the AI, and why (`PROD-1`). */
-function OutcomeBanner({
-  outcome,
-  jobFailed,
-}: {
-  outcome: DraftOutcome | null;
-  jobFailed: boolean;
-}) {
-  const notes: { tone: "risk" | "warn"; text: string }[] = [];
+type OutcomeNote = { tone: "risk" | "warn"; text: string };
+
+function outcomeNotes(outcome: DraftOutcome | null, jobFailed: boolean): OutcomeNote[] {
+  const notes: OutcomeNote[] = [];
   if (jobFailed) {
     notes.push({
       tone: "risk",
@@ -107,7 +142,10 @@ function OutcomeBanner({
       } — the AI gave no advice for ${outcome.defaulted_chapters === 1 ? "it" : "them"}.`,
     });
   }
-  if (notes.length === 0) return null;
+  return notes;
+}
+
+function OutcomeBanner({ notes }: { notes: OutcomeNote[] }) {
   return (
     <div className="mt-3 space-y-2">
       {notes.map((n) => (
@@ -217,6 +255,9 @@ function SlotRow({
   cancelBusy?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  // On a phone the row's actions sit behind a "…" button; on a wide screen hover
+  // or focus reveals them. Neither path is mouse-only.
+  const [menuOpen, setMenuOpen] = useState(false);
   const [date, setDate] = useState(slot.scheduled_date);
   const [chapterId, setChapterId] = useState(slot.chapter_id);
   const [startTime, setStartTime] = useState(hhmm(slot.start_time) ?? "");
@@ -300,63 +341,92 @@ function SlotRow({
     );
   }
   const taught = slot.provenance === "confirmed" || slot.provenance === "completed";
+  const label = humanDate(slot.scheduled_date);
   return (
-    <li className="flex items-center justify-between gap-3 px-3 py-2">
+    <li className="group flex items-center justify-between gap-3 px-3 py-2">
       <span className="min-w-0 text-sm text-ink-700">
         <span className="tabular-nums text-ink-500">
-          {humanDate(slot.scheduled_date)}
+          {label}
           {hhmm(slot.start_time) && ` · ${hhmm(slot.start_time)}`}
-        </span>{" "}
+        </span>
+        {" · "}
         <span className={slot.cancelled ? "text-ink-500 line-through" : "font-medium text-ink-900"}>
           {slot.chapter_code} {slot.chapter_title}
         </span>
-        {slot.cancelled && (
-          <span className="ml-2 rounded-full bg-risk-100 px-2 py-0.5 text-xs text-risk-600">
-            cancelled
-          </span>
-        )}
-        {slot.lesson_origin === "plan" && (
-          <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">
-            Recorded from the plan
-          </span>
-        )}
-        {slot.provenance === "manually_modified" && (
-          <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">
-            hand-edited
-          </span>
-        )}
+        {/* Status is one quiet tick, not four pills. What the old pills said is
+            still said, to screen readers. */}
         {taught && (
-          <span className="ml-2 rounded-full bg-ok-100 px-2 py-0.5 text-xs text-ok-700">
-            taught
+          <span className="ml-2 inline-flex align-middle text-ok-700">
+            <Check aria-hidden className="h-4 w-4" />
+            <span className="sr-only">taught</span>
           </span>
         )}
+        {slot.cancelled && <span className="sr-only">cancelled</span>}
+        {slot.lesson_origin === "plan" && <span className="sr-only">Recorded from the plan</span>}
+        {slot.provenance === "manually_modified" && <span className="sr-only">hand-edited</span>}
       </span>
       {!slot.cancelled && (
         <span className="flex shrink-0 items-center gap-1">
-          {onCancel && !taught && (
+          <span
+            className={`${menuOpen ? "flex" : "hidden"} items-center gap-1 md:flex md:opacity-0 md:[@media(hover:none)]:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100`}
+          >
+            {onCancel && !taught && (
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={`Cancel the ${label} lesson`}
+                disabled={locked || cancelBusy}
+                loading={cancelling}
+                onClick={onCancel}
+              >
+                Cancel lesson
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
-              aria-label={`Cancel the ${humanDate(slot.scheduled_date)} lesson`}
-              disabled={locked || cancelBusy}
-              loading={cancelling}
-              onClick={onCancel}
+              aria-label={`Edit the ${label} lesson`}
+              disabled={locked}
+              onClick={() => setEditing(true)}
             >
-              Cancel lesson
+              Edit
             </Button>
-          )}
+          </span>
           <Button
             size="sm"
             variant="ghost"
-            aria-label={`Edit the ${humanDate(slot.scheduled_date)} lesson`}
-            disabled={locked}
-            onClick={() => setEditing(true)}
+            className="md:hidden"
+            aria-label={`More actions for the ${label} lesson`}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((o) => !o)}
           >
-            Edit
+            <MoreHorizontal aria-hidden className="h-4 w-4" />
           </Button>
         </span>
       )}
     </li>
+  );
+}
+
+/** A native disclosure whose rows are not rendered until it is opened, so a
+ *  year-long plan does not mount every lesson. The click is handled here rather
+ *  than left to the browser so the open state is ours and the content mounts
+ *  only when it shows. */
+function Fold({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details open={open} className="mt-3">
+      <summary
+        className="cursor-pointer text-xs font-medium uppercase tracking-wide text-ink-500"
+        onClick={(e) => {
+          e.preventDefault();
+          setOpen((o) => !o);
+        }}
+      >
+        {label}
+      </summary>
+      {open && children}
+    </details>
   );
 }
 
@@ -385,33 +455,46 @@ function SlotList({
   cancellingId?: number | null;
   cancelBusy?: boolean;
 }) {
+  const { earlier, open, later } = splitWeeks(groupByWeek(slots));
+  const renderWeeks = (weeks: [string, PlanSlot[]][]) =>
+    weeks.map(([week, rows]) => (
+      <div key={week}>
+        <h5 className="text-xs font-medium uppercase tracking-wide text-ink-500">
+          Week of {humanDate(week)}
+        </h5>
+        <ul className="mt-1 divide-y divide-line rounded-lg border border-line">
+          {rows.map((slot) => (
+            <SlotRow
+              key={`${slot.id}-${slot.scheduled_date}-${slot.chapter_id}`}
+              slot={slot}
+              chapters={chapters}
+              chaptersReady={chaptersReady}
+              chaptersError={chaptersError}
+              onRetryChapters={onRetryChapters}
+              locked={locked}
+              saving={saving}
+              onSave={(patch, done) => onSave(slot.id, patch, done)}
+              onCancel={onCancel ? () => onCancel(slot.id) : undefined}
+              cancelling={cancellingId === slot.id}
+              cancelBusy={cancelBusy}
+            />
+          ))}
+        </ul>
+      </div>
+    ));
   return (
     <div className="mt-3 space-y-4">
-      {groupByWeek(slots).map(([week, rows]) => (
-        <div key={week}>
-          <h5 className="text-xs font-medium uppercase tracking-wide text-ink-500">
-            Week of {humanDate(week)}
-          </h5>
-          <ul className="mt-1 divide-y divide-line rounded-lg border border-line">
-            {rows.map((slot) => (
-              <SlotRow
-                key={`${slot.id}-${slot.scheduled_date}-${slot.chapter_id}`}
-                slot={slot}
-                chapters={chapters}
-                chaptersReady={chaptersReady}
-                chaptersError={chaptersError}
-                onRetryChapters={onRetryChapters}
-                locked={locked}
-                saving={saving}
-                onSave={(patch, done) => onSave(slot.id, patch, done)}
-                onCancel={onCancel ? () => onCancel(slot.id) : undefined}
-                cancelling={cancellingId === slot.id}
-                cancelBusy={cancelBusy}
-              />
-            ))}
-          </ul>
-        </div>
-      ))}
+      {earlier.length > 0 && (
+        <Fold label={`Earlier weeks (${earlier.length})`}>
+          <div className="mt-2 space-y-4">{renderWeeks(earlier)}</div>
+        </Fold>
+      )}
+      {renderWeeks(open)}
+      {later.length > 0 && (
+        <Fold label={`Later weeks (${later.length})`}>
+          <div className="mt-2 space-y-4">{renderWeeks(later)}</div>
+        </Fold>
+      )}
     </div>
   );
 }
@@ -558,6 +641,11 @@ export default function TeachingPlanView({
   // only its slots), so it is confirmed whenever one exists.
   const startReplan = () => (proposed ? setConfirmingReplan(true) : replan.mutate());
 
+  // One notice at a time, most important first: an error, the outcome of the
+  // last draft, a note from the last action, then the "behind" nudge.
+  const outcomeList = outcomeNotes(proposed?.outcome ?? null, !!proposed?.draft_job_failed);
+  const behind = plan.data.progress && plan.data.progress.missed >= 1 ? plan.data.progress : null;
+
   const liveSection = (live: PlanInputs) => (
     <div className="mt-4">
       <h4 className="text-sm font-medium text-ink-900">Live plan</h4>
@@ -566,13 +654,6 @@ export default function TeachingPlanView({
         {live.accepted_at ? ` Accepted ${localDate(live.accepted_at)}.` : ""} Edit any lesson at any
         time; it stays accepted.
       </p>
-      {plan.data.progress && (
-        <BehindBanner
-          progress={plan.data.progress}
-          busy={replan.isPending || drafting}
-          onReplan={startReplan}
-        />
-      )}
       <ReflowNote reflow={live.outcome?.reflow} />
       {(live.slots ?? []).length === 0 ? (
         <p className="mt-2 text-sm text-ink-500">This plan has no lessons.</p>
@@ -614,17 +695,23 @@ export default function TeachingPlanView({
       {!proposed && (
         <p className="mt-3 text-sm text-ink-500">Save the plan inputs above to draft a plan.</p>
       )}
-      {error && (
+      {error ? (
         <p role="alert" className="mt-3 rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
           {error}
         </p>
-      )}
-
-      {notice && (
+      ) : outcomeList.length > 0 ? (
+        <OutcomeBanner notes={outcomeList} />
+      ) : notice ? (
         <p role="status" className="mt-3 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700">
           {notice}
         </p>
-      )}
+      ) : behind ? (
+        <BehindBanner
+          progress={behind}
+          busy={replan.isPending || drafting}
+          onReplan={startReplan}
+        />
+      ) : null}
 
       {accepted && liveSection(accepted)}
 
@@ -634,10 +721,6 @@ export default function TeachingPlanView({
             {accepted ? "Proposed changes" : "Draft plan"}
           </h4>
           <ReflowNote reflow={proposed.outcome?.reflow} />
-          <OutcomeBanner
-            outcome={proposed.outcome ?? null}
-            jobFailed={!!proposed.draft_job_failed}
-          />
           {proposed.outcome && <Reasons outcome={proposed.outcome} />}
           {proposedSlots.length > 0 && (
             <SlotList

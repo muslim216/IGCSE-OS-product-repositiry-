@@ -48,9 +48,13 @@ function isRealDate(raw: string): boolean {
 export default function RecordLessonForm({
   groupId,
   subjectId,
+  onClose,
 }: {
   groupId: number;
   subjectId: number;
+  /** When the form is opened on demand (the Schedule tab): called after a save
+   *  and on Cancel, so the host can close it. */
+  onClose?: () => void;
 }) {
   const queryClient = useQueryClient();
   // "Review" on a lesson reminder lands here with `?slot=`: pre-fill from that
@@ -208,6 +212,7 @@ export default function RecordLessonForm({
       setMeetingLink("");
       setDurationEdit(null);
       dirty.current = false;
+      onClose?.();
       for (const key of [
         ["next-lesson", groupId],
         ["taught-lessons", groupId],
@@ -396,7 +401,12 @@ export default function RecordLessonForm({
             Lesson recorded.
           </p>
         )}
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex justify-end gap-2">
+          {onClose && (
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+          )}
           <Button
             type="submit"
             loading={save.isPending}
