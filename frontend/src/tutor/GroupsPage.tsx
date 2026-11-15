@@ -9,6 +9,8 @@ import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { Button, Field, Input, Select } from "../components/controls";
 import { ErrorState, PageHeader, Skeleton } from "../components/page";
 
+const TIP_KEY = "avora-tip-moved-into-classes";
+
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
@@ -85,6 +87,25 @@ export default function GroupsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const notice = (location.state as { notice?: string } | null)?.notice;
+  // The one-line tip an old menu link arrives with ("Past papers now live inside
+  // each class."). Read once, because the state is cleared below; once dismissed
+  // it stays dismissed. Storage can be blocked, and the tip is not worth a crash.
+  const [tip] = useState(() => (location.state as { tip?: string } | null)?.tip);
+  const [tipGone, setTipGone] = useState(() => {
+    try {
+      return localStorage.getItem(TIP_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  function dismissTip() {
+    setTipGone(true);
+    try {
+      localStorage.setItem(TIP_KEY, "1");
+    } catch {
+      /* the tip simply returns next time */
+    }
+  }
   useEffect(() => {
     if (!notice) return;
     showToast(notice);
@@ -126,6 +147,19 @@ export default function GroupsPage() {
           )
         }
       />
+
+      {tip && !tipGone && (
+        <div className="mb-6 flex items-center justify-between gap-3 rounded-lg bg-surface-muted px-4 py-2.5 text-sm text-ink-700">
+          <p>{tip}</p>
+          <button
+            type="button"
+            onClick={dismissTip}
+            className="min-h-[44px] shrink-0 rounded-md px-2 font-medium text-brand-600 hover:text-brand-700"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {showForm && (
         <SectionCard className="mb-6">

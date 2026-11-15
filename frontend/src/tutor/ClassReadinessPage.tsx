@@ -1,13 +1,9 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { listGroups } from "../api/groups";
+import { getGroup } from "../api/groups";
 import { classOverview } from "../api/today";
 import { bandOf, type LearnerRow } from "../lib/readiness";
 import ReadinessTable, { type ReadinessFilter } from "../components/ReadinessTable";
-import { EmptyState, SectionCard } from "../components/ui";
-import { Field, Select, buttonClasses } from "../components/controls";
-import { ErrorState, PageHeader } from "../components/page";
 
 /**
  * Class readiness, rendered through the shared <ReadinessTable>.
@@ -20,19 +16,20 @@ import { ErrorState, PageHeader } from "../components/page";
  * endpoint bands each learner from the organization's own grade boundaries, so
  * the colour here is the same claim the rest of the product makes.
  *
+ * It renders inside a class's Progress tab, so the class is known and there is
+ * no class picker.
+ *
  * A subject with no boundaries therefore has no band: its learners stay in the
  * table with their score, uncoloured, and the table says why (PROD-2).
  */
-export default function ClassReadinessPage() {
-  const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
-  const [groupId, setGroupId] = useState<number | null>(null);
+export default function ClassReadinessPage({ groupId }: { groupId: number }) {
+  // Same key as the class layout's own query, so this is a cache hit.
+  const group = useQuery({ queryKey: ["group", groupId], queryFn: () => getGroup(groupId) });
   const [filter, setFilter] = useState<ReadinessFilter>("all");
-  const activeId = groupId ?? groups.data?.[0]?.id ?? null;
 
   const overview = useQuery({
-    queryKey: ["class-overview", activeId],
-    queryFn: () => classOverview(activeId as number),
-    enabled: activeId !== null,
+    queryKey: ["class-overview", groupId],
+    queryFn: () => classOverview(groupId),
   });
 
   const rows = useMemo<LearnerRow[]>(() => {
@@ -63,55 +60,22 @@ export default function ClassReadinessPage() {
   }, [overview.data]);
 
   return (
-    <div>
-      <PageHeader
-        title="Class readiness"
-        description="How ready each learner in a class is for the exam, and who needs attention."
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg text-ink-900">Class readiness</h2>
+        <p className="mt-0.5 text-sm text-ink-500">
+          How ready each learner in this class is for the exam, and who needs attention.
+        </p>
+      </div>
+      <ReadinessTable
+        rows={rows}
+        filter={filter}
+        onFilter={setFilter}
+        loading={overview.isLoading}
+        error={overview.isError}
+        boundariesMissing={overview.data?.boundaries_missing ?? false}
+        subjectId={group.data?.subject.id}
       />
-
-      {groups.isError ? (
-        <ErrorState
-          title="Your classes didn't load"
-          error={groups.error}
-          onRetry={() => groups.refetch()}
-        />
-      ) : groups.data && groups.data.length === 0 ? (
-        <SectionCard>
-          <EmptyState
-            title="You haven't set up a class yet."
-            hint="Create a class and share its code — readiness appears once learners join and work is marked."
-            action={
-              <Link to="/tutor/classes" className={buttonClasses("primary", "md")}>
-                Go to your classes
-              </Link>
-            }
-          />
-        </SectionCard>
-      ) : (
-        <div className="space-y-6">
-          {groups.data && groups.data.length > 1 && (
-            <Field label="Class" className="max-w-xs">
-              <Select value={activeId ?? ""} onChange={(e) => setGroupId(Number(e.target.value))}>
-                {groups.data.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          )}
-
-          <ReadinessTable
-            rows={rows}
-            filter={filter}
-            onFilter={setFilter}
-            loading={groups.isLoading || overview.isLoading}
-            error={overview.isError}
-            boundariesMissing={overview.data?.boundaries_missing ?? false}
-            subjectId={groups.data?.find((g) => g.id === activeId)?.subject.id}
-          />
-        </div>
-      )}
     </div>
   );
 }

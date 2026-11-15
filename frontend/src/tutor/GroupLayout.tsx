@@ -205,7 +205,7 @@ export default function GroupLayout() {
 
   const g = group.data;
   const base = `/tutor/groups/${id}`;
-  // The class's bare URL redirects to Homework (App.tsx), so Homework is the
+  // The class's bare URL redirects to Work (App.tsx), so Work is the
   // landing tab. Matched on the path, ignoring a trailing slash.
   const onLandingTab = pathname.replace(/\/+$/, "") === `${base}/homework`;
 
@@ -244,12 +244,12 @@ export default function GroupLayout() {
       </div>
 
       <TabBar groupId={id}>
-        <Tab to={`${base}/homework`} label="Homework" badge={g.awaiting_review_count} />
+        <Tab to={`${base}/homework`} label="Work" badge={g.awaiting_review_count} />
         <Tab to={`${base}/students`} label="Students" />
         <Tab to={`${base}/syllabus`} label="Syllabus" />
         <Tab to={`${base}/schedule`} label="Schedule" />
         <Tab to={`${base}/resources`} label="Resources" />
-        <Tab to={`${base}/analytics`} label="Analytics" />
+        <Tab to={`${base}/analytics`} label="Progress" />
       </TabBar>
 
       <div className="py-6">

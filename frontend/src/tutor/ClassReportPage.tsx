@@ -11,7 +11,13 @@ import {
   type PlanReport,
 } from "../api/classReport";
 import { Button, buttonClasses } from "../components/controls";
-import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
+import {
+  EmbeddedPageContext,
+  ErrorState,
+  NotFoundState,
+  PageHeader,
+  PageSkeleton,
+} from "../components/page";
 import ReadinessFigure from "../components/ReadinessFigure";
 import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
 import { ApiError } from "../api/client";
@@ -348,8 +354,11 @@ function AttendanceSection({ attendance }: { attendance: AttendanceReport }) {
  * attendance. Everything arrives assembled from one endpoint, so the page
  * computes nothing: a figure it cannot show is absent, never 0 (PROD-2).
  */
-export default function ClassReportPage() {
-  const groupId = Number(useParams().groupId);
+export default function ClassReportPage({ groupId: inClass }: { groupId?: number }) {
+  // Inside a class's Progress tab the id is given; the page header then
+  // becomes a section heading (EmbeddedPageContext) with no back link.
+  const routeId = Number(useParams().groupId);
+  const groupId = inClass ?? routeId;
   const report = useQuery({
     queryKey: ["class-report", groupId],
     queryFn: () => classReport(groupId),
@@ -373,7 +382,7 @@ export default function ClassReportPage() {
   if (!data) return null;
   const r = data.readiness;
 
-  return (
+  const page = (
     <div>
       <PageHeader
         back={back}
@@ -413,5 +422,10 @@ export default function ClassReportPage() {
         <AttendanceSection attendance={data.attendance} />
       </div>
     </div>
+  );
+  return inClass === undefined ? (
+    page
+  ) : (
+    <EmbeddedPageContext.Provider value="class-report-title">{page}</EmbeddedPageContext.Provider>
   );
 }

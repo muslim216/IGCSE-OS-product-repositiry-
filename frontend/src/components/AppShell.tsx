@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { LogOut, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -33,7 +33,7 @@ function isCurrent(item: NavItem, pathname: string): boolean {
 
 /** The most tabs the bottom bar shows before the rest fold into "More". Four
     plus a More control is the comfortable ceiling for a phone-width bar with
-    ≥44px targets. */
+    ≥44px targets, so a list of up to MAX_TABS + 1 fits with no More at all. */
 const MAX_TABS = 4;
 
 function Brand() {
@@ -76,6 +76,128 @@ function BottomTab({ item, onNavigate }: { item: NavItem; onNavigate?: () => voi
       <item.icon aria-hidden className="h-5 w-5 shrink-0" />
       <span className="truncate">{item.label}</span>
     </Link>
+  );
+}
+
+/** The tutor's name menu: a real menu button. It opens on click, Enter or
+    Space, puts focus on the first entry, moves with the arrow keys, Home and
+    End, and closes on Escape (focus back on the button) or Tab. Sign out is the
+    one action in it; the rest are links. `placement` says which way it opens,
+    because the sidebar's button sits at the bottom of the screen and the phone
+    header's at the top. */
+function AccountMenu({
+  items,
+  placement,
+  compact,
+}: {
+  items: NavItem[];
+  placement: "above" | "below";
+  compact?: boolean;
+}) {
+  const { user, signOut } = useAuth();
+  const { pathname } = useLocation();
+  const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      button.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  function onMenuKey(e: KeyboardEvent<HTMLElement>) {
+    const entries = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const at = entries.indexOf(document.activeElement as HTMLElement);
+    const move = (i: number) => {
+      e.preventDefault();
+      entries[(i + entries.length) % entries.length]?.focus();
+    };
+    if (e.key === "ArrowDown") move(at + 1);
+    else if (e.key === "ArrowUp") move(at - 1);
+    else if (e.key === "Home") move(0);
+    else if (e.key === "End") move(entries.length - 1);
+    else if (e.key === "Tab") setOpen(false);
+  }
+
+  const itemClass =
+    "flex min-h-[44px] w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm transition hover:bg-surface-muted";
+  return (
+    <div className={`relative ${compact ? "" : "min-w-0 flex-1"}`}>
+      <button
+        ref={button}
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={compact ? `Your account: ${user?.name ?? ""}` : undefined}
+        onClick={() => setOpen((v) => !v)}
+        className={
+          compact
+            ? "grid min-h-[44px] min-w-[44px] place-items-center rounded-full"
+            : "-ml-1 flex w-full min-w-0 items-center gap-2.5 rounded-md p-1 text-left transition hover:bg-surface"
+        }
+      >
+        <InitialsAvatar name={user?.name ?? "?"} size={compact ? "sm" : undefined} />
+        {!compact && (
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-ink-900">{user?.name}</span>
+            <span className="block truncate text-xs text-ink-500">Account</span>
+          </span>
+        )}
+      </button>
+      {open && (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            tabIndex={-1}
+            onClick={() => setOpen(false)}
+            className="fixed inset-0 z-30 cursor-default"
+          />
+          <div
+            ref={menu}
+            role="menu"
+            aria-label="Account"
+            onKeyDown={onMenuKey}
+            className={`absolute z-40 min-w-48 rounded-lg border border-line bg-surface py-1 shadow-lg ${
+              placement === "above" ? "bottom-full left-0 mb-2" : "right-0 top-full mt-2"
+            }`}
+          >
+            {items.map((item) => {
+              const current = isCurrent(item, pathname);
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  role="menuitem"
+                  aria-current={current ? "page" : undefined}
+                  onClick={() => setOpen(false)}
+                  className={`${itemClass} ${current ? "font-medium text-brand-600" : "text-ink-700"}`}
+                >
+                  <item.icon aria-hidden className="h-[18px] w-[18px] shrink-0" />
+                  {item.label}
+                </Link>
+              );
+            })}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={signOut}
+              className={`${itemClass} text-ink-700`}
+            >
+              <LogOut aria-hidden className="h-[18px] w-[18px] shrink-0" />
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -148,7 +270,7 @@ function MoreTab({ items }: { items: NavItem[] }) {
                   role="menuitem"
                   aria-current={current ? "page" : undefined}
                   onClick={() => setOpen(false)}
-                  className={`flex items-center gap-2.5 px-3 py-2.5 text-sm transition ${
+                  className={`flex min-h-[44px] items-center gap-2.5 px-3 py-2.5 text-sm transition ${
                     current ? "font-medium text-brand-600" : "text-ink-700 hover:bg-surface-muted"
                   }`}
                 >
@@ -168,11 +290,18 @@ export default function AppShell({
   title,
   nav = [],
   accountPath,
+  accountMenu,
+  sittings = [],
 }: {
   title: string;
   nav?: NavItem[];
   /** Where the avatar leads: the reader's own settings. */
   accountPath: string;
+  /** When given, the name becomes a menu button listing these and Sign out,
+      instead of a plain link to `accountPath`. */
+  accountMenu?: NavItem[];
+  /** Pages where the whole menu is hidden and only a way out is shown. */
+  sittings?: { match: RegExp; leaveTo: string }[];
 }) {
   const { user, signOut } = useAuth();
   const { pathname, key: navigation } = useLocation();
@@ -180,12 +309,38 @@ export default function AppShell({
   const bottomNav = nav.filter((item) => item.slot === "bottom");
 
   // The bottom bar shows main-workflow destinations first. When everything fits,
-  // "bottom"-slot items trail after; when it does not, the bar keeps MAX_TABS-1
+  // "bottom"-slot items trail after; when it does not, the bar keeps MAX_TABS
   // primary tabs and folds the remainder — including every "bottom"-slot item —
   // into More, so a phone never loses a destination and the slot split holds.
-  const fits = mainNav.length + bottomNav.length <= MAX_TABS;
-  const tabItems = fits ? [...mainNav, ...bottomNav] : mainNav.slice(0, MAX_TABS - 1);
-  const overflowItems = fits ? [] : [...mainNav.slice(MAX_TABS - 1), ...bottomNav];
+  const fits = mainNav.length + bottomNav.length <= MAX_TABS + 1;
+  const tabItems = fits ? [...mainNav, ...bottomNav] : mainNav.slice(0, MAX_TABS);
+  const overflowItems = fits ? [] : [...mainNav.slice(MAX_TABS), ...bottomNav];
+
+  // A timed sitting shows the paper and nothing else: no sidebar, no bars. The
+  // exit is a plain link outside any navigation landmark.
+  const sitting = sittings.find((s) => s.match.test(pathname));
+  if (sitting) {
+    return (
+      <div className="min-h-screen">
+        <AvoraGrain />
+        <div className="mx-auto max-w-6xl px-4 pt-4 md:px-10">
+          <Link
+            to={sitting.leaveTo}
+            className="inline-flex min-h-[44px] items-center text-sm font-medium text-brand-600 hover:text-brand-700"
+          >
+            Leave the paper
+          </Link>
+        </div>
+        <main id="main" tabIndex={-1} className="min-w-0 px-4 py-6 outline-none md:px-10">
+          <div className="mx-auto max-w-6xl">
+            <ErrorBoundary key={pathname} resetKey={navigation}>
+              <Outlet />
+            </ErrorBoundary>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen md:flex">
@@ -234,25 +389,31 @@ export default function AppShell({
               belongs on that page itself, which is where PRs 13-15 put it. */}
 
           <div className="mt-2 flex items-center gap-1 px-1">
-            <NavLink
-              to={accountPath}
-              className="-ml-1 flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 transition hover:bg-surface"
-              aria-label={`Your account: ${user?.name ?? ""}`}
-            >
-              <InitialsAvatar name={user?.name ?? "?"} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-ink-900">{user?.name}</p>
-                <p className="truncate text-xs text-ink-500">{title}</p>
-              </div>
-            </NavLink>
+            {accountMenu ? (
+              <AccountMenu items={accountMenu} placement="above" />
+            ) : (
+              <NavLink
+                to={accountPath}
+                className="-ml-1 flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 transition hover:bg-surface"
+                aria-label={`Your account: ${user?.name ?? ""}`}
+              >
+                <InitialsAvatar name={user?.name ?? "?"} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-ink-900">{user?.name}</p>
+                  <p className="truncate text-xs text-ink-500">{title}</p>
+                </div>
+              </NavLink>
+            )}
             <ActivityMenu />
-            <button
-              onClick={signOut}
-              aria-label="Sign out"
-              className="rounded-md p-1.5 text-ink-500 transition hover:bg-surface hover:text-ink-900"
-            >
-              <LogOut aria-hidden className="h-4 w-4" />
-            </button>
+            {!accountMenu && (
+              <button
+                onClick={signOut}
+                aria-label="Sign out"
+                className="rounded-md p-1.5 text-ink-500 transition hover:bg-surface hover:text-ink-900"
+              >
+                <LogOut aria-hidden className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
       </aside>
@@ -263,17 +424,23 @@ export default function AppShell({
         <div className="flex items-center justify-between px-4 py-3">
           <Brand />
           <div className="flex items-center gap-2 text-sm">
-            <NavLink to={accountPath} aria-label="Your account" className="rounded-full">
-              <InitialsAvatar name={user?.name ?? "?"} size="sm" />
-            </NavLink>
+            {accountMenu ? (
+              <AccountMenu items={accountMenu} placement="below" compact />
+            ) : (
+              <NavLink to={accountPath} aria-label="Your account" className="rounded-full">
+                <InitialsAvatar name={user?.name ?? "?"} size="sm" />
+              </NavLink>
+            )}
             <ActivityMenu />
-            <button
-              onClick={signOut}
-              aria-label="Sign out"
-              className="rounded-md p-1.5 text-ink-500 transition hover:text-ink-900"
-            >
-              <LogOut aria-hidden className="h-4 w-4" />
-            </button>
+            {!accountMenu && (
+              <button
+                onClick={signOut}
+                aria-label="Sign out"
+                className="rounded-md p-1.5 text-ink-500 transition hover:text-ink-900"
+              >
+                <LogOut aria-hidden className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
       </header>

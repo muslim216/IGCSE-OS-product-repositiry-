@@ -129,12 +129,18 @@ function PaperQuestions({ paperId, name }: { paperId: number; name: string }) {
   );
 }
 
-export default function PastPapersPage() {
+/** `subjectId` puts the page inside a class (its Work tab): only that subject's
+ *  papers are asked for, the upload goes into it, and the page header and
+ *  subject picker give way to the class's own. The filter is the API's own
+ *  `subject_id`, which sits inside the organization scope the API enforces. */
+export default function PastPapersPage({ subjectId: classSubject }: { subjectId?: number }) {
   const queryClient = useQueryClient();
   const { hash } = useLocation();
+  const inClass = classSubject !== undefined;
+  const papersKey = inClass ? ["past-papers", "subject", classSubject] : ["past-papers"];
   const papers = useQuery({
-    queryKey: ["past-papers"],
-    queryFn: () => listPastPapers(),
+    queryKey: papersKey,
+    queryFn: () => listPastPapers(classSubject),
     // Extraction happens in a background job, so without this the tutor sits on
     // "Reading the questions…" until they navigate away and back. Self-
     // terminating: once nothing is mid-extraction the interval returns false.
@@ -161,7 +167,7 @@ export default function PastPapersPage() {
   // tutor working in one subject is not asked to say it twice. Derived rather
   // than copied into state, and only until the tutor touches the form's own
   // select: after that its value wins, an empty choice included.
-  const formSubjectId = subjectTouched ? subjectId : picked;
+  const formSubjectId = inClass ? String(classSubject) : subjectTouched ? subjectId : picked;
 
   const [duration, setDuration] = useState("");
   const [paper, setPaper] = useState<File | null>(null);
@@ -186,7 +192,7 @@ export default function PastPapersPage() {
   // refetch: until then the cached row still offered both fixes, and a second
   // press was refused (409) as the paper was already being read.
   function showFixed(updated: PaperRow) {
-    queryClient.setQueryData<PaperRow[]>(["past-papers"], (rows) =>
+    queryClient.setQueryData<PaperRow[]>(papersKey, (rows) =>
       rows?.map((row) => (row.id === updated.id ? updated : row)),
     );
     refreshLists();
@@ -279,16 +285,27 @@ export default function PastPapersPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Past papers"
-        description="Upload a full paper once and every student taking that subject can sit it. Their answers are marked question by question, feeding both topic mastery and their past-paper score."
-      />
+      {inClass ? (
+        <SectionHeader
+          level="h2"
+          title="Past papers"
+          description="Upload a full paper once and every student taking this subject can sit it."
+        />
+      ) : (
+        <PageHeader
+          title="Past papers"
+          description="Upload a full paper once and every student taking that subject can sit it. Their answers are marked question by question, feeding both topic mastery and their past-paper score."
+        />
+      )}
 
       {/* Booklets has no sidebar item of its own; this is where a tutor looking
           for them finds the door. */}
-      <p className="mb-6 text-sm text-ink-500">
+      <p className="mb-6 mt-3 text-sm text-ink-500">
         Have one PDF holding several papers?{" "}
-        <Link to="/tutor/booklets" className="font-medium text-brand-600 hover:text-brand-700">
+        <Link
+          to="/tutor/past-papers/booklets"
+          className="font-medium text-brand-600 hover:text-brand-700"
+        >
           Split it with Booklets
         </Link>
         .
@@ -303,22 +320,24 @@ export default function PastPapersPage() {
               description="The AI reads the session, paper number and questions off the paper itself — all you choose is the subject and the files."
             />
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Subject">
-                <Select
-                  value={formSubjectId}
-                  onChange={(e) => {
-                    setSubjectTouched(true);
-                    setSubjectId(e.target.value);
-                  }}
-                >
-                  <option value="">Choose a subject</option>
-                  {subjects.data?.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.exam_board})
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+              {!inClass && (
+                <Field label="Subject">
+                  <Select
+                    value={formSubjectId}
+                    onChange={(e) => {
+                      setSubjectTouched(true);
+                      setSubjectId(e.target.value);
+                    }}
+                  >
+                    <option value="">Choose a subject</option>
+                    {subjects.data?.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.exam_board})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
               <Field label="Time allowed, in minutes" optional>
                 <Input
                   type="number"
@@ -363,7 +382,13 @@ export default function PastPapersPage() {
                 {error}
               </p>
             )}
-            <Button type="submit" disabled={!ready} loading={upload.isPending}>
+            {/* Inside a class the tab's one filled button is "Set homework". */}
+            <Button
+              type="submit"
+              variant={inClass ? "secondary" : "primary"}
+              disabled={!ready}
+              loading={upload.isPending}
+            >
               Add past paper
             </Button>
           </form>
@@ -383,7 +408,7 @@ export default function PastPapersPage() {
               />
             ) : (
               <div className="space-y-5">
-                {filter.showPicker && (
+                {filter.showPicker && !inClass && (
                   <SubjectPicker
                     groups={filter.groups}
                     value={filter.picked}
@@ -391,131 +416,129 @@ export default function PastPapersPage() {
                     noun={["paper", "papers"]}
                   />
                 )}
-                {(filter.ready ? filter.visible : [{ id: "all", subject: null, items: rows }]).map(
-                  (g) => {
-                    const list = (
-                      <ul className="divide-y divide-line text-sm">
-                        {g.items.map((p) => (
-                          <li
-                            key={p.id}
-                            id={`paper-${p.id}`}
-                            tabIndex={-1}
-                            className="scroll-mt-24 rounded-sm py-3 focus:outline focus:outline-2 focus:outline-offset-4 focus:outline-brand-600"
-                          >
-                            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-                              <div className="min-w-0">
-                                <p className="font-medium text-ink-900">{p.display_title}</p>
-                                {/* The file names an unread paper (`nameOf`). */}
-                                {p.title === null && p.paper_name && (
-                                  <p className="text-xs text-ink-500">{p.paper_name}</p>
-                                )}
-                                <p
-                                  className={p.extraction_error ? "text-risk-600" : "text-ink-500"}
-                                  aria-live="polite"
-                                >
-                                  {statusLine(p)}
-                                  {p.duration_minutes && !p.extraction_error
-                                    ? ` · ${formatDuration(p.duration_minutes)} allowed`
-                                    : ""}
-                                </p>
-                                {p.extraction_error && (
-                                  <>
-                                    <p className="text-ink-500">
-                                      Students still see this one. Anything they send for it is
-                                      marked once it's read.
+                {(filter.ready && !inClass
+                  ? filter.visible
+                  : [{ id: "all", subject: null, items: rows }]
+                ).map((g) => {
+                  const list = (
+                    <ul className="divide-y divide-line text-sm">
+                      {g.items.map((p) => (
+                        <li
+                          key={p.id}
+                          id={`paper-${p.id}`}
+                          tabIndex={-1}
+                          className="scroll-mt-24 rounded-sm py-3 focus:outline focus:outline-2 focus:outline-offset-4 focus:outline-brand-600"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                            <div className="min-w-0">
+                              <p className="font-medium text-ink-900">{p.display_title}</p>
+                              {/* The file names an unread paper (`nameOf`). */}
+                              {p.title === null && p.paper_name && (
+                                <p className="text-xs text-ink-500">{p.paper_name}</p>
+                              )}
+                              <p
+                                className={p.extraction_error ? "text-risk-600" : "text-ink-500"}
+                                aria-live="polite"
+                              >
+                                {statusLine(p)}
+                                {p.duration_minutes && !p.extraction_error
+                                  ? ` · ${formatDuration(p.duration_minutes)} allowed`
+                                  : ""}
+                              </p>
+                              {p.extraction_error && (
+                                <>
+                                  <p className="text-ink-500">
+                                    Students still see this one. Anything they send for it is marked
+                                    once it's read.
+                                  </p>
+                                  <details className="mt-1 text-xs text-ink-500">
+                                    <summary className="cursor-pointer">What went wrong</summary>
+                                    <p className="mt-1">{p.extraction_error}</p>
+                                  </details>
+                                  {retry.isError && retry.variables === p.id && (
+                                    <p role="alert" className="mt-1 text-risk-600">
+                                      {friendlyError(retry.error, "That didn't start. Try again.")}
                                     </p>
-                                    <details className="mt-1 text-xs text-ink-500">
-                                      <summary className="cursor-pointer">What went wrong</summary>
-                                      <p className="mt-1">{p.extraction_error}</p>
-                                    </details>
-                                    {retry.isError && retry.variables === p.id && (
-                                      <p role="alert" className="mt-1 text-risk-600">
-                                        {friendlyError(
-                                          retry.error,
-                                          "That didn't start. Try again.",
-                                        )}
-                                      </p>
-                                    )}
-                                  </>
-                                )}
-                                {p.question_count > 0 && (
-                                  <PaperQuestions paperId={p.id} name={p.display_title} />
-                                )}
-                              </div>
-                              <div className="flex flex-wrap items-center gap-4 text-sm">
-                                {p.extraction_error && (
-                                  <>
-                                    {/* Which paper rides along for screen readers, after
+                                  )}
+                                </>
+                              )}
+                              {p.question_count > 0 && (
+                                <PaperQuestions paperId={p.id} name={p.display_title} />
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-4 text-sm">
+                              {p.extraction_error && (
+                                <>
+                                  {/* Which paper rides along for screen readers, after
                                         the visible words so the spoken name still starts
                                         with what is on the button (WCAG 2.5.3). */}
-                                    <Button
-                                      variant="secondary"
-                                      size="sm"
-                                      loading={retry.isPending && retry.variables === p.id}
-                                      onClick={() => retry.mutate(p.id)}
-                                    >
-                                      Try again
-                                      <span className="sr-only"> to read {nameOf(p)}</span>
-                                    </Button>
-                                    <Button
-                                      variant="secondary"
-                                      size="sm"
-                                      // One fix at a time: once Try again is under way
-                                      // the paper is being read, and a replacement
-                                      // would be refused.
-                                      disabled={retry.isPending && retry.variables === p.id}
-                                      onClick={() => {
-                                        replace.reset();
-                                        setCopy(null);
-                                        setReplacing(p);
-                                      }}
-                                    >
-                                      Upload a clearer copy
-                                      <span className="sr-only"> of {nameOf(p)}</span>
-                                    </Button>
-                                  </>
-                                )}
-                                <AuthFileLink path={pastPaperPaperPath(p.id)} label="Paper" />
-                                {/* A paper may have no scheme now that one is optional, and
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    loading={retry.isPending && retry.variables === p.id}
+                                    onClick={() => retry.mutate(p.id)}
+                                  >
+                                    Try again
+                                    <span className="sr-only"> to read {nameOf(p)}</span>
+                                  </Button>
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    // One fix at a time: once Try again is under way
+                                    // the paper is being read, and a replacement
+                                    // would be refused.
+                                    disabled={retry.isPending && retry.variables === p.id}
+                                    onClick={() => {
+                                      replace.reset();
+                                      setCopy(null);
+                                      setReplacing(p);
+                                    }}
+                                  >
+                                    Upload a clearer copy
+                                    <span className="sr-only"> of {nameOf(p)}</span>
+                                  </Button>
+                                </>
+                              )}
+                              <AuthFileLink path={pastPaperPaperPath(p.id)} label="Paper" />
+                              {/* A paper may have no scheme now that one is optional, and
                                     that endpoint 404s. `mark_scheme_name` is the only signal
                                     of whether a file exists, and it is tutor-only. */}
-                                {p.mark_scheme_name ? (
-                                  <AuthFileLink
-                                    path={pastPaperMarkSchemePath(p.id)}
-                                    label="Mark scheme"
-                                  />
-                                ) : (
-                                  <span className="text-ink-500">No mark scheme</span>
-                                )}
-                                {/* A flag, not a deletion — the row carries attempts, marks
+                              {p.mark_scheme_name ? (
+                                <AuthFileLink
+                                  path={pastPaperMarkSchemePath(p.id)}
+                                  label="Mark scheme"
+                                />
+                              ) : (
+                                <span className="text-ink-500">No mark scheme</span>
+                              )}
+                              {/* A flag, not a deletion — the row carries attempts, marks
                                     and the evidence those produced (`PROD-5`), so the copy
                                     says what actually happens rather than "delete". */}
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  aria-label={`Remove ${nameOf(p)}`}
-                                  onClick={() => {
-                                    hide.reset();
-                                    setHiding(p);
-                                  }}
-                                >
-                                  Remove
-                                </Button>
-                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`Remove ${nameOf(p)}`}
+                                onClick={() => {
+                                  hide.reset();
+                                  setHiding(p);
+                                }}
+                              >
+                                Remove
+                              </Button>
                             </div>
-                          </li>
-                        ))}
-                      </ul>
-                    );
-                    return filter.ready ? (
-                      <SubjectSection key={g.id} subject={g.subject}>
-                        {list}
-                      </SubjectSection>
-                    ) : (
-                      <div key={g.id}>{list}</div>
-                    );
-                  },
-                )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                  return filter.ready ? (
+                    <SubjectSection key={g.id} subject={g.subject}>
+                      {list}
+                    </SubjectSection>
+                  ) : (
+                    <div key={g.id}>{list}</div>
+                  );
+                })}
               </div>
             )}
           </div>

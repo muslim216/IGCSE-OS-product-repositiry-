@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Plus } from "lucide-react";
 import { listGroupAssignments } from "../../api/homework";
@@ -7,6 +8,7 @@ import { EmptyState, SectionCard } from "../../components/ui";
 import { buttonClasses } from "../../components/controls";
 import { ErrorState, SectionSkeleton } from "../../components/page";
 import { assignmentStatus } from "../../lib/assignmentStatus";
+import PastPapersPage from "../PastPapersPage";
 
 function StatusBadge({ status, submissionCount }: { status: string; submissionCount: number }) {
   if (status === "published")
@@ -23,7 +25,27 @@ function StatusBadge({ status, submissionCount }: { status: string; submissionCo
   );
 }
 
+/** The class's Work tab: its homework, then its past papers. Past papers used
+    to be a top-level menu item; they sit here, filtered to the class's subject,
+    so the tutor looks for them where the class is. The section id is the
+    target of the old Past papers links (`#past-papers`). */
 export default function HomeworkTab() {
+  const { group } = useGroupContext();
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash === "#past-papers") document.getElementById("past-papers")?.scrollIntoView?.();
+  }, [hash]);
+  return (
+    <div className="space-y-10">
+      <HomeworkList />
+      <section id="past-papers" aria-label="Past papers" className="scroll-mt-24">
+        <PastPapersPage subjectId={group.subject.id} />
+      </section>
+    </div>
+  );
+}
+
+function HomeworkList() {
   const { groupId } = useGroupContext();
   const assignments = useQuery({
     queryKey: ["assignments", groupId],
