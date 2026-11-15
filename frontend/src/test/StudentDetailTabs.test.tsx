@@ -183,7 +183,7 @@ test("arrowing across the tabs mounts nothing and adds no history entry", async 
   expect(screen.getByTestId("visits")).toHaveTextContent("1");
   expect(screen.getByTestId("loc")).toHaveTextContent("");
   expect(screen.getByTestId("loc").textContent).toBe("");
-  expect(calls.length).toBe(before);
+  expect(calls).toHaveLength(before);
   expect(screen.queryByText(/Starting estimate/)).not.toBeInTheDocument();
 });
 
@@ -360,7 +360,7 @@ test("a slow estimate save stays pending across a tab switch, then says it saved
   await waitFor(() => expect(screen.getByRole("button", { name: /Save estimate/ })).toBeDisabled());
   fireEvent.click(screen.getByRole("tab", { name: "About" }));
   d.resolve(json({ seeded: 1 }));
-  await waitFor(() => expect(calls.filter((c) => c.endsWith("/seed-readiness")).length).toBe(1));
+  await waitFor(() => expect(calls.filter((c) => c.endsWith("/seed-readiness"))).toHaveLength(1));
   fireEvent.click(screen.getByRole("tab", { name: "Notes" }));
   expect(await screen.findByText("Estimate saved.")).toBeInTheDocument();
 });
