@@ -47,6 +47,7 @@ function stub(
     subjects?: unknown[];
     assignments?: unknown[];
     timezone?: string;
+    orgPending?: boolean;
   } = {},
 ) {
   calls = [];
@@ -71,6 +72,8 @@ function stub(
       }
       if (url.includes("/past-papers") && more.papers) return json(more.papers);
       if (url.endsWith("/api/v1/subjects") && more.subjects) return json(more.subjects);
+      if (url.endsWith("/api/v1/me/organization") && more.orgPending)
+        return new Promise<Response>(() => {});
       if (url.endsWith("/api/v1/me/organization") && more.timezone)
         return json({ id: 1, name: "Org", timezone: more.timezone });
       if (url.includes("/assignments/group/") && more.assignments) return json(more.assignments);
@@ -455,6 +458,28 @@ test("the Work tab keeps each homework's due date", async () => {
   renderApp("/tutor/groups/5/homework");
   expect(await screen.findByText(/^Due .*\b20\b/)).toBeInTheDocument();
   expect(screen.getByText(/No due date/)).toBeInTheDocument();
+});
+
+test("while the organization's time zone loads, a due date waits rather than guessing", async () => {
+  stub("tutor", 1, {
+    orgPending: true,
+    assignments: [
+      {
+        id: 1,
+        group_id: 5,
+        title: "Forces sheet",
+        status: "published",
+        due_at: "2026-11-20T23:30:00Z",
+        question_count: 3,
+        total_marks: 10,
+        submission_count: 2,
+      },
+    ],
+  });
+  renderApp("/tutor/groups/5/homework");
+  const marks = await screen.findByText(/10 marks/);
+  expect(marks.textContent?.trim()).toBe("10 marks");
+  expect(screen.queryByText(/^Due /)).not.toBeInTheDocument();
 });
 
 test("the student phone bar is unchanged: three tabs and More", async () => {

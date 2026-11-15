@@ -72,6 +72,10 @@ function HomeworkList() {
     queryFn: () => listGroupAssignments(groupId),
   });
   const newHomework = `/tutor/groups/${groupId}/new-homework`;
+  const due = (dueAt: string | null) => {
+    const label = dueLabel(dueAt, timeZone);
+    return label ? `${label} · ` : "";
+  };
 
   if (assignments.isLoading) return <SectionSkeleton rows={4} label="Loading homework" />;
 
@@ -124,7 +128,7 @@ function HomeworkList() {
               <span className="min-w-0">
                 <span className="block truncate font-medium text-ink-900">{a.title}</span>
                 <span className="text-sm text-ink-500">
-                  {dueLabel(a.due_at, timeZone) && `${dueLabel(a.due_at, timeZone)} · `}
+                  {due(a.due_at)}
                   {a.total_marks} {a.total_marks === 1 ? "mark" : "marks"}
                 </span>
               </span>
