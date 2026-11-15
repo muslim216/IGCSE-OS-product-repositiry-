@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 import ScheduleTab from "../tutor/tabs/ScheduleTab";
 
@@ -173,4 +173,25 @@ test("?date= alone opens the record form", async () => {
   stub(true);
   renderTab("/?date=2027-01-05");
   expect(await screen.findByRole("button", { name: "Record lesson" })).toBeInTheDocument();
+});
+
+test("saving a lesson clears ?slot= and ?date= through the router", async () => {
+  stub(true);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  function Where() {
+    return <p data-testid="where">{useLocation().search}</p>;
+  }
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={["/?date=2027-01-05&settings=0"]}>
+        <ScheduleTab />
+        <Where />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  const submit = await screen.findByRole("button", { name: "Record lesson" });
+  await waitFor(() => expect(submit).toBeEnabled());
+  expect(screen.getByTestId("where").textContent).toContain("date=2027-01-05");
+  fireEvent.click(submit);
+  await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("?settings=0"));
 });

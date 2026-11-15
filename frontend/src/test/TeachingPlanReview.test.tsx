@@ -190,7 +190,9 @@ test("row actions are not hidden for a touch laptop: hiding is only for a fine h
   const edit = screen.getByRole("button", { name: /^Edit, 14 Jan 2027/ });
   const group = edit.parentElement as HTMLElement;
   expect(group.className).not.toMatch(/(^|\s)md:opacity-0/);
-  expect(group.className).toContain("[@media(hover:hover)_and_(pointer:fine)]:opacity-0");
+  expect(group.className).toContain(
+    "[@media(hover:hover)_and_(pointer:fine)_and_(not_(any-pointer:coarse))]:opacity-0",
+  );
   // "..." comes first in the DOM, owns an id'd target, and is a phone-sized target.
   const more = screen.getByRole("button", { name: /^More actions/ });
   expect(more.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

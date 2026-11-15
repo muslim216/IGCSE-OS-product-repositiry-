@@ -14,7 +14,7 @@ import TimetableEditor from "../TimetableEditor";
 /** The plan first; recording and settings are one button each. */
 export default function ScheduleTab() {
   const { group, groupId } = useGroupContext();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
 
   // A link from a lesson reminder or today's agenda lands here with `?slot=` or
   // `?date=`: the form must be open for it to pre-fill. Read from the router, so
@@ -94,6 +94,17 @@ export default function ScheduleTab() {
             groupId={groupId}
             subjectId={group.subject.id}
             onClose={closeRecording}
+            onLinkConsumed={() =>
+              setParams(
+                (prev) => {
+                  const next = new URLSearchParams(prev);
+                  next.delete("slot");
+                  next.delete("date");
+                  return next;
+                },
+                { replace: true },
+              )
+            }
           />
         </div>
       )}

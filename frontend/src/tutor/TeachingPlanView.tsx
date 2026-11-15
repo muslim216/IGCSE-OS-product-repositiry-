@@ -98,9 +98,9 @@ function splitWeeks(weeks: [string, PlanSlot[]][], today: string) {
   };
 }
 
-/** Says plainly when the weights did not come from the AI, and why (`PROD-1`). */
 type OutcomeNote = { tone: "risk" | "warn"; text: string };
 
+/** Says plainly when the weights did not come from the AI, and why (`PROD-1`). */
 function outcomeNotes(outcome: DraftOutcome | null, jobFailed: boolean): OutcomeNote[] {
   const notes: OutcomeNote[] = [];
   if (jobFailed) {
@@ -237,7 +237,7 @@ function SlotRow({
    *  have been rebuilt by then, so the list remembers the request). */
   wantsFocus?: boolean;
   onFocusDone: () => void;
-  onRestoreFocus: () => void;
+  onRestoreFocus: (date: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   // On a phone the row's actions sit behind a "…" button; on a wide screen hover
@@ -322,7 +322,7 @@ function SlotRow({
               },
               () => {
                 setEditing(false);
-                onRestoreFocus();
+                onRestoreFocus(date);
               },
             )
           }
@@ -337,7 +337,7 @@ function SlotRow({
             setChapterId(slot.chapter_id);
             setStartTime(hhmm(slot.start_time) ?? "");
             setEditing(false);
-            onRestoreFocus();
+            onRestoreFocus(slot.scheduled_date);
           }}
         >
           Cancel
@@ -351,13 +351,15 @@ function SlotRow({
   const which = `${label}${hhmm(slot.start_time) ? ` at ${hhmm(slot.start_time)}` : ""}, ${slot.chapter_code} ${slot.chapter_title}`;
   // The row's own cancel in flight keeps its actions on screen so the spinner is seen.
   const shown = menuOpen || cancelling;
-  // Hidden until hover or focus only where a fine pointer can hover: a touch
-  // laptop must never be left with invisible, tappable buttons.
+  // Hidden until hover or focus only where a fine pointer can hover and no
+  // touch input exists: a touch laptop with a trackpad reports a fine hovering
+  // pointer, and must never be left with invisible, tappable buttons.
+  const fineOnly = "[@media(hover:hover)_and_(pointer:fine)_and_(not_(any-pointer:coarse))]";
   const hoverOnly = !shown
-    ? " [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:group-focus-within:opacity-100"
+    ? ` ${fineOnly}:opacity-0 ${fineOnly}:group-hover:opacity-100 ${fineOnly}:group-focus-within:opacity-100`
     : "";
   return (
-    <li className="group flex items-center justify-between gap-3 px-3 py-2">
+    <li data-slot-id={slot.id} className="group flex items-center justify-between gap-3 px-3 py-2">
       <span className="min-w-0 text-sm text-ink-700">
         <span className="tabular-nums text-ink-500">
           {label}
@@ -391,7 +393,7 @@ function SlotRow({
             size="sm"
             variant="ghost"
             className="max-md:min-h-11 max-md:min-w-11 md:hidden"
-            aria-label={`More actions for the ${label} lesson`}
+            aria-label={`More actions, ${which}`}
             aria-expanded={menuOpen}
             aria-controls={actionsId}
             onClick={() => setMenuOpen((o) => !o)}
@@ -407,6 +409,7 @@ function SlotRow({
                 size="sm"
                 variant="ghost"
                 className="max-md:min-h-11 max-md:min-w-11"
+                data-slot-action
                 aria-label={`Cancel lesson, ${which}`}
                 disabled={locked || cancelBusy}
                 loading={cancelling}
@@ -423,9 +426,15 @@ function SlotRow({
               size="sm"
               variant="ghost"
               className="max-md:min-h-11 max-md:min-w-11"
+              data-slot-action
               aria-label={`Edit, ${which}`}
               disabled={locked}
               onClick={() => {
+                // The row is no longer rebuilt when it changes, so what the
+                // form starts from is read afresh each time it opens.
+                setDate(slot.scheduled_date);
+                setChapterId(slot.chapter_id);
+                setStartTime(hhmm(slot.start_time) ?? "");
                 setMenuOpen(false);
                 setEditing(true);
               }}
@@ -443,11 +452,29 @@ function SlotRow({
  *  year-long plan does not mount every lesson. The click is handled here rather
  *  than left to the browser so the open state is ours and the content mounts
  *  only when it shows. */
-function Fold({ label, children }: { label: string; children: ReactNode }) {
+function Fold({
+  label,
+  children,
+  wantsFocus = false,
+  onFocusDone,
+}: {
+  label: string;
+  children: ReactNode;
+  /** A lesson moved in here while the fold was closed: its summary takes focus. */
+  wantsFocus?: boolean;
+  onFocusDone?: () => void;
+}) {
   const [open, setOpen] = useState(false);
+  const summaryRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!wantsFocus || open) return;
+    summaryRef.current?.focus();
+    onFocusDone?.();
+  }, [wantsFocus, open, onFocusDone]);
   return (
     <details open={open} className="mt-3">
       <summary
+        ref={summaryRef}
         className="cursor-pointer text-xs font-medium uppercase tracking-wide text-ink-500"
         onClick={(e) => {
           e.preventDefault();
@@ -476,6 +503,7 @@ function SlotList({
   cancellingId = null,
   cancelBusy = false,
   today,
+  version,
 }: {
   slots: PlanSlot[];
   chapters: Chapter[];
@@ -485,15 +513,55 @@ function SlotList({
   locked?: boolean;
   saving: boolean;
   onSave: (slotId: number, patch: SlotPatch, done: () => void) => void;
-  onCancel?: (slotId: number) => void;
+  /** `done` runs once the cancel has gone through. */
+  onCancel?: (slotId: number, done: () => void) => void;
   cancellingId?: number | null;
   cancelBusy?: boolean;
   today: string;
+  /** How many times the plan has been fetched: tells a stale list from a fresh one. */
+  version: number;
 }) {
   const { earlier, open, later } = splitWeeks(groupByWeek(slots), today);
-  // Which row's Edit button gets focus back once editing ends.
-  const [focusSlotId, setFocusSlotId] = useState<number | null>(null);
-  const focusDone = useCallback(() => setFocusSlotId(null), []);
+  // Which row's Edit button gets focus back, and on which date: a save that
+  // moves a lesson is only done once the list shows it on its new date.
+  // A newer fetch than the one the request was made against also counts: the
+  // server may have put the lesson somewhere other than where it was asked to.
+  const [focusReq, setFocusReq] = useState<{
+    id: number;
+    date: string;
+    version: number;
+  } | null>(null);
+  const due = (r: PlanSlot) =>
+    focusReq !== null &&
+    r.id === focusReq.id &&
+    (r.scheduled_date === focusReq.date || version !== focusReq.version);
+  const focusSlotId = focusReq?.id ?? null;
+  const focusDone = useCallback(() => setFocusReq(null), []);
+  const listRef = useRef<HTMLDivElement>(null);
+  const inWeeks = (weeks: [string, PlanSlot[]][]) =>
+    focusReq !== null && weeks.some(([, rows]) => rows.some(due));
+  // A request for a lesson that is no longer anywhere (or was never shown)
+  // must not wait for ever to steal focus later.
+  const known = slots.some((s) => s.id === focusSlotId);
+  useEffect(() => {
+    if (focusSlotId !== null && !known) setFocusReq(null);
+  }, [focusSlotId, known]);
+  // After a cancel the row's buttons are gone: hand focus to the next lesson
+  // that has actions (else the one before), decided from what is on screen now.
+  const cancelAndMoveFocus = (slotId: number) => {
+    const rows = Array.from(
+      listRef.current?.querySelectorAll<HTMLElement>("li[data-slot-id]") ?? [],
+    );
+    const at = rows.findIndex((r) => r.dataset.slotId === String(slotId));
+    const hasActions = (r: HTMLElement) => r.querySelector("[data-slot-action]") !== null;
+    const next =
+      rows.slice(at + 1).find(hasActions) ??
+      rows.slice(0, Math.max(at, 0)).reverse().find(hasActions);
+    onCancel?.(slotId, () => {
+      const target = slots.find((x) => String(x.id) === next?.dataset.slotId);
+      if (target) setFocusReq({ id: target.id, date: target.scheduled_date, version });
+    });
+  };
   const renderWeeks = (weeks: [string, PlanSlot[]][]) =>
     weeks.map(([week, rows]) => (
       <div key={week}>
@@ -503,7 +571,7 @@ function SlotList({
         <ul className="mt-1 divide-y divide-line rounded-lg border border-line">
           {rows.map((slot) => (
             <SlotRow
-              key={`${slot.id}-${slot.scheduled_date}-${slot.chapter_id}`}
+              key={slot.id}
               slot={slot}
               chapters={chapters}
               chaptersReady={chaptersReady}
@@ -512,27 +580,35 @@ function SlotList({
               locked={locked}
               saving={saving}
               onSave={(patch, done) => onSave(slot.id, patch, done)}
-              onCancel={onCancel ? () => onCancel(slot.id) : undefined}
+              onCancel={onCancel ? () => cancelAndMoveFocus(slot.id) : undefined}
               cancelling={cancellingId === slot.id}
               cancelBusy={cancelBusy}
-              wantsFocus={focusSlotId === slot.id}
+              wantsFocus={due(slot)}
               onFocusDone={focusDone}
-              onRestoreFocus={() => setFocusSlotId(slot.id)}
+              onRestoreFocus={(date) => setFocusReq({ id: slot.id, date, version })}
             />
           ))}
         </ul>
       </div>
     ));
   return (
-    <div className="mt-3 space-y-4">
+    <div ref={listRef} className="mt-3 space-y-4">
       {earlier.length > 0 && (
-        <Fold label={`Earlier: ${weeksLabel(earlier.length)}`}>
+        <Fold
+          label={`Earlier: ${weeksLabel(earlier.length)}`}
+          wantsFocus={inWeeks(earlier)}
+          onFocusDone={focusDone}
+        >
           <div className="mt-2 space-y-4">{renderWeeks(earlier)}</div>
         </Fold>
       )}
       {renderWeeks(open)}
       {later.length > 0 && (
-        <Fold label={`Later: ${weeksLabel(later.length)}`}>
+        <Fold
+          label={`Later: ${weeksLabel(later.length)}`}
+          wantsFocus={inWeeks(later)}
+          onFocusDone={focusDone}
+        >
           <div className="mt-2 space-y-4">{renderWeeks(later)}</div>
         </Fold>
       )}
@@ -646,7 +722,12 @@ export default function TeachingPlanView({
       for (const key of [["today"], ["lesson-reminders"], ["next-lesson", groupId]]) {
         queryClient.invalidateQueries({ queryKey: key });
       }
-      if (!result.shifted) setNotice(result.message ?? null);
+      // Said in the polite region: the row's buttons are gone, so nothing else tells.
+      setNotice(
+        result.shifted
+          ? "Lesson cancelled; later lessons moved."
+          : (result.message ?? "Lesson cancelled."),
+      );
     },
     onError: (err) => setError(friendlyError(err)),
   });
@@ -654,10 +735,11 @@ export default function TeachingPlanView({
     mutationFn: (v: { slotId: number; patch: SlotPatch; done: () => void }) =>
       editPlanSlot(groupId, v.slotId, v.patch),
     onMutate: () => setError(null),
-    onSuccess: (_saved, v) => {
-      v.done();
+    onSuccess: async (_saved, v) => {
       queryClient.invalidateQueries({ queryKey: ["today"] });
-      return refresh();
+      // Focus goes back only once the list shows the lesson where it now is.
+      await refresh();
+      v.done();
     },
     onError: (err) => setError(friendlyError(err)),
   });
@@ -721,10 +803,11 @@ export default function TeachingPlanView({
           onRetryChapters={() => chapters.refetch()}
           saving={edit.isPending}
           onSave={onSave}
-          onCancel={(slotId) => cancelSlot.mutate(slotId)}
+          onCancel={(slotId, done) => cancelSlot.mutate(slotId, { onSuccess: done })}
           cancellingId={cancelSlot.isPending ? (cancelSlot.variables ?? null) : null}
           cancelBusy={cancelSlot.isPending}
           today={today}
+          version={queryClient.getQueryState(["plan", groupId])?.dataUpdateCount ?? 0}
         />
       )}
     </div>
@@ -753,28 +836,34 @@ export default function TeachingPlanView({
           Open Plan settings and save the plan inputs to draft a plan.
         </p>
       )}
-      {/* One always-mounted region, so a swap of its text is announced. Its
-          text is the most important thing to say: an error, then a note from the
-          last action, then the "behind" nudge. Re-plan is its own button and
-          stays whenever the plan is behind, whatever the text says. */}
-      <div role="status" aria-live="polite" className="empty:hidden">
-        {message && (
-          <div
-            className={`mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md px-3 py-2 text-sm ${message.tone}`}
-          >
-            <span>{message.text}</span>
-            {behind && (
-              <Button
-                size="sm"
-                variant="secondary"
-                loading={replan.isPending || drafting}
-                disabled={replan.isPending || drafting}
-                onClick={startReplan}
-              >
-                Re-plan
-              </Button>
+      {/* Two always-mounted regions, so a change of text is announced: an
+          error is an alert, any other note is polite. The text is the most
+          important thing to say: an error, then a note from the last action,
+          then the "behind" nudge. Re-plan sits outside both so it is not read
+          again with each message, and stays whenever the plan is behind. */}
+      <div className={`${message || behind ? "mt-3 " : ""}flex flex-wrap items-center gap-3`}>
+        <div className="min-w-0 flex-1">
+          <div role="alert">
+            {error && (
+              <p className="rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">{error}</p>
             )}
           </div>
+          <div role="status" aria-live="polite">
+            {!error && message && (
+              <p className={`rounded-md px-3 py-2 text-sm ${message.tone}`}>{message.text}</p>
+            )}
+          </div>
+        </div>
+        {behind && (
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={replan.isPending || drafting}
+            disabled={replan.isPending || drafting}
+            onClick={startReplan}
+          >
+            Re-plan
+          </Button>
         )}
       </div>
 
@@ -799,6 +888,7 @@ export default function TeachingPlanView({
               saving={edit.isPending}
               onSave={onSave}
               today={today}
+              version={queryClient.getQueryState(["plan", groupId])?.dataUpdateCount ?? 0}
             />
           )}
           <div className="mt-4 flex justify-end">

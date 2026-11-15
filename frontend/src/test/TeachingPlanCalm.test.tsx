@@ -148,7 +148,7 @@ test("Edit and Cancel are focusable controls revealed by focus, and a labelled .
   edit.focus();
   expect(edit).toHaveFocus();
   // On a phone they sit behind a labelled button.
-  const more = screen.getByRole("button", { name: "More actions for the 14 Jan 2027 lesson" });
+  const more = screen.getByRole("button", { name: "More actions, 14 Jan 2027, C1 Atoms" });
   expect(more).toHaveAttribute("aria-expanded", "false");
   expect(group.className).toContain("hidden");
   fireEvent.click(more);

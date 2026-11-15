@@ -156,7 +156,7 @@ test("a 409 on accept shows the server's message", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Accept plan" }));
   const dialog = await screen.findByRole("dialog");
   fireEvent.click(within(dialog).getByRole("button", { name: "Accept plan" }));
-  expect(await screen.findByRole("status")).toHaveTextContent("The draft has no lessons yet.");
+  expect(await screen.findByRole("alert")).toHaveTextContent("The draft has no lessons yet.");
 });
 
 test("a stale draft says inputs changed and cannot be accepted", async () => {

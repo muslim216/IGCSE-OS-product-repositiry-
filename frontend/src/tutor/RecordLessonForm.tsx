@@ -49,12 +49,17 @@ export default function RecordLessonForm({
   groupId,
   subjectId,
   onClose,
+  onLinkConsumed,
 }: {
   groupId: number;
   subjectId: number;
   /** When the form is opened on demand (the Schedule tab): called after a save
    *  (`true`) and on Cancel (`false`), so the host can close it and say which. */
   onClose?: (saved: boolean) => void;
+  /** After a save the `?slot=`/`?date=` link is spent. A host with a router
+   *  clears it there (the router never sees `history.replaceState`); without
+   *  one the form edits the address itself. */
+  onLinkConsumed?: () => void;
 }) {
   const queryClient = useQueryClient();
   // "Review" on a lesson reminder lands here with `?slot=`: pre-fill from that
@@ -191,7 +196,9 @@ export default function RecordLessonForm({
       setUseNextInstead(false);
       setForcedDate(null);
       const params = new URLSearchParams(window.location.search);
-      if (params.has("slot") || params.has("date")) {
+      if (onLinkConsumed) {
+        onLinkConsumed();
+      } else if (params.has("slot") || params.has("date")) {
         params.delete("slot");
         params.delete("date");
         const query = params.toString();
