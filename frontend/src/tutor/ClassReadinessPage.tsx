@@ -75,6 +75,7 @@ export default function ClassReadinessPage({ groupId }: { groupId: number }) {
         error={overview.isError}
         boundariesMissing={overview.data?.boundaries_missing ?? false}
         subjectId={group.data?.subject.id}
+        groupId={groupId}
       />
     </div>
   );

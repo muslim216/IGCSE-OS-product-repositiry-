@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
-import { STUDENT_NAV, STUDENT_SITTINGS, TUTOR_ACCOUNT_MENU, TUTOR_NAV } from "./nav";
-import { Keep, MovedToClass, ReportRedirect } from "./redirects";
+import { STUDENT_NAV, TUTOR_ACCOUNT_MENU, TUTOR_NAV } from "./nav";
+import { Keep, MovedToClass, PastPapersEntry, ReportRedirect } from "./redirects";
 import LoginPage from "./auth/LoginPage";
 import TutorSignupPage from "./auth/TutorSignupPage";
 import JoinPage from "./auth/JoinPage";
@@ -36,6 +36,7 @@ import SubjectSetupPage from "./tutor/SubjectSetupPage";
 import SettingsPage from "./tutor/SettingsPage";
 import IntegrationCallbackPage from "./tutor/IntegrationCallbackPage";
 import BookletsPage from "./tutor/BookletsPage";
+import PastPapersPage from "./tutor/PastPapersPage";
 
 import StudentHomePage from "./student/StudentHomePage";
 import ProgressPage from "./student/ProgressPage";
@@ -60,7 +61,14 @@ function Home() {
 }
 
 const PastPapersMoved = () => (
-  <MovedToClass tab="homework" hash="#past-papers" tip="Past papers now live inside each class." />
+  <PastPapersEntry>
+    <MovedToClass
+      tab="homework"
+      hash="#past-papers"
+      tipId="past-papers"
+      tip="Past papers now live inside each class, under Work."
+    />
+  </PastPapersEntry>
 );
 
 export default function App() {
@@ -81,6 +89,7 @@ export default function App() {
               nav={TUTOR_NAV}
               accountPath="/tutor/settings"
               accountMenu={TUTOR_ACCOUNT_MENU}
+              barSize={5}
             />
           }
         >
@@ -98,7 +107,8 @@ export default function App() {
               <MovedToClass
                 tab="analytics"
                 hash="#readiness"
-                tip="Readiness now lives inside each class."
+                tipId="readiness"
+                tip="Readiness now lives inside each class, under Progress."
               />
             }
           />
@@ -108,7 +118,8 @@ export default function App() {
               <MovedToClass
                 tab="analytics"
                 hash="#reports"
-                tip="Reports now live inside each class."
+                tipId="reports"
+                tip="Reports now live inside each class, under Progress."
               />
             }
           />
@@ -143,7 +154,12 @@ export default function App() {
           <Route
             path="/tutor/homework"
             element={
-              <MovedToClass tab="homework" hash="" tip="Homework now lives inside each class." />
+              <MovedToClass
+                tab="homework"
+                hash=""
+                tipId="homework"
+                tip="Homework now lives inside each class, under Work."
+              />
             }
           />
           <Route path="/tutor/students" element={<TutorStudentsPage />} />
@@ -172,19 +188,16 @@ export default function App() {
           {/* Booklets is a page of its own, not a class tab, so its old address follows it. */}
           <Route path="/tutor/booklets" element={<Keep to="/tutor/past-papers/booklets" />} />
           <Route path="/tutor/past-papers/booklets" element={<BookletsPage />} />
+          {/* Every subject's papers in one place. A class's Work tab shows only its own
+              subject, so a paper for a subject with no class, or an upload for one, needs
+              this; the to-do list's link to a paper lands here too. */}
+          <Route path="/tutor/past-papers/all" element={<PastPapersPage />} />
         </Route>
       </Route>
 
       <Route element={<ProtectedRoute roles={["student"]} />}>
         <Route
-          element={
-            <AppShell
-              title="Student"
-              nav={STUDENT_NAV}
-              accountPath="/student/account"
-              sittings={STUDENT_SITTINGS}
-            />
-          }
+          element={<AppShell title="Student" nav={STUDENT_NAV} accountPath="/student/account" />}
         >
           <Route path="/student" element={<StudentHomePage />} />
           <Route path="/student/welcome" element={<WelcomePage />} />

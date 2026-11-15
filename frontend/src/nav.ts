@@ -32,12 +32,6 @@ export const STUDENT_NAV: NavItem[] = [
   { to: "/student/recordings", label: "Recordings", icon: Video },
 ];
 
-/** A student sitting a timed paper sees only the paper, with a way out. */
-export const STUDENT_SITTINGS = [
-  { match: /^\/student\/mocks\/[^/]+\/?$/, leaveTo: "/student/mocks" },
-  { match: /^\/student\/past-papers\/[^/]+\/?$/, leaveTo: "/student/past-papers" },
-];
-
 // Six destinations, in the order the owner set on 2026-11-08 (T-039, calm
 // interface rules UX-37): Today, Mark, Classes, Students, Mocks, Library. The
 // history that shaped this list, because it explains why it is short now:
@@ -56,8 +50,8 @@ export const STUDENT_SITTINGS = [
 // `also` keeps a nested page's parent lit: Mark claims a submission's page
 // (`/tutor/submissions/:id`), which is opened from the queue; Classes claims
 // everything that lives inside a class (`/tutor/groups/:id/...`), a homework
-// page (`/tutor/assignments/:id`) and the past-paper pages that now hang off a
-// class's Work tab; Mocks and Students claim their own prefix because the exact match
+// page (`/tutor/assignments/:id`) and the past-paper pages (the all-subjects shelf and
+// Booklets) that hang off a class's Work tab; Mocks and Students claim their own prefix because the exact match
 // alone would drop them on a mock's or a student's page (`/tutor/mocks/:id`,
 // `/tutor/students/:id`).
 export const TUTOR_NAV: NavItem[] = [

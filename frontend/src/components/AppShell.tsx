@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { LogOut, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -21,20 +27,24 @@ export interface NavItem {
 /** Active on its own path or under any `also` prefix. Computed here rather than
     by NavLink because NavLink only knows the exact match, and both the styling
     and aria-current must agree about a nested page (an assignment is "in"
-    Homework). Exact, not prefix, for the item itself: the tutor home must
-    not light for every tutor page. */
-function isCurrent(item: NavItem, pathname: string): boolean {
+    Classes). Exact, not prefix, for the item itself: the tutor home must
+    not light for every tutor page. The value is what aria-current says: "page"
+    on the destination's own page, "true" when the reader is somewhere inside
+    it, so a screen reader does not announce two "current page" links. */
+function currentOf(item: NavItem, pathname: string): "page" | "true" | undefined {
   const here = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-  return (
-    here === item.to ||
-    (item.also ?? []).some((prefix) => here === prefix || here.startsWith(`${prefix}/`))
-  );
+  if (here === item.to) return "page";
+  return (item.also ?? []).some((prefix) => here === prefix || here.startsWith(`${prefix}/`))
+    ? "true"
+    : undefined;
 }
 
-/** The most tabs the bottom bar shows before the rest fold into "More". Four
-    plus a More control is the comfortable ceiling for a phone-width bar with
-    ≥44px targets, so a list of up to MAX_TABS + 1 fits with no More at all. */
-const MAX_TABS = 4;
+/** The most controls the bottom bar holds by default, More included: a list of
+    this many fits with no More, a longer one keeps one fewer tab and folds the
+    rest in. The tutor's bar is given a higher ceiling (`barSize`) because its
+    six destinations read best as four tabs and More; the student bar stays as
+    it was. */
+const DEFAULT_BAR_SIZE = 4;
 
 function Brand() {
   return <AvoraLockup className="px-1" />;
@@ -42,11 +52,11 @@ function Brand() {
 
 function SidebarLink({ item }: { item: NavItem }) {
   const { pathname } = useLocation();
-  const current = isCurrent(item, pathname);
+  const current = currentOf(item, pathname);
   return (
     <Link
       to={item.to}
-      aria-current={current ? "page" : undefined}
+      aria-current={current}
       className={`avora-press flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
         current
           ? "bg-brand-600 font-medium text-canvas"
@@ -61,14 +71,13 @@ function SidebarLink({ item }: { item: NavItem }) {
 
 /** A single destination in the fixed bottom bar: icon over label, ≥44px tall,
     the touch-target floor WCAG 2.5.5 sets. */
-function BottomTab({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+function BottomTab({ item }: { item: NavItem }) {
   const { pathname } = useLocation();
-  const current = isCurrent(item, pathname);
+  const current = currentOf(item, pathname);
   return (
     <Link
       to={item.to}
-      aria-current={current ? "page" : undefined}
-      onClick={onNavigate}
+      aria-current={current}
       className={`flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium avora-press transition ${
         current ? "text-brand-600" : "text-ink-500 hover:text-ink-900"
       }`}
@@ -89,14 +98,25 @@ function AccountMenu({
   items,
   placement,
   compact,
+  title,
 }: {
   items: NavItem[];
   placement: "above" | "below";
   compact?: boolean;
+  /** The reader's role, printed under their name. */
+  title: string;
 }) {
   const { user, signOut } = useAuth();
   const { pathname } = useLocation();
-  const [open, setOpen] = useState(false);
+  // The page it was opened on, rather than a plain flag: a bottom-tab tap or
+  // the browser's Back changes the page without touching the menu, and a menu
+  // still open over the new page is wrong. Open only while still on that page.
+  const [openAt, setOpenAt] = useState<string | null>(null);
+  const open = openAt === pathname;
+  const setOpen = (value: boolean | ((v: boolean) => boolean)) =>
+    setOpenAt((at) =>
+      (typeof value === "function" ? value(at === pathname) : value) ? pathname : null,
+    );
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
 
@@ -105,7 +125,7 @@ function AccountMenu({
     menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setOpen(false);
+      setOpenAt(null);
       button.current?.focus();
     };
     document.addEventListener("keydown", onKey);
@@ -123,7 +143,12 @@ function AccountMenu({
     else if (e.key === "ArrowUp") move(at - 1);
     else if (e.key === "Home") move(0);
     else if (e.key === "End") move(entries.length - 1);
-    else if (e.key === "Tab") setOpen(false);
+    else if (e.key === "Tab") {
+      // Focus goes to the button before the menu unmounts, so Tab moves on from
+      // there instead of from an element that no longer exists.
+      button.current?.focus();
+      setOpen(false);
+    }
   }
 
   const itemClass =
@@ -147,7 +172,7 @@ function AccountMenu({
         {!compact && (
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium text-ink-900">{user?.name}</span>
-            <span className="block truncate text-xs text-ink-500">Account</span>
+            <span className="block truncate text-xs text-ink-500">{title}</span>
           </span>
         )}
       </button>
@@ -157,7 +182,10 @@ function AccountMenu({
             type="button"
             aria-hidden
             tabIndex={-1}
-            onClick={() => setOpen(false)}
+            onClick={() => {
+              setOpen(false);
+              button.current?.focus();
+            }}
             className="fixed inset-0 z-30 cursor-default"
           />
           <div
@@ -170,13 +198,13 @@ function AccountMenu({
             }`}
           >
             {items.map((item) => {
-              const current = isCurrent(item, pathname);
+              const current = currentOf(item, pathname);
               return (
                 <Link
                   key={item.to}
                   to={item.to}
                   role="menuitem"
-                  aria-current={current ? "page" : undefined}
+                  aria-current={current}
                   onClick={() => setOpen(false)}
                   className={`${itemClass} ${current ? "font-medium text-brand-600" : "text-ink-700"}`}
                 >
@@ -207,9 +235,17 @@ function AccountMenu({
     primary tab). The button is lit while the current page is one of them, so a
     reader on Settings can tell where they are. */
 function MoreTab({ items }: { items: NavItem[] }) {
-  const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
-  const current = items.find((item) => isCurrent(item, pathname));
+  // Open only on the page it was opened on (see AccountMenu), so a tab tap or
+  // Back closes it.
+  const [openAt, setOpenAt] = useState<string | null>(null);
+  const open = openAt === pathname;
+  const setOpen = (value: boolean | ((v: boolean) => boolean)) =>
+    setOpenAt((at) =>
+      (typeof value === "function" ? value(at === pathname) : value) ? pathname : null,
+    );
+  const sheet = useId();
+  const current = items.find((item) => currentOf(item, pathname));
   const inside = current !== undefined;
   const button = useRef<HTMLButtonElement>(null);
 
@@ -219,7 +255,7 @@ function MoreTab({ items }: { items: NavItem[] }) {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      setOpen(false);
+      setOpenAt(null);
       button.current?.focus();
     };
     document.addEventListener("keydown", onKey);
@@ -232,7 +268,7 @@ function MoreTab({ items }: { items: NavItem[] }) {
         ref={button}
         type="button"
         aria-expanded={open}
-        aria-haspopup="menu"
+        aria-controls={open ? sheet : undefined}
         onClick={() => setOpen((v) => !v)}
         className={`flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium transition ${
           open || inside ? "text-brand-600" : "text-ink-500 hover:text-ink-900"
@@ -257,20 +293,23 @@ function MoreTab({ items }: { items: NavItem[] }) {
             onClick={() => setOpen(false)}
             className="fixed inset-0 z-30 cursor-default"
           />
+          {/* A plain disclosure of links: Tab walks them, so it claims no menu
+              behaviour it does not have. */}
           <div
-            role="menu"
+            id={sheet}
+            role="group"
+            aria-label="More"
             className="absolute bottom-full right-2 z-40 mb-2 max-h-[calc(100dvh-8rem)] min-w-44 overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-lg"
           >
             {items.map((item) => {
-              const current = isCurrent(item, pathname);
+              const current = currentOf(item, pathname);
               return (
                 <Link
                   key={item.to}
                   to={item.to}
-                  role="menuitem"
-                  aria-current={current ? "page" : undefined}
+                  aria-current={current}
                   onClick={() => setOpen(false)}
-                  className={`flex min-h-[44px] items-center gap-2.5 px-3 py-2.5 text-sm transition ${
+                  className={`flex min-h-[44px] items-center gap-2.5 px-3 py-2.5 text-sm -outline-offset-2 transition ${
                     current ? "font-medium text-brand-600" : "text-ink-700 hover:bg-surface-muted"
                   }`}
                 >
@@ -291,7 +330,7 @@ export default function AppShell({
   nav = [],
   accountPath,
   accountMenu,
-  sittings = [],
+  barSize = DEFAULT_BAR_SIZE,
 }: {
   title: string;
   nav?: NavItem[];
@@ -300,8 +339,9 @@ export default function AppShell({
   /** When given, the name becomes a menu button listing these and Sign out,
       instead of a plain link to `accountPath`. */
   accountMenu?: NavItem[];
-  /** Pages where the whole menu is hidden and only a way out is shown. */
-  sittings?: { match: RegExp; leaveTo: string }[];
+  /** How many controls the phone bar holds, More included, before it folds
+      the rest into More. */
+  barSize?: number;
 }) {
   const { user, signOut } = useAuth();
   const { pathname, key: navigation } = useLocation();
@@ -309,38 +349,12 @@ export default function AppShell({
   const bottomNav = nav.filter((item) => item.slot === "bottom");
 
   // The bottom bar shows main-workflow destinations first. When everything fits,
-  // "bottom"-slot items trail after; when it does not, the bar keeps MAX_TABS
+  // "bottom"-slot items trail after; when it does not, the bar keeps barSize - 1
   // primary tabs and folds the remainder — including every "bottom"-slot item —
   // into More, so a phone never loses a destination and the slot split holds.
-  const fits = mainNav.length + bottomNav.length <= MAX_TABS + 1;
-  const tabItems = fits ? [...mainNav, ...bottomNav] : mainNav.slice(0, MAX_TABS);
-  const overflowItems = fits ? [] : [...mainNav.slice(MAX_TABS), ...bottomNav];
-
-  // A timed sitting shows the paper and nothing else: no sidebar, no bars. The
-  // exit is a plain link outside any navigation landmark.
-  const sitting = sittings.find((s) => s.match.test(pathname));
-  if (sitting) {
-    return (
-      <div className="min-h-screen">
-        <AvoraGrain />
-        <div className="mx-auto max-w-6xl px-4 pt-4 md:px-10">
-          <Link
-            to={sitting.leaveTo}
-            className="inline-flex min-h-[44px] items-center text-sm font-medium text-brand-600 hover:text-brand-700"
-          >
-            Leave the paper
-          </Link>
-        </div>
-        <main id="main" tabIndex={-1} className="min-w-0 px-4 py-6 outline-none md:px-10">
-          <div className="mx-auto max-w-6xl">
-            <ErrorBoundary key={pathname} resetKey={navigation}>
-              <Outlet />
-            </ErrorBoundary>
-          </div>
-        </main>
-      </div>
-    );
-  }
+  const fits = mainNav.length + bottomNav.length <= barSize;
+  const tabItems = fits ? [...mainNav, ...bottomNav] : mainNav.slice(0, barSize - 1);
+  const overflowItems = fits ? [] : [...mainNav.slice(barSize - 1), ...bottomNav];
 
   return (
     <div className="min-h-screen md:flex">
@@ -390,7 +404,7 @@ export default function AppShell({
 
           <div className="mt-2 flex items-center gap-1 px-1">
             {accountMenu ? (
-              <AccountMenu items={accountMenu} placement="above" />
+              <AccountMenu items={accountMenu} placement="above" title={title} />
             ) : (
               <NavLink
                 to={accountPath}
@@ -425,7 +439,7 @@ export default function AppShell({
           <Brand />
           <div className="flex items-center gap-2 text-sm">
             {accountMenu ? (
-              <AccountMenu items={accountMenu} placement="below" compact />
+              <AccountMenu items={accountMenu} placement="below" compact title={title} />
             ) : (
               <NavLink to={accountPath} aria-label="Your account" className="rounded-full">
                 <InitialsAvatar name={user?.name ?? "?"} size="sm" />

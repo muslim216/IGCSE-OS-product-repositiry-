@@ -137,6 +137,8 @@ export default function PastPapersPage({ subjectId: classSubject }: { subjectId?
   const queryClient = useQueryClient();
   const { hash } = useLocation();
   const inClass = classSubject !== undefined;
+  // Inside a class the page sits under the Work tab's own "Past papers" h2.
+  const section = inClass ? "h3" : "h2";
   const papersKey = inClass ? ["past-papers", "subject", classSubject] : ["past-papers"];
   const papers = useQuery({
     queryKey: papersKey,
@@ -290,10 +292,19 @@ export default function PastPapersPage({ subjectId: classSubject }: { subjectId?
           level="h2"
           title="Past papers"
           description="Upload a full paper once and every student taking this subject can sit it."
+          action={
+            <Link
+              to="/tutor/past-papers/all"
+              className="font-medium text-brand-600 hover:text-brand-700"
+            >
+              All past papers
+            </Link>
+          }
         />
       ) : (
         <PageHeader
           title="Past papers"
+          back={{ to: "/tutor/classes", label: "Classes" }}
           description="Upload a full paper once and every student taking that subject can sit it. Their answers are marked question by question, feeding both topic mastery and their past-paper score."
         />
       )}
@@ -315,7 +326,7 @@ export default function PastPapersPage({ subjectId: classSubject }: { subjectId?
         <SectionCard>
           <form onSubmit={onSubmit} className="space-y-4">
             <SectionHeader
-              level="h2"
+              level={section}
               title="Add a paper"
               description="The AI reads the session, paper number and questions off the paper itself — all you choose is the subject and the files."
             />
@@ -395,7 +406,7 @@ export default function PastPapersPage({ subjectId: classSubject }: { subjectId?
         </SectionCard>
 
         <SectionCard>
-          <SectionHeader title="Your papers" level="h2" />
+          <SectionHeader title="Your papers" level={section} />
           <div className="mt-3">
             {papers.isLoading ? (
               <SectionSkeleton rows={3} label="Loading your papers" />
@@ -531,7 +542,7 @@ export default function PastPapersPage({ subjectId: classSubject }: { subjectId?
                       ))}
                     </ul>
                   );
-                  return filter.ready ? (
+                  return filter.ready && !inClass ? (
                     <SubjectSection key={g.id} subject={g.subject}>
                       {list}
                     </SubjectSection>

@@ -220,15 +220,19 @@ const SECTIONS = [
  */
 export default function GroupAnalyticsPage() {
   const id = Number(useParams().groupId);
-  const { hash } = useLocation();
+  const { hash, search } = useLocation();
   const open = SECTIONS.find((s) => s.hash && s.hash === hash) ?? SECTIONS[0];
   return (
     <div className="space-y-6">
-      <nav aria-label="Progress sections" className="flex flex-wrap gap-1">
+      {/* Said aloud, since only the content below changes (WCAG 4.1.3). */}
+      <p role="status" className="sr-only">
+        Showing {open.label}
+      </p>
+      <nav aria-label="Progress sections" className="flex flex-wrap gap-1 print:hidden">
         {SECTIONS.map((s) => (
           <Link
             key={s.label}
-            to={{ hash: s.hash }}
+            to={{ search, hash: s.hash }}
             aria-current={s === open ? "true" : undefined}
             className={`avora-press inline-flex min-h-[44px] items-center rounded-full px-3 py-1.5 text-sm font-medium transition ${
               s === open

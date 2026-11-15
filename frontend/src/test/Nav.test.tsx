@@ -109,7 +109,7 @@ test("a submission page keeps Mark lit", async () => {
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
   expect(within(sidebar).getByRole("link", { name: "Mark" })).toHaveAttribute(
     "aria-current",
-    "page",
+    "true",
   );
 });
 
@@ -168,7 +168,7 @@ test("an assignment page lights Classes, and a student page lights Students only
   let sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
   expect(within(sidebar).getByRole("link", { name: "Classes" })).toHaveAttribute(
     "aria-current",
-    "page",
+    "true",
   );
   first.unmount();
 
@@ -177,7 +177,7 @@ test("an assignment page lights Classes, and a student page lights Students only
   sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
   expect(within(sidebar).getByRole("link", { name: "Students" })).toHaveAttribute(
     "aria-current",
-    "page",
+    "true",
   );
   expect(within(sidebar).getByRole("link", { name: "Classes" })).not.toHaveAttribute(
     "aria-current",
@@ -190,7 +190,7 @@ test("a class's own Students tab lights Classes, not Students", async () => {
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
   expect(within(sidebar).getByRole("link", { name: "Classes" })).toHaveAttribute(
     "aria-current",
-    "page",
+    "true",
   );
   expect(within(sidebar).getByRole("link", { name: "Students" })).not.toHaveAttribute(
     "aria-current",
@@ -217,7 +217,7 @@ test("every nav destination remains reachable on mobile via More", async () => {
   renderApp("/student");
   const tabBar = await screen.findByRole("navigation", { name: "Student tabs" });
   fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
-  const menu = await screen.findByRole("menu");
+  const menu = await screen.findByRole("group", { name: "More" });
   // The destinations that don't fit the bar are all present in the overflow
   // sheet — nothing becomes unreachable by being pushed out of it.
   for (const label of ["Exams", "Files", "Recordings"]) {
@@ -240,7 +240,7 @@ test("the tutor More sheet holds the two destinations that do not fit the bar", 
   renderApp("/tutor");
   const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
   fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
-  const menu = await screen.findByRole("menu");
+  const menu = await screen.findByRole("group", { name: "More" });
   for (const label of ["Mocks", "Library"]) {
     expect(within(menu).getByText(label)).toBeInTheDocument();
   }
@@ -252,7 +252,7 @@ test("a nested route sets aria-current on its parent destination", async () => {
   renderApp("/tutor/groups/3/homework");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
   const classes = within(sidebar).getByRole("link", { name: "Classes" });
-  await waitFor(() => expect(classes).toHaveAttribute("aria-current", "page"));
+  await waitFor(() => expect(classes).toHaveAttribute("aria-current", "true"));
   expect(within(sidebar).getByRole("link", { name: "Library" })).not.toHaveAttribute(
     "aria-current",
   );
@@ -266,8 +266,8 @@ test("the More button lights while the page is one of its destinations", async (
   const more = within(tabBar).getByRole("button", { name: /More/ });
   expect(more.className).toContain("text-brand-600");
   fireEvent.click(more);
-  const menu = await screen.findByRole("menu");
-  expect(within(menu).getByRole("menuitem", { name: "Library" })).toHaveAttribute(
+  const menu = await screen.findByRole("group", { name: "More" });
+  expect(within(menu).getByRole("link", { name: "Library" })).toHaveAttribute(
     "aria-current",
     "page",
   );
@@ -287,9 +287,11 @@ test("Escape closes the More sheet and returns focus to its button", async () =>
   const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
   const more = within(tabBar).getByRole("button", { name: /More/ });
   fireEvent.click(more);
-  await screen.findByRole("menu");
+  await screen.findByRole("group", { name: "More" });
   fireEvent.keyDown(document, { key: "Escape" });
-  await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: "More" })).not.toBeInTheDocument(),
+  );
   expect(more).toHaveFocus();
   expect(more).toHaveAttribute("aria-expanded", "false");
 });
@@ -300,9 +302,13 @@ test("choosing an item closes the More sheet", async () => {
   const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
   fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
   fireEvent.click(
-    within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Library" }),
+    within(await screen.findByRole("group", { name: "More" })).getByRole("link", {
+      name: "Library",
+    }),
   );
-  await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: "More" })).not.toBeInTheDocument(),
+  );
 });
 
 test("the More button names the current page for a screen reader, and the sheet scrolls", async () => {
@@ -313,7 +319,7 @@ test("the More button names the current page for a screen reader, and the sheet 
   // The visible label is unchanged.
   expect(more.textContent).toContain("More");
   fireEvent.click(more);
-  const menu = await screen.findByRole("menu");
+  const menu = await screen.findByRole("group", { name: "More" });
   expect(menu.className).toContain("overflow-y-auto");
   expect(menu.className).toContain("max-h-");
 });

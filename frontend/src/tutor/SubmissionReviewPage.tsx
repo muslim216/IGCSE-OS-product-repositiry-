@@ -409,7 +409,7 @@ export default function SubmissionReviewPage() {
       ? { to: `/tutor/assignments/${s.assignment_id}`, label: s.assignment_title }
       : s.mock_id
         ? { to: "/tutor/mocks", label: "Mocks" }
-        : { to: "/tutor/past-papers", label: "Past papers" };
+        : { to: "/tutor/past-papers/all", label: "Past papers" };
 
   return (
     <div>
@@ -498,7 +498,7 @@ export default function SubmissionReviewPage() {
                   ? `/tutor/assignments/${s.assignment_id}`
                   : s.mock_id
                     ? `/tutor/mocks/${s.mock_id}`
-                    : "/tutor/past-papers"
+                    : "/tutor/past-papers/all"
               }
               className="font-medium text-brand-600 hover:text-brand-700"
             >

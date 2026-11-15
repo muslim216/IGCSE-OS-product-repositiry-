@@ -2,12 +2,15 @@ import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Plus } from "lucide-react";
+import { myOrganization } from "../../api/auth";
 import { listGroupAssignments } from "../../api/homework";
+import { useMyTimezone } from "../../auth/AuthContext";
 import { useGroupContext } from "../GroupLayout";
 import { EmptyState, SectionCard } from "../../components/ui";
 import { buttonClasses } from "../../components/controls";
 import { ErrorState, SectionSkeleton } from "../../components/page";
 import { assignmentStatus } from "../../lib/assignmentStatus";
+import { formatDayMonth } from "../../lib/timezones";
 import PastPapersPage from "../PastPapersPage";
 
 function StatusBadge({ status, submissionCount }: { status: string; submissionCount: number }) {
@@ -45,8 +48,22 @@ export default function HomeworkTab() {
   );
 }
 
+/** In the same zone a student sees the due date in, so both name the same day:
+    the tutor's own, else the organization's. */
+function dueLabel(dueAt: string | null, timeZone: string | null): string {
+  if (!dueAt) return "No due date";
+  return `Due ${formatDayMonth(new Date(dueAt), timeZone)}`;
+}
+
 function HomeworkList() {
   const { groupId } = useGroupContext();
+  const myZone = useMyTimezone();
+  const org = useQuery({
+    queryKey: ["my-organization"],
+    queryFn: myOrganization,
+    enabled: !myZone,
+  });
+  const timeZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
   const assignments = useQuery({
     queryKey: ["assignments", groupId],
     queryFn: () => listGroupAssignments(groupId),
@@ -104,7 +121,8 @@ function HomeworkList() {
               <span className="min-w-0">
                 <span className="block truncate font-medium text-ink-900">{a.title}</span>
                 <span className="text-sm text-ink-500">
-                  {a.total_marks} {a.total_marks === 1 ? "mark" : "marks"}
+                  {dueLabel(a.due_at, timeZone)} · {a.total_marks}{" "}
+                  {a.total_marks === 1 ? "mark" : "marks"}
                 </span>
               </span>
               <span className="flex shrink-0 items-center gap-2">

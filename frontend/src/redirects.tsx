@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Navigate, useLocation, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { listGroups } from "./api/groups";
@@ -20,10 +21,13 @@ export function MovedToClass({
   tab,
   hash,
   tip,
+  tipId,
 }: {
   tab: "homework" | "analytics";
   hash: string;
   tip: string;
+  /** Names the tip so dismissing it is remembered for it alone. */
+  tipId: string;
 }) {
   const location = useLocation();
   const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
@@ -41,7 +45,7 @@ export function MovedToClass({
   ) : (
     <Navigate
       to={{ pathname: "/tutor/classes", search: location.search, hash: location.hash }}
-      state={{ tip }}
+      state={{ tip, tipId }}
       replace
     />
   );
@@ -51,4 +55,16 @@ export function MovedToClass({
 export function ReportRedirect() {
   const { groupId } = useParams();
   return <Keep to={`/tutor/groups/${groupId}/analytics`} hash="#reports" />;
+}
+
+/** The old to-do link to one past paper (`#paper-N`) now goes to the
+    all-subjects shelf, which can act on any paper; any other old past-papers
+    address goes to the class Work tab as before. */
+export function PastPapersEntry({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  return location.hash.startsWith("#paper-") ? (
+    <Keep to="/tutor/past-papers/all" />
+  ) : (
+    <>{children}</>
+  );
 }
