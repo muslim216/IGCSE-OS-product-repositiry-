@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { LogOut, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -112,7 +112,7 @@ function AccountMenu({
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  function onMenuKey(e: KeyboardEvent<HTMLElement>) {
+  function onMenuKey(e: ReactKeyboardEvent<HTMLElement>) {
     const entries = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
     const at = entries.indexOf(document.activeElement as HTMLElement);
     const move = (i: number) => {

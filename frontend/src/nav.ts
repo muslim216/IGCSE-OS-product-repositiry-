@@ -57,8 +57,9 @@ export const STUDENT_SITTINGS = [
 // (`/tutor/submissions/:id`), which is opened from the queue; Classes claims
 // everything that lives inside a class (`/tutor/groups/:id/...`), a homework
 // page (`/tutor/assignments/:id`) and the past-paper pages that now hang off a
-// class's Work tab; Students claims its own prefix because the exact match
-// alone would drop it on a student's page (`/tutor/students/:id`).
+// class's Work tab; Mocks and Students claim their own prefix because the exact match
+// alone would drop them on a mock's or a student's page (`/tutor/mocks/:id`,
+// `/tutor/students/:id`).
 export const TUTOR_NAV: NavItem[] = [
   { to: "/tutor", label: "Today", icon: LayoutDashboard },
   { to: "/tutor/review", label: "Mark", icon: ClipboardCheck, also: ["/tutor/submissions"] },
@@ -69,7 +70,7 @@ export const TUTOR_NAV: NavItem[] = [
     also: ["/tutor/groups", "/tutor/assignments", "/tutor/past-papers"],
   },
   { to: "/tutor/students", label: "Students", icon: UserRound, also: ["/tutor/students"] },
-  { to: "/tutor/mocks", label: "Mocks", icon: PenLine },
+  { to: "/tutor/mocks", label: "Mocks", icon: PenLine, also: ["/tutor/mocks"] },
   { to: "/tutor/library", label: "Library", icon: BookOpen },
 ];
 

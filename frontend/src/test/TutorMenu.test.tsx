@@ -17,6 +17,7 @@ const CLASS = (id: number) => ({
   awaiting_review_count: 0,
   published_assignment_count: 0,
   next_lesson: null,
+  members: [],
 });
 
 let calls: string[] = [];
@@ -31,6 +32,17 @@ function stub(role: "tutor" | "student" | "parent", classes: number) {
       calls.push(url);
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
       if (url.includes("/auth/me")) return json(user);
+      if (url.includes("/analytics/groups/")) {
+        return json({
+          weak_students: [],
+          weak_topics: [],
+          topic_mean_count: 0,
+          agreement: { agreement_rate: null, ai_agreed: 0, total_marked_questions: 0 },
+        });
+      }
+      if (url.includes("/today/classes/")) {
+        return json({ learners: [], needs_you: [], weak_topics: [], boundaries_missing: false });
+      }
       if (/\/api\/v1\/groups\/\d+$/.test(url)) return json(CLASS(Number(url.split("/").pop())));
       if (url.endsWith("/api/v1/groups")) {
         return json(Array.from({ length: classes }, (_, i) => CLASS(i + 5)));
@@ -139,7 +151,6 @@ const ONE = [
   ["/tutor/homework", "/tutor/groups/5/homework"],
   ["/tutor/past-papers", "/tutor/groups/5/homework#past-papers"],
   ["/tutor/papers", "/tutor/groups/5/homework#past-papers"],
-  ["/tutor/booklets", "/tutor/groups/5/homework#past-papers"],
   ["/tutor/readiness", "/tutor/groups/5/analytics#readiness"],
   ["/tutor/reports", "/tutor/groups/5/analytics#reports"],
   ["/tutor/past-papers?subject=7#paper-3", "/tutor/groups/5/homework?subject=7#paper-3"],
@@ -156,7 +167,6 @@ test.each([
   "/tutor/homework",
   "/tutor/past-papers",
   "/tutor/papers",
-  "/tutor/booklets",
   "/tutor/readiness",
   "/tutor/reports",
 ])("with several classes, %s lands on the class list", async (from) => {
@@ -168,6 +178,12 @@ test.each([
 test.each([
   ["/tutor/reports/5", "/tutor/groups/5/analytics#reports"],
   ["/tutor/today", "/tutor"],
+  ["/tutor/booklets?x=1", "/tutor/past-papers/booklets?x=1"],
+  ["/tutor/syllabuses", "/tutor/subject-setup#syllabus"],
+  ["/tutor/teaching-guidance", "/tutor/subject-setup#teaching-guidance"],
+  ["/tutor/marking-rules", "/tutor/subject-setup#marking-rules"],
+  ["/tutor/mistake-categories", "/tutor/subject-setup#mistake-categories"],
+  ["/tutor/preferences", "/tutor/subject-setup#preferences"],
   ["/tutor/boundaries?subject=7", "/tutor/subject-setup?subject=7#boundaries"],
   ["/tutor/settings", "/tutor/settings"],
   ["/tutor/subject-setup?subject=7#boundaries", "/tutor/subject-setup?subject=7#boundaries"],
@@ -250,6 +266,25 @@ test("an assignment page lights Classes, and there is no Homework item", async (
     "page",
   );
   expect(within(sidebar).queryByRole("link", { name: "Homework" })).not.toBeInTheDocument();
+});
+
+test.each([
+  ["/tutor/submissions/3", "Mark"],
+  ["/tutor/students/9", "Students"],
+  ["/tutor/assignments/5", "Classes"],
+  ["/tutor/past-papers/booklets", "Classes"],
+  ["/tutor/mocks/2", "Mocks"],
+])("on %s the sidebar lights %s and nothing else", async (path, label) => {
+  stub("tutor", 1);
+  renderApp(path);
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  await waitFor(() =>
+    expect(within(sidebar).getByRole("link", { name: label })).toHaveAttribute(
+      "aria-current",
+      "page",
+    ),
+  );
+  expect(sidebar.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
 });
 
 test("the Work tab asks for this class's subject only and links to Booklets", async () => {

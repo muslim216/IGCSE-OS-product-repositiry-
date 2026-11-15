@@ -103,69 +103,11 @@ test("the old Readiness URL still lands, on Progress", async () => {
   expect(await screen.findByText("No progress to show yet.")).toBeInTheDocument();
 });
 
-test("the tutor nav has twelve destinations, in the owner's order", async () => {
-  mockAuthedFetch("tutor");
-  renderApp("/tutor");
-  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  const labels = within(sidebar)
-    .getAllByRole("link")
-    .map((link) => link.textContent);
-  expect(labels).toEqual([
-    "Overview",
-    "Review",
-    "Homework",
-    "Classes",
-    "Students",
-    "Mocks",
-    "Past papers",
-    "Readiness",
-    "Reports",
-    "Library",
-    "Subject setup",
-    "Settings",
-  ]);
-});
-
-test("Readiness in the nav is the class readiness page", async () => {
-  mockAuthedFetch("tutor");
-  renderApp("/tutor");
-  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  expect(within(sidebar).getByRole("link", { name: "Readiness" })).toHaveAttribute(
-    "href",
-    "/tutor/readiness",
-  );
-});
-
-test("the retired Papers & mocks hub URL lands on Past papers", async () => {
-  mockAuthedFetch("tutor");
-  renderApp("/tutor/papers");
-  expect(await screen.findByRole("heading", { level: 1, name: "Past papers" })).toBeInTheDocument();
-  const main = screen.getByRole("main");
-  expect(within(main).queryByText("Papers & mocks")).not.toBeInTheDocument();
-});
-
-test("Booklets and Mocks are top-level pages: no back link to the retired hub", async () => {
-  mockAuthedFetch("tutor");
-  const view = renderApp("/tutor/booklets");
-  await screen.findByRole("heading", { level: 1 });
-  const main = screen.getByRole("main");
-  expect(within(main).getByRole("link", { name: /Past papers/ })).toHaveAttribute(
-    "href",
-    "/tutor/past-papers",
-  );
-  view.unmount();
-
-  mockAuthedFetch("tutor");
-  renderApp("/tutor/mocks");
-  await screen.findByRole("heading", { level: 1 });
-  expect(within(screen.getByRole("main")).queryByText("Papers & mocks")).not.toBeInTheDocument();
-});
-
-test("a submission page keeps Review lit", async () => {
+test("a submission page keeps Mark lit", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/submissions/3");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  expect(within(sidebar).getByRole("link", { name: "Review" })).toHaveAttribute(
+  expect(within(sidebar).getByRole("link", { name: "Mark" })).toHaveAttribute(
     "aria-current",
     "page",
   );
@@ -212,81 +154,19 @@ test("the old Syllabuses URL lands on Subject setup at its Syllabus section", as
   await waitFor(() => expect(document.activeElement?.id).toBe("syllabus"));
 });
 
-test("an old setup URL keeps Subject setup lit", async () => {
-  mockAuthedFetch("tutor");
-  renderApp("/tutor/syllabuses");
-  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  const setup = within(sidebar).getByRole("link", { name: "Subject setup" });
-  await waitFor(() => expect(setup.className).toContain("bg-brand-600"));
-  expect(within(sidebar).getByRole("link", { name: "Library" }).className).not.toContain(
-    "bg-brand-600",
-  );
-  expect(within(sidebar).getByRole("link", { name: "Past papers" }).className).not.toContain(
-    "bg-brand-600",
-  );
-});
-
-test("a past paper page highlights Past papers", async () => {
-  mockAuthedFetch("tutor");
-  renderApp("/tutor/past-papers");
-  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  const link = within(sidebar).getByRole("link", { name: "Past papers" });
-  await waitFor(() => expect(link.className).toContain("bg-brand-600"));
-  expect(within(sidebar).getByRole("link", { name: "Library" }).className).not.toContain(
-    "bg-brand-600",
-  );
-});
-
-test("the retired Today URL still lands on Overview", async () => {
+test("the retired Today URL still lands on Today", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/today");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  const overview = within(sidebar).getByRole("link", { name: "Overview" });
-  await waitFor(() => expect(overview).toHaveAttribute("aria-current", "page"));
+  const today = within(sidebar).getByRole("link", { name: "Today" });
+  await waitFor(() => expect(today).toHaveAttribute("aria-current", "page"));
 });
 
-test("the old Papers & mocks hub and Booklets URLs keep Past papers lit", async () => {
-  for (const url of ["/tutor/papers", "/tutor/booklets"]) {
-    mockAuthedFetch("tutor");
-    const view = renderApp(url);
-    const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-    const link = within(sidebar).getByRole("link", { name: "Past papers" });
-    await waitFor(() => expect(link).toHaveAttribute("aria-current", "page"));
-    expect(within(sidebar).getByRole("link", { name: "Mocks" })).not.toHaveAttribute(
-      "aria-current",
-    );
-    view.unmount();
-  }
-});
-
-test("Mocks lights on its own page and not Past papers", async () => {
-  mockAuthedFetch("tutor");
-  renderApp("/tutor/mocks");
-  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  const mocks = within(sidebar).getByRole("link", { name: "Mocks" });
-  await waitFor(() => expect(mocks).toHaveAttribute("aria-current", "page"));
-  expect(within(sidebar).getByRole("link", { name: "Past papers" })).not.toHaveAttribute(
-    "aria-current",
-  );
-});
-
-test("Homework is its own page and stays lit on an assignment", async () => {
-  mockAuthedFetch("tutor");
-  renderApp("/tutor/homework");
-  expect(await screen.findByRole("heading", { level: 1, name: "Homework" })).toBeInTheDocument();
-  const sidebar = screen.getByRole("navigation", { name: "Tutor navigation" });
-  expect(within(sidebar).getByRole("link", { name: "Homework" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  expect(within(sidebar).getByRole("link", { name: "Review" })).not.toHaveAttribute("aria-current");
-});
-
-test("an assignment page lights Homework, and a student page lights Students only", async () => {
+test("an assignment page lights Classes, and a student page lights Students only", async () => {
   mockAuthedFetch("tutor");
   const first = renderApp("/tutor/assignments/5");
   let sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  expect(within(sidebar).getByRole("link", { name: "Homework" })).toHaveAttribute(
+  expect(within(sidebar).getByRole("link", { name: "Classes" })).toHaveAttribute(
     "aria-current",
     "page",
   );
@@ -315,13 +195,6 @@ test("a class's own Students tab lights Classes, not Students", async () => {
   expect(within(sidebar).getByRole("link", { name: "Students" })).not.toHaveAttribute(
     "aria-current",
   );
-});
-
-test("the Past papers page links to Booklets", async () => {
-  mockAuthedFetch("tutor");
-  renderApp("/tutor/past-papers");
-  const link = await screen.findByRole("link", { name: "Split it with Booklets" });
-  expect(link).toHaveAttribute("href", "/tutor/booklets");
 });
 
 test("the mobile tab bar carries the main workflow and overflows the rest", async () => {
@@ -358,57 +231,43 @@ test("the sidebar has no self-link", async () => {
   // destination it advertised never existed to begin with.
   mockAuthedFetch("tutor");
   renderApp("/tutor");
-  await screen.findAllByText("Overview");
+  await screen.findAllByText("Today");
   expect(screen.queryByText("AI Guidance")).not.toBeInTheDocument();
 });
 
-test("the tutor More sheet holds the destinations that do not fit the bar", async () => {
+test("the tutor More sheet holds the two destinations that do not fit the bar", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
   const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
   fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
   const menu = await screen.findByRole("menu");
-  // Twelve destinations: three tabs plus More, so nine fold into the sheet and
-  // none is lost on a phone.
-  for (const label of [
-    "Classes",
-    "Students",
-    "Mocks",
-    "Past papers",
-    "Readiness",
-    "Reports",
-    "Library",
-    "Subject setup",
-    "Settings",
-  ]) {
+  for (const label of ["Mocks", "Library"]) {
     expect(within(menu).getByText(label)).toBeInTheDocument();
   }
-  expect(within(tabBar).getByText("Overview")).toBeInTheDocument();
+  expect(within(tabBar).getByText("Today")).toBeInTheDocument();
 });
 
 test("a nested route sets aria-current on its parent destination", async () => {
   mockAuthedFetch("tutor");
-  renderApp("/tutor/past-papers");
+  renderApp("/tutor/groups/3/homework");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  const papers = within(sidebar).getByRole("link", { name: "Past papers" });
-  await waitFor(() => expect(papers).toHaveAttribute("aria-current", "page"));
+  const classes = within(sidebar).getByRole("link", { name: "Classes" });
+  await waitFor(() => expect(classes).toHaveAttribute("aria-current", "page"));
   expect(within(sidebar).getByRole("link", { name: "Library" })).not.toHaveAttribute(
     "aria-current",
   );
-  expect(within(sidebar).getByRole("link", { name: "Overview" })).not.toHaveAttribute(
-    "aria-current",
-  );
+  expect(within(sidebar).getByRole("link", { name: "Today" })).not.toHaveAttribute("aria-current");
 });
 
 test("the More button lights while the page is one of its destinations", async () => {
   mockAuthedFetch("tutor");
-  renderApp("/tutor/settings");
+  renderApp("/tutor/library");
   const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
   const more = within(tabBar).getByRole("button", { name: /More/ });
   expect(more.className).toContain("text-brand-600");
   fireEvent.click(more);
   const menu = await screen.findByRole("menu");
-  expect(within(menu).getByRole("menuitem", { name: "Settings" })).toHaveAttribute(
+  expect(within(menu).getByRole("menuitem", { name: "Library" })).toHaveAttribute(
     "aria-current",
     "page",
   );
@@ -448,9 +307,9 @@ test("choosing an item closes the More sheet", async () => {
 
 test("the More button names the current page for a screen reader, and the sheet scrolls", async () => {
   mockAuthedFetch("tutor");
-  renderApp("/tutor/classes");
+  renderApp("/tutor/mocks");
   const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
-  const more = within(tabBar).getByRole("button", { name: /^More\s*,\s*current page: Classes$/ });
+  const more = within(tabBar).getByRole("button", { name: /^More\s*,\s*current page: Mocks$/ });
   // The visible label is unchanged.
   expect(more.textContent).toContain("More");
   fireEvent.click(more);
@@ -464,4 +323,25 @@ test("More says nothing extra when the page is not inside it", async () => {
   renderApp("/tutor");
   const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
   expect(within(tabBar).getByRole("button", { name: "More" })).toBeInTheDocument();
+});
+
+test("a setup page keeps Subject setup lit in the name menu", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/subject-setup");
+  fireEvent.click((await screen.findAllByRole("button", { name: /Demo User/ }))[0]);
+  expect(await screen.findByRole("menuitem", { name: "Subject setup" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
+test("Mocks lights on its own page only", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/mocks");
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  const mocks = within(sidebar).getByRole("link", { name: "Mocks" });
+  await waitFor(() => expect(mocks).toHaveAttribute("aria-current", "page"));
+  expect(within(sidebar).getByRole("link", { name: "Classes" })).not.toHaveAttribute(
+    "aria-current",
+  );
 });

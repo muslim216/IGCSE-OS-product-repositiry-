@@ -74,12 +74,16 @@ export default function App() {
       <Route path="/parent-join/:code" element={<ParentJoinPage />} />
 
       <Route element={<ProtectedRoute roles={["tutor", "admin"]} />}>
-        <Route element={<AppShell
-            title="Tutor"
-            nav={TUTOR_NAV}
-            accountPath="/tutor/settings"
-            accountMenu={TUTOR_ACCOUNT_MENU}
-          />}>
+        <Route
+          element={
+            <AppShell
+              title="Tutor"
+              nav={TUTOR_NAV}
+              accountPath="/tutor/settings"
+              accountMenu={TUTOR_ACCOUNT_MENU}
+            />
+          }
+        >
           <Route path="/tutor" element={<TodayDashboard />} />
           <Route path="/tutor/classes" element={<GroupsPage />} />
           <Route path="/tutor/review" element={<ReviewQueuePage />} />
@@ -139,11 +143,7 @@ export default function App() {
           <Route
             path="/tutor/homework"
             element={
-              <MovedToClass
-                tab="homework"
-                hash=""
-                tip="Homework now lives inside each class."
-              />
+              <MovedToClass tab="homework" hash="" tip="Homework now lives inside each class." />
             }
           />
           <Route path="/tutor/students" element={<TutorStudentsPage />} />
@@ -169,19 +169,22 @@ export default function App() {
             element={<IntegrationCallbackPage />}
           />
           <Route path="/tutor/past-papers" element={<PastPapersMoved />} />
-          <Route path="/tutor/booklets" element={<PastPapersMoved />} />
+          {/* Booklets is a page of its own, not a class tab, so its old address follows it. */}
+          <Route path="/tutor/booklets" element={<Keep to="/tutor/past-papers/booklets" />} />
           <Route path="/tutor/past-papers/booklets" element={<BookletsPage />} />
         </Route>
       </Route>
 
       <Route element={<ProtectedRoute roles={["student"]} />}>
         <Route
-          element={<AppShell
-            title="Student"
-            nav={STUDENT_NAV}
-            accountPath="/student/account"
-            sittings={STUDENT_SITTINGS}
-          />}
+          element={
+            <AppShell
+              title="Student"
+              nav={STUDENT_NAV}
+              accountPath="/student/account"
+              sittings={STUDENT_SITTINGS}
+            />
+          }
         >
           <Route path="/student" element={<StudentHomePage />} />
           <Route path="/student/welcome" element={<WelcomePage />} />
