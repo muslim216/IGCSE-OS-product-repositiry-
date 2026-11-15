@@ -43,7 +43,9 @@ from app.services.pdf_sandbox import (
     PhotoUnreadable,
 )
 from app.services.rate_limit import (
+    RateLimiter,
     photo_strike_daily_limiter,
+    refund_daily_allowance,
     spend_daily_allowance,
     student_upload_daily_limiter,
     upload_daily_limiter,
@@ -70,12 +72,6 @@ CONVERT_TO_JPEG = {"image/heic", "image/heif", "image/heic-sequence"}
 #: call, which may lower its own ceiling to this but never raise it.
 MAX_IMAGE_PIXELS = pdf_child.MAX_IMAGE_PIXELS
 
-#: How long a photo waits for the heavy-work lock (`services/heavy_work.py`),
-#: which a PDF read may be holding for up to its deadline. The photo arrives in
-#: a student's request, so it does not queue behind a booklet: after this it is
-#: refused as busy, and the student tries again in a moment.
-HEIC_LOCK_WAIT_SECONDS = 5.0
-
 #: What a student reads about a photo. Written here, from the photo child's
 #: codes: nothing the child sends is ever shown.
 PHOTO_UNREADABLE_MESSAGE = "That photo couldn't be read. Try saving it as JPEG and uploading again."
@@ -99,9 +95,15 @@ class ImageTooLargeError(ValueError):
 class PhotoUnsafeError(ValueError):
     """A photo that ran into a limit of the photo reader (`pdf_sandbox`). A
     ValueError, so a caller that only knows "this file was refused" still
-    catches it, and never retried: the same photo would do the same again."""
+    catches it, and never retried: the same photo would do the same again.
+    `strike` says whether it counts against the student who sent it
+    (`pdf_sandbox.PhotoTooComplex`)."""
 
     job_retryable = False
+
+    def __init__(self, message: str, *, strike: bool = False) -> None:
+        super().__init__(message)
+        self.strike = strike
 
 
 #: Every stored file spends one of the workspace's daily allowance (`SA-01`,
@@ -121,10 +123,10 @@ MIME_ALIASES = {
 async def _hold_for_photo(mime: str) -> Callable[[], None] | None:
     """The heavy-work lock, if `mime` is a photo that will be decoded, else
     None. Taken before the caller spends any allowance, so a busy refusal
-    costs no upload. Raises `HeavyWorkBusy` after `HEIC_LOCK_WAIT_SECONDS`."""
+    costs no upload. Raises `HeavyWorkBusy` after `heavy_work.PHOTO_LOCK_WAIT_SECONDS`."""
     if MIME_ALIASES.get(mime, mime) not in CONVERT_TO_JPEG:
         return None
-    return await heavy_work.acquire(wait=HEIC_LOCK_WAIT_SECONDS)
+    return await heavy_work.acquire(wait=heavy_work.PHOTO_LOCK_WAIT_SECONDS)
 
 
 async def _normalize(
@@ -163,8 +165,8 @@ async def _normalize(
         data = await pdf_sandbox.photo_to_jpeg(data, max_pixels=MAX_IMAGE_PIXELS, held=handed)
     except PhotoTooLarge:
         raise ImageTooLargeError(PHOTO_RESOLUTION_MESSAGE) from None
-    except PhotoTooComplex:
-        raise PhotoUnsafeError(PHOTO_UNSAFE_MESSAGE) from None
+    except PhotoTooComplex as exc:
+        raise PhotoUnsafeError(PHOTO_UNSAFE_MESSAGE, strike=exc.strike) from None
     except PhotoUnreadable:
         raise ValueError(PHOTO_UNREADABLE_MESSAGE) from None
     finally:
@@ -196,7 +198,7 @@ def _busy() -> HTTPException:
     return HTTPException(
         status.HTTP_503_SERVICE_UNAVAILABLE,
         HEAVY_WORK_BUSY_MESSAGE,
-        headers={"Retry-After": str(round(HEIC_LOCK_WAIT_SECONDS))},
+        headers={"Retry-After": str(round(heavy_work.PHOTO_LOCK_WAIT_SECONDS))},
     )
 
 
@@ -624,6 +626,88 @@ def check_file_count(files: list[UploadFile] | None) -> None:
         )
 
 
+#: A daily allowance this upload spent: the limiter and the student, or None
+#: for the workspace's own. Kept so it can be given back.
+_Spent = tuple[RateLimiter, int | None]
+
+
+async def _refuse_photo_before_the_lock(
+    data: bytes, *, organization_id: int, student_id: int | None
+) -> None:
+    """A photo is read, and its signature checked, before it waits for the
+    heavy-work lock or spends an allowance: a file that is not a photo is
+    refused at once and never holds up anyone else's.
+
+    The strike check and the strike's recording are a check then a count, not
+    one step: uploads sent in parallel can all pass the check before any of
+    them is counted. That is bounded, since the heavy-work lock lets one photo
+    through at a time and the student's daily upload allowance caps how many
+    they send at all. A tutor's uploads have no strike counter (`student_id`
+    is None); they are bounded by the workspace's daily upload allowance."""
+    if not pdf_sandbox.looks_like_heif(data):
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, PHOTO_UNREADABLE_MESSAGE)
+    if student_id is not None and await photo_strikes_spent(organization_id, student_id):
+        log.warning(
+            "photo refused unread: student %s (organization %s) reached today's limit "
+            "of photos the reader had to stop",
+            student_id,
+            organization_id,
+        )
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, PHOTO_STRUCK_OUT_MESSAGE)
+
+
+async def _spend_upload_allowances(organization_id: int, student_id: int | None) -> list[_Spent]:
+    """A student's own cap first, so one student spending theirs leaves the
+    workspace's allowance for everyone else (`student_id`, from the routes a
+    student hands work in through). Raises 429 if either is used up. Returns
+    what it spent, for `_give_back`."""
+    spent: list[_Spent] = []
+    if student_id is not None:
+        if not await spend_daily_allowance(
+            student_upload_daily_limiter, organization_id, key=student_id
+        ):
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
+        spent.append((student_upload_daily_limiter, student_id))
+    if not await spend_daily_allowance(upload_daily_limiter, organization_id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
+    spent.append((upload_daily_limiter, None))
+    return spent
+
+
+async def _give_back(spent: list[_Spent], organization_id: int) -> None:
+    """A refusal that was ours, not the uploader's (the heavy-work lock busy,
+    no file reader could start), costs no allowance: give back what it spent."""
+    for limiter, key in spent:
+        await refund_daily_allowance(limiter, organization_id, key=key)
+
+
+async def _normalize_upload(
+    data: bytes,
+    mime: str,
+    *,
+    held: Callable[[], None] | None,
+    spent: list[_Spent],
+    organization_id: int,
+    student_id: int | None,
+) -> tuple[bytes, str]:
+    """`_normalize`, with each refusal turned into what the uploader sees."""
+    try:
+        return await _normalize(data, mime, held=held)
+    except ImageTooLargeError as exc:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from None
+    except PhotoUnsafeError as exc:
+        if exc.strike and student_id is not None:
+            await record_photo_strike(organization_id, student_id)
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
+    except (PdfSandboxUnavailable, HeavyWorkBusy):
+        # No reader could take it just now: ours, not the photo's. Logged where
+        # it happened, in `pdf_sandbox`; the allowance goes back.
+        await _give_back(spent, organization_id)
+        raise _busy() from None
+
+
 async def save_upload(
     file: UploadFile, *, organization_id: int, student_id: int | None = None
 ) -> tuple[str, str, str]:
@@ -636,20 +720,10 @@ async def save_upload(
         )
     data: bytes | None = None
     if mime in CONVERT_TO_JPEG:
-        # A photo is read, and its signature checked, before it waits for the
-        # heavy-work lock or spends an allowance: a file that is not a photo is
-        # refused at once and never holds up anyone else's.
         data = await _read_capped(file)
-        if not pdf_sandbox.looks_like_heif(data):
-            raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, PHOTO_UNREADABLE_MESSAGE)
-        if student_id is not None and await photo_strikes_spent(organization_id, student_id):
-            log.warning(
-                "photo refused unread: student %s (organization %s) reached today's limit "
-                "of photos the reader had to stop",
-                student_id,
-                organization_id,
-            )
-            raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, PHOTO_STRUCK_OUT_MESSAGE)
+        await _refuse_photo_before_the_lock(
+            data, organization_id=organization_id, student_id=student_id
+        )
     # A photo is decoded under the heavy-work lock, asked for before either
     # allowance below is spent, so "busy, try again" costs the student nothing.
     try:
@@ -657,33 +731,19 @@ async def save_upload(
     except HeavyWorkBusy:
         raise _busy() from None
     try:
-        # A student's own cap first, so one student spending theirs leaves the
-        # workspace's allowance for everyone else (`student_id`, from the routes
-        # a student hands work in through).
-        if student_id is not None and not await spend_daily_allowance(
-            student_upload_daily_limiter, organization_id, key=student_id
-        ):
-            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
-        if not await spend_daily_allowance(upload_daily_limiter, organization_id):
-            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
+        spent = await _spend_upload_allowances(organization_id, student_id)
         if data is None:
             data = await _read_capped(file)
         # From here `_normalize` owns the lock and makes sure it is given back.
         held, release = release, None
-        try:
-            data, mime = await _normalize(data, mime, held=held)
-        except ImageTooLargeError as exc:
-            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from None
-        except PhotoUnsafeError as exc:
-            if student_id is not None:
-                await record_photo_strike(organization_id, student_id)
-            raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
-        except ValueError as exc:
-            raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
-        except PdfSandboxUnavailable:
-            # No child could read it just now: ours, not the photo's. Logged
-            # where it happened, in `pdf_sandbox`.
-            raise _busy() from None
+        data, mime = await _normalize_upload(
+            data,
+            mime,
+            held=held,
+            spent=spent,
+            organization_id=organization_id,
+            student_id=student_id,
+        )
     finally:
         if release is not None:
             release()
@@ -705,7 +765,7 @@ async def save_bytes(
     jobs rather than requests. A photo that could not be read *now* (the
     heavy-work lock busy, no child could start) raises `HeavyWorkBusy` or
     `PdfSandboxUnavailable` instead, which a job retries rather than treating
-    the file as refused."""
+    the file as refused, and gives back the allowance it spent."""
     # Cap the *source* bytes before _normalize, which may decode and re-encode
     # a HEIC. Checking only afterwards would both let an arbitrarily large photo
     # through the decoder and measure the (smaller) transcoded JPEG instead.
@@ -715,7 +775,12 @@ async def save_bytes(
     # counted (a booklet's papers): the allowance is for what comes in.
     if counted and not await spend_daily_allowance(upload_daily_limiter, organization_id):
         raise ValueError(DAILY_UPLOAD_LIMIT_MESSAGE)
-    data, mime = await _normalize(data, mime)
+    try:
+        data, mime = await _normalize(data, mime)
+    except (PdfSandboxUnavailable, HeavyWorkBusy):
+        if counted:
+            await refund_daily_allowance(upload_daily_limiter, organization_id)
+        raise
     if mime not in ALLOWED_MIMES:
         raise ValueError(f"Unsupported file type: {mime}")
     if len(data) > MAX_FILE_BYTES:

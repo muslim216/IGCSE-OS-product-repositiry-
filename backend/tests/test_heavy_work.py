@@ -17,7 +17,7 @@ from tests.test_storage import _heic
 
 
 async def test_a_photo_waits_briefly_for_the_lock_then_says_busy(monkeypatch):
-    monkeypatch.setattr(storage, "HEIC_LOCK_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(heavy_work, "PHOTO_LOCK_WAIT_SECONDS", 0.2)
     photo = _heic(50, 50)
     release = await heavy_work.acquire()
     try:
@@ -35,7 +35,7 @@ async def test_a_photo_waits_briefly_for_the_lock_then_says_busy(monkeypatch):
 async def test_a_photo_upload_while_busy_is_a_503_with_a_retry_hint(
     client, student, published_assignment, monkeypatch
 ):
-    monkeypatch.setattr(storage, "HEIC_LOCK_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(heavy_work, "PHOTO_LOCK_WAIT_SECONDS", 0.2)
     release = await heavy_work.acquire()
     try:
         resp = await client.post(
@@ -62,7 +62,7 @@ async def test_a_busy_refusal_spends_no_upload_allowance(
     from app.services.rate_limit import student_upload_daily_limiter, upload_daily_limiter
     from tests.test_daily_workspace_limits import _allow
 
-    monkeypatch.setattr(storage, "HEIC_LOCK_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(heavy_work, "PHOTO_LOCK_WAIT_SECONDS", 0.2)
     _allow(monkeypatch, upload_daily_limiter, 1)
     _allow(monkeypatch, student_upload_daily_limiter, 1)
     url = f"/api/v1/assignments/{published_assignment['id']}/submissions"
@@ -83,7 +83,7 @@ async def test_a_busy_refusal_spends_no_upload_allowance(
 async def test_a_job_saving_a_photo_while_busy_is_retried_not_refused(monkeypatch):
     """`save_bytes` callers catch ValueError as "this file was refused"; busy is
     not that, so it must not be one."""
-    monkeypatch.setattr(storage, "HEIC_LOCK_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(heavy_work, "PHOTO_LOCK_WAIT_SECONDS", 0.2)
     photo = _heic(50, 50)
     release = await heavy_work.acquire()
     try:

@@ -11,6 +11,7 @@ and run in CI.
 """
 
 import asyncio
+import dataclasses
 import errno
 import io
 import json
@@ -76,6 +77,14 @@ def spawned(monkeypatch):
     return seen
 
 
+def _set_deadline(monkeypatch, seconds: float, kind: Kind) -> None:
+    monkeypatch.setitem(
+        pdf_child.LIMITS,
+        kind,
+        dataclasses.replace(pdf_child.LIMITS[kind], deadline_seconds=seconds),
+    )
+
+
 def _gone(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -120,10 +129,10 @@ def _fake_child(monkeypatch, code: str) -> None:
     )
 
 
-def _answer(code: Code, pieces: list[bytes] = (), *, index: int = -1) -> bytes:
+def _answer(code: Code, pieces: list[bytes] = (), *, index: int = -1, detail: int = 0) -> bytes:
     """What a child would write after reading its request."""
     head = pdf_child.RESULT_HEAD.pack(
-        pdf_child.RESULT_MAGIC, pdf_child.VERSION, int(code), 0, index, 0, len(pieces)
+        pdf_child.RESULT_MAGIC, pdf_child.VERSION, int(code), detail, index, 0, len(pieces)
     )
     lengths = b"".join(pdf_child.PIECE_LENGTH.pack(len(p)) for p in pieces)
     return pdf_child.READY + pdf_child.REQUEST_OK + head + lengths + b"".join(pieces)
@@ -213,8 +222,9 @@ async def test_a_body_that_is_not_heif_is_refused_without_a_child(spawned, body)
 
 
 def test_the_sandbox_itself_refuses_a_body_that_is_not_heif(run, spawned):
+    pending = pdf_sandbox.photo_to_jpeg(_png())
     with pytest.raises(PhotoUnreadable):
-        run(pdf_sandbox.photo_to_jpeg(_png()))
+        run(pending)
     assert spawned == []
 
 
@@ -245,8 +255,9 @@ async def test_the_signature_is_checked_before_the_lock_is_asked_for(spawned, mo
         return await real(wait=wait)
 
     monkeypatch.setattr(heavy_work, "acquire", _spy)
+    png = _png()
     with pytest.raises(ValueError, match="couldn't be read"):
-        await storage._normalize(_png(), "image/heic")
+        await storage._normalize(png, "image/heic")
     assert asked == []
 
 
@@ -266,20 +277,44 @@ async def test_an_upload_that_is_not_heif_is_a_415_and_starts_nothing(
 # --- 3. the pixel ceiling --------------------------------------------------------------
 
 
-def test_over_the_ceiling_the_child_says_too_large_before_decoding(monkeypatch):
-    """Read from the header; not a pixel is decoded."""
-    from PIL import ImageFile
+def _count_decodes(monkeypatch) -> list[int]:
+    """Every time the HEIF plugin decodes a picture's pixels."""
+    from pillow_heif import as_plugin
 
-    decoded = []
-    real_load = ImageFile.ImageFile.load
-    monkeypatch.setattr(
-        ImageFile.ImageFile,
-        "load",
-        lambda self, *a, **k: decoded.append(1) or real_load(self, *a, **k),
-    )
-    with pytest.raises(photo.PhotoTooLarge):
-        photo.to_jpeg(_heic(200, 200), max_pixels=200 * 200 - 1)
+    decoded: list[int] = []
+    real_load = as_plugin._LibHeifImageFile.load
+
+    def _load(self, *a, **k):
+        decoded.append(1)
+        return real_load(self, *a, **k)
+
+    monkeypatch.setattr(as_plugin._LibHeifImageFile, "load", _load)
+    return decoded
+
+
+def test_over_the_ceiling_the_child_says_too_large_before_decoding(monkeypatch):
+    """Read from the header; not a pixel is decoded. Fails if the size check
+    ever moves after the decode."""
+    photo.configure()
+    decoded = _count_decodes(monkeypatch)
+    heic = _heic(200, 200)
+    with pytest.raises(photo.OverCeiling):
+        photo.to_jpeg(heic, max_pixels=200 * 200 - 1)
     assert decoded == []
+    # And the spy does see a decode, so its silence above means something.
+    photo.to_jpeg(heic, max_pixels=200 * 200)
+    assert decoded
+
+
+def test_converting_does_not_set_the_decoder_up_again(monkeypatch):
+    """The child sets the decoder up once, before READY, where a failure is
+    ours and retried; a second set-up inside the conversion would turn the
+    same failure into an "unreadable" photo."""
+    photo.configure()
+    calls: list[int] = []
+    monkeypatch.setattr(photo, "configure", lambda: calls.append(1))
+    photo.to_jpeg(_heic(16, 16), max_pixels=10**6)
+    assert calls == []
 
 
 def test_too_large_from_the_child_is_its_own_error(run):
@@ -304,7 +339,7 @@ def test_the_child_never_raises_its_own_ceiling():
 
 
 def test_a_photo_child_held_past_its_deadline_is_killed(run, spawned, monkeypatch, caplog):
-    monkeypatch.setattr(pdf_sandbox, "PHOTO_DEADLINE_SECONDS", 2.0)
+    _set_deadline(monkeypatch, 2.0, Kind.photo)
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
     started = time.monotonic()
     pending = pdf_sandbox._photo(_heic(32, 32), test_args=("--test-hold", "60"))
@@ -318,11 +353,13 @@ def test_a_photo_child_held_past_its_deadline_is_killed(run, spawned, monkeypatc
 
 
 def test_the_photo_deadline_is_its_own_and_short():
-    assert pdf_sandbox.deadline_for(Kind.photo) < pdf_sandbox.deadline_for(Kind.pdf)
-    limits = pdf_child.LIMITS[Kind.photo]
+    photo_limits, pdf_limits = pdf_child.LIMITS[Kind.photo], pdf_child.LIMITS[Kind.pdf]
+    assert photo_limits.deadline_seconds < pdf_limits.deadline_seconds
     # Above the hard CPU limit, so a busy child is stopped by that first.
-    assert pdf_sandbox.deadline_for(Kind.photo) > limits.cpu_hard_seconds
-    assert limits.cpu_soft_seconds < limits.cpu_hard_seconds
+    assert photo_limits.deadline_seconds > photo_limits.cpu_hard_seconds
+    assert photo_limits.cpu_soft_seconds < photo_limits.cpu_hard_seconds
+    # The worker's booklet timeout still reads the PDF deadline by name.
+    assert pdf_limits.deadline_seconds == pdf_sandbox.DEADLINE_SECONDS
 
 
 # --- 5. memory (Linux) -------------------------------------------------------------------
@@ -439,7 +476,7 @@ def test_a_real_24_mp_photo_converts_under_the_real_limit(run, monkeypatch):
         f"VmHWM {report['vm_hwm_kb'] / 1024:.0f} MB, decode {report['seconds']:.2f} s "
         f"wall / {report['cpu_seconds']:.2f} s CPU; limits {limits.memory_bytes >> 20} MB, "
         f"CPU {limits.cpu_soft_seconds}/{limits.cpu_hard_seconds} s, "
-        f"deadline {pdf_sandbox.deadline_for(Kind.photo):.0f} s; input {len(data)} bytes"
+        f"deadline {limits.deadline_seconds:.0f} s; input {len(data)} bytes"
     )
     print("\n" + line)
     assert _jpeg_size(jpeg) == (5712, 4284), line
@@ -477,8 +514,9 @@ async def test_a_photo_upload_whose_child_cannot_start_is_a_503(
 async def test_a_job_saving_a_photo_whose_child_cannot_start_is_retried(monkeypatch):
     """`save_bytes` callers read a ValueError as "this file was refused"."""
     _no_room(monkeypatch)
+    heic = _heic(50, 50)
     with pytest.raises(PdfSandboxUnavailable) as caught:
-        await storage.save_bytes(_heic(50, 50), "image/heic", "a.heic", organization_id=1)
+        await storage.save_bytes(heic, "image/heic", "a.heic", organization_id=1)
     assert not isinstance(caught.value, ValueError)
     assert not is_permanent(caught.value)
     assert not heavy_work.lock_for_this_loop().locked()
@@ -494,8 +532,9 @@ async def test_a_root_parent_with_no_sandbox_account_still_frees_the_lock(spawne
 
     monkeypatch.setattr(pdf_sandbox.pwd, "getpwnam", _missing)
     release = await heavy_work.acquire()
+    heic = _heic(20, 20)
     with pytest.raises(PdfSandboxUnavailable):
-        await pdf_sandbox.photo_to_jpeg(_heic(20, 20), held=release)
+        await pdf_sandbox.photo_to_jpeg(heic, held=release)
     assert spawned == []
     assert not heavy_work.lock_for_this_loop().locked()
 
@@ -557,8 +596,9 @@ def test_a_photo_behind_a_pdf_child_waits_briefly_then_is_busy(run, spawned):
         )
         await _wait_for(lambda: bool(spawned))
         started = time.monotonic()
+        heic = _heic(20, 20)
         with pytest.raises(HeavyWorkBusy):
-            await pdf_sandbox.photo_to_jpeg(_heic(20, 20), wait=0.5)
+            await pdf_sandbox.photo_to_jpeg(heic, wait=0.5)
         waited = time.monotonic() - started
         booklet.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -781,8 +821,9 @@ def test_exit_3_after_the_marker_is_the_files_fault(run, monkeypatch, caplog):
         then=f"sys.exit({pdf_child.EXIT_BAD_REQUEST})",
     )
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
     with pytest.raises(PhotoTooComplex):
-        run(pdf_sandbox.photo_to_jpeg(_heic(8, 8)))
+        run(pending)
     assert "kind=photo" in caplog.text
 
 
@@ -792,8 +833,9 @@ def test_exit_3_after_the_marker_is_the_files_fault_for_a_pdf_too(run, monkeypat
         pdf_child.READY + pdf_child.REQUEST_OK,
         then=f"sys.exit({pdf_child.EXIT_BAD_REQUEST})",
     )
+    pending = pdf_sandbox.page_count(_pdf(1))
     with pytest.raises(pdf_sandbox.PdfTooComplex):
-        run(pdf_sandbox.page_count(_pdf(1)))
+        run(pending)
 
 
 def test_exit_3_before_the_marker_is_ours_and_retried(run, monkeypatch):
@@ -802,8 +844,9 @@ def test_exit_3_before_the_marker_is_ours_and_retried(run, monkeypatch):
         "import sys; sys.stdout.buffer.write(b'R'); sys.stdout.flush(); "
         f"sys.exit({pdf_child.EXIT_BAD_REQUEST})",
     )
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
     with pytest.raises(PdfSandboxUnavailable) as caught:
-        run(pdf_sandbox.photo_to_jpeg(_heic(8, 8)))
+        run(pending)
     assert not is_permanent(caught.value)
 
 
@@ -825,13 +868,13 @@ _JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32 + b"\xff\xd9"
         pytest.param(_answer(Code.range_invalid, index=0), id="a-range-code"),
         pytest.param(_answer(Code.unreadable, [_JPEG]), id="error-with-bytes"),
         pytest.param(_answer(Code.ok, [_JPEG], index=0), id="ok-with-an-index"),
-        pytest.param(pdf_child.READY + b"X", id="no-marker"),
     ],
 )
 def test_an_answer_a_photo_child_would_not_write_is_refused(run, monkeypatch, payload):
     _child_says(monkeypatch, payload)
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
     with pytest.raises(PhotoTooComplex):
-        run(pdf_sandbox.photo_to_jpeg(_heic(8, 8)))
+        run(pending)
 
 
 def test_a_well_formed_answer_is_accepted(run, monkeypatch):
@@ -843,8 +886,9 @@ def test_a_jpeg_over_the_size_cap_is_refused_before_it_is_read(run, monkeypatch,
     monkeypatch.setattr(pdf_sandbox, "PHOTO_OUTPUT_CAP", 16)
     _child_says(monkeypatch, _answer(Code.ok, [_JPEG]))
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
     with pytest.raises(PhotoTooComplex):
-        run(pdf_sandbox.photo_to_jpeg(_heic(8, 8)))
+        run(pending)
     assert "output_cap" in caplog.text
 
 
@@ -854,8 +898,9 @@ def test_the_photo_output_cap_is_the_upload_cap():
 
 def test_a_pdf_answer_carrying_a_photo_code_is_refused(run, monkeypatch):
     _child_says(monkeypatch, _answer(Code.too_large))
+    pending = pdf_sandbox.page_count(_pdf(1))
     with pytest.raises(pdf_sandbox.PdfTooComplex):
-        run(pdf_sandbox.page_count(_pdf(1)))
+        run(pending)
 
 
 def test_a_photo_child_killed_by_a_signal_is_too_complex(run, monkeypatch, caplog):
@@ -865,8 +910,9 @@ def test_a_photo_child_killed_by_a_signal_is_too_complex(run, monkeypatch, caplo
         then="os.kill(os.getpid(), signal.SIGKILL)",
     )
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
     with pytest.raises(PhotoTooComplex):
-        run(pdf_sandbox.photo_to_jpeg(_heic(8, 8)))
+        run(pending)
     assert "SIGKILL" in caplog.text
     assert "kind=photo" in caplog.text
 
@@ -889,15 +935,17 @@ async def test_too_complex_is_a_415_with_the_safely_sentence(
 
 async def test_a_job_saving_a_too_complex_photo_is_refused_not_retried(monkeypatch):
     _child_says(monkeypatch, _answer(Code.too_complex))
+    heic = _heic(20, 20)
     with pytest.raises(ValueError, match="couldn't be read safely") as caught:
-        await storage.save_bytes(_heic(20, 20), "image/heic", "a.heic", organization_id=1)
+        await storage.save_bytes(heic, "image/heic", "a.heic", organization_id=1)
     assert is_permanent(caught.value)
 
 
 async def test_an_unreadable_photo_from_the_child_keeps_todays_sentence(monkeypatch):
     _child_says(monkeypatch, _answer(Code.unreadable))
+    heic = _heic(20, 20)
     with pytest.raises(ValueError) as caught:
-        await storage._normalize(_heic(20, 20), "image/heic")
+        await storage._normalize(heic, "image/heic")
     assert str(caught.value) == UNREADABLE
 
 
@@ -955,8 +1003,9 @@ async def test_an_unreadable_or_too_large_photo_is_not_a_strike(monkeypatch):
     for code in (Code.unreadable, Code.too_large):
         _child_says(monkeypatch, _answer(code))
         for _ in range(3):
+            heic = _heic(20, 20)
             with pytest.raises(ValueError):
-                await storage._normalize(_heic(20, 20), "image/heic")
+                await storage._normalize(heic, "image/heic")
     assert not await storage.photo_strikes_spent(1, 7)
 
 
@@ -978,8 +1027,454 @@ def test_the_log_names_the_kind_and_never_the_content(run, monkeypatch, caplog):
     secret = b"a child's homework, which the log must never hold"
     _child_says(monkeypatch, _answer(Code.ok, [b"\xff\xd8\xff" + secret]))
     caplog.set_level(logging.DEBUG, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
     with pytest.raises(PhotoTooComplex):
-        run(pdf_sandbox.photo_to_jpeg(_heic(8, 8)))
+        run(pending)
     assert "kind=photo" in caplog.text
     assert "reason=bad_output" in caplog.text
     assert secret.decode() not in caplog.text
+
+
+# --- review round: a refusal that is ours costs no allowance -------------------------------
+
+
+def test_the_in_process_counter_gives_back_one_use_and_never_goes_below_zero():
+    counter = rate_limit.FixedWindowLimiter(limit=2, window_seconds=60)
+    counter.record("k", now=10.0)
+    counter.record("k", now=11.0)
+    assert counter.is_limited("k", now=12.0)
+    counter.refund("k", now=12.0)
+    assert not counter.is_limited("k", now=12.0)
+    counter.refund("k", now=12.0)
+    counter.refund("k", now=12.0)  # nothing left: not below zero
+    counter.record("k", now=13.0)
+    counter.record("k", now=13.0)
+    assert counter.is_limited("k", now=13.0)
+    # A use from an earlier window is not refunded into this one.
+    counter.refund("k", now=75.0)
+    assert counter._hits["k"][1] == 2
+
+
+async def test_a_refund_reaches_the_shared_store_as_well_as_this_process(monkeypatch):
+    """`record` writes both stores, so `refund` gives back on both."""
+    limiter = rate_limit.RateLimiter(purpose="refund_test", limit=1, window_seconds=60)
+    refunded: list[str] = []
+
+    class _Store:
+        async def refund(self, key):
+            refunded.append(key)
+
+    monkeypatch.setattr(limiter, "_available", lambda now: _Store())
+    limiter.local.record(limiter.key("7", tenant=1))
+    await limiter.refund("7", tenant=1)
+    assert refunded == [limiter.key("7", tenant=1)]
+    assert not limiter.local.is_limited(limiter.key("7", tenant=1))
+
+
+async def test_a_refund_the_shared_store_refuses_falls_back_like_everything_else(monkeypatch):
+    limiter = rate_limit.RateLimiter(purpose="refund_test_down", limit=1, window_seconds=60)
+
+    class _Down:
+        async def refund(self, key):
+            raise ConnectionError("store is down")
+
+    monkeypatch.setattr(limiter, "_available", lambda now: _Down())
+    limiter.local.record(limiter.key("7", tenant=1))
+    await limiter.refund("7", tenant=1)
+    assert limiter.degradation.degraded
+    assert not limiter.local.is_limited(limiter.key("7", tenant=1))
+
+
+_REDIS_URL = os.environ.get("TEST_REDIS_URL")
+
+
+@pytest.mark.skipif(not _REDIS_URL, reason="TEST_REDIS_URL is not set")
+async def test_a_refund_against_real_redis_gives_back_one_and_never_goes_below_zero(monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "redis_url", _REDIS_URL)
+    limiter = rate_limit.RateLimiter(purpose="refund_test_redis", limit=1, window_seconds=60)
+    try:
+        await limiter.reset("7", tenant=1)
+        await limiter.record("7", tenant=1)
+        assert await limiter.is_limited("7", tenant=1)
+        await limiter.refund("7", tenant=1)
+        assert not await limiter.is_limited("7", tenant=1)
+        await limiter.refund("7", tenant=1)  # already zero
+        await limiter.record("7", tenant=1)
+        assert await limiter.is_limited("7", tenant=1)
+        assert not limiter.degradation.degraded
+    finally:
+        await limiter.reset("7", tenant=1)
+        await limiter._redis().close()
+
+
+async def test_a_photo_upload_refused_because_no_reader_could_start_costs_no_allowance(
+    client, student, published_assignment, monkeypatch
+):
+    from tests.test_daily_workspace_limits import _allow
+
+    _allow(monkeypatch, rate_limit.upload_daily_limiter, 1)
+    _allow(monkeypatch, rate_limit.student_upload_daily_limiter, 1)
+    url = f"/api/v1/assignments/{published_assignment['id']}/submissions"
+    files = [("files", ("page1.heic", _heic(50, 50), "image/heic"))]
+
+    real = asyncio.create_subprocess_exec
+    _no_room(monkeypatch)
+    busy = await client.post(url, files=files, headers=student["headers"])
+    assert busy.status_code == 503, busy.text
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", real)
+    later = await client.post(url, files=files, headers=student["headers"])
+    assert later.status_code == 201, later.text
+
+
+async def test_a_photo_saved_by_a_job_that_no_reader_could_take_costs_no_allowance(monkeypatch):
+    from tests.test_daily_workspace_limits import _allow
+
+    _allow(monkeypatch, rate_limit.upload_daily_limiter, 1)
+    photo_bytes = _heic(50, 50)
+    real = asyncio.create_subprocess_exec
+    _no_room(monkeypatch)
+    with pytest.raises(PdfSandboxUnavailable):
+        await storage.save_bytes(photo_bytes, "image/heic", "a.heic", organization_id=1)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", real)
+    _key, _name, mime = await storage.save_bytes(
+        photo_bytes, "image/heic", "a.heic", organization_id=1
+    )
+    assert mime == "image/jpeg"
+
+
+async def test_a_photo_saved_by_a_job_while_busy_costs_no_allowance(monkeypatch):
+    from tests.test_daily_workspace_limits import _allow
+
+    _allow(monkeypatch, rate_limit.upload_daily_limiter, 1)
+    monkeypatch.setattr(heavy_work, "PHOTO_LOCK_WAIT_SECONDS", 0.2)
+    photo_bytes = _heic(50, 50)
+    release = await heavy_work.acquire()
+    try:
+        with pytest.raises(HeavyWorkBusy):
+            await storage.save_bytes(photo_bytes, "image/heic", "a.heic", organization_id=1)
+    finally:
+        release()
+    _key, _name, mime = await storage.save_bytes(
+        photo_bytes, "image/heic", "a.heic", organization_id=1
+    )
+    assert mime == "image/jpeg"
+
+
+# --- review round: why a photo was unreadable is logged, by class -----------------------------
+
+
+@pytest.mark.parametrize(
+    "exc,detail",
+    [
+        (photo.NotHeif("x"), pdf_child.Detail.not_heif),
+        (OSError("x"), pdf_child.Detail.decoder_os_error),
+        (SyntaxError("x"), pdf_child.Detail.decoder_syntax_error),
+        (ValueError("x"), pdf_child.Detail.decoder_value_error),
+        (EOFError("x"), pdf_child.Detail.decoder_eof),
+        (RuntimeError("x"), pdf_child.Detail.decoder_runtime_error),
+        (TypeError("x"), pdf_child.Detail.unexpected),
+        (AttributeError("x"), pdf_child.Detail.unexpected),
+        (KeyError("x"), pdf_child.Detail.unexpected),
+    ],
+)
+def test_the_child_names_an_unreadable_photos_exception_by_class(monkeypatch, exc, detail):
+    def _boom(data, *, max_pixels):
+        raise exc
+
+    monkeypatch.setattr(photo, "to_jpeg", _boom)
+    out = BytesIO()
+    pdf_child._serve_photo(b"", 100, out)
+    head = pdf_child.RESULT_HEAD.unpack_from(out.getvalue(), 0)
+    assert head[2] == Code.unreadable
+    assert head[3] == detail
+
+
+def test_an_unreadable_photo_is_logged_with_its_class(run, monkeypatch, caplog):
+    _child_says(
+        monkeypatch, _answer(Code.unreadable, detail=int(pdf_child.Detail.decoder_os_error))
+    )
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
+    with pytest.raises(PhotoUnreadable):
+        run(pending)
+    (record,) = [r for r in caplog.records if "unreadable" in r.getMessage()]
+    assert record.levelno == logging.WARNING
+    assert "kind=photo" in record.getMessage()
+    assert "detail=decoder_os_error" in record.getMessage()
+
+
+def test_an_unreadable_photo_that_looks_like_our_fault_is_an_error(run, monkeypatch, caplog):
+    _child_says(monkeypatch, _answer(Code.unreadable, detail=int(pdf_child.Detail.unexpected)))
+    caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
+    with pytest.raises(PhotoUnreadable):
+        run(pending)
+    (record,) = [r for r in caplog.records if "unreadable" in r.getMessage()]
+    assert record.levelno == logging.ERROR
+    assert "detail=unexpected" in record.getMessage()
+
+
+def test_an_unknown_detail_code_is_bad_framing(run, monkeypatch):
+    _child_says(monkeypatch, _answer(Code.unreadable, detail=200))
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
+    with pytest.raises(PhotoTooComplex):
+        run(pending)
+
+
+# --- review round: a strike only for the photo's own fault -------------------------------------
+
+
+async def _unsafe(monkeypatch, payload: bytes, then: str = "") -> storage.PhotoUnsafeError:
+    _child_says(monkeypatch, payload, then=then)
+    heic = _heic(20, 20)
+    with pytest.raises(storage.PhotoUnsafeError) as caught:
+        await storage._normalize(heic, "image/heic")
+    return caught.value
+
+
+async def test_too_complex_written_by_the_child_is_a_strike(monkeypatch):
+    assert (await _unsafe(monkeypatch, _answer(Code.too_complex))).strike
+
+
+async def test_running_out_of_cpu_is_a_strike(monkeypatch):
+    marker = pdf_child.READY + pdf_child.REQUEST_OK
+    unsafe = await _unsafe(monkeypatch, marker, then="os.kill(os.getpid(), signal.SIGXCPU)")
+    assert unsafe.strike
+
+
+async def test_a_sigkill_is_refused_but_not_a_strike(monkeypatch):
+    """The hard CPU limit and the kernel's memory killer look the same, and
+    the memory killer can be the instance's doing."""
+    marker = pdf_child.READY + pdf_child.REQUEST_OK
+    unsafe = await _unsafe(monkeypatch, marker, then="os.kill(os.getpid(), signal.SIGKILL)")
+    assert not unsafe.strike
+
+
+async def test_a_child_that_dies_mid_answer_is_refused_but_not_a_strike(monkeypatch):
+    partial = pdf_child.READY + pdf_child.REQUEST_OK + pdf_child.RESULT_MAGIC
+    unsafe = await _unsafe(monkeypatch, partial, then="os.kill(os.getpid(), signal.SIGTERM)")
+    assert not unsafe.strike
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(_answer(Code.ok, [b"not a jpeg"]), id="bad-output"),
+        pytest.param(pdf_child.READY + pdf_child.REQUEST_OK + b"junk", id="bad-framing"),
+    ],
+)
+async def test_a_malformed_answer_is_refused_but_not_a_strike(monkeypatch, payload):
+    assert not (await _unsafe(monkeypatch, payload)).strike
+
+
+async def test_the_deadline_is_refused_but_not_a_strike(monkeypatch):
+    _set_deadline(monkeypatch, 1.0, Kind.photo)
+    real = pdf_sandbox._photo
+
+    async def _held(data, *, max_pixels=pdf_child.MAX_IMAGE_PIXELS, held=None, **kw):
+        return await real(data, max_pixels=max_pixels, held=held, test_args=("--test-hold", "30"))
+
+    monkeypatch.setattr(pdf_sandbox, "photo_to_jpeg", _held)
+    heic = _heic(20, 20)
+    with pytest.raises(storage.PhotoUnsafeError) as caught:
+        await storage._normalize(heic, "image/heic")
+    assert not caught.value.strike
+
+
+@pytest.mark.parametrize(
+    "then",
+    [
+        pytest.param("sys.exit(1)", id="exit-1"),
+        pytest.param("os.kill(os.getpid(), signal.SIGKILL)", id="sigkill"),
+        pytest.param(f"sys.exit({pdf_child.EXIT_BAD_REQUEST})", id="exit-3"),
+    ],
+)
+def test_a_child_that_dies_before_reading_its_request_is_ours(run, monkeypatch, then):
+    """Ready, but no request marker: the library never had the photo, so
+    whatever ended the child was ours. Retried, never a strike."""
+    _child_says(monkeypatch, pdf_child.READY, then=then)
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
+    with pytest.raises(PdfSandboxUnavailable):
+        run(pending)
+
+
+def test_a_garbled_byte_where_the_marker_belongs_is_ours(run, monkeypatch):
+    _child_says(monkeypatch, pdf_child.READY + b"X")
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
+    with pytest.raises(PdfSandboxUnavailable):
+        run(pending)
+
+
+async def test_sigkills_never_strike_a_student_out(
+    client, student, published_assignment, monkeypatch
+):
+    marker = pdf_child.READY + pdf_child.REQUEST_OK
+    _child_says(monkeypatch, marker, then="os.kill(os.getpid(), signal.SIGKILL)")
+    url = f"/api/v1/assignments/{published_assignment['id']}/submissions"
+    heic = [("files", ("page1.heic", _heic(20, 20), "image/heic"))]
+    for _ in range(3):
+        resp = await client.post(url, files=heic, headers=student["headers"])
+        assert resp.status_code == 415, resp.text
+        assert resp.json()["detail"] == UNSAFE
+
+
+# --- review round: a fault before the spawn is ours ---------------------------------------------
+
+
+def test_no_room_for_the_childs_directory_is_ours_and_logged(run, spawned, monkeypatch, caplog):
+    import tempfile
+
+    def _full(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(tempfile, "mkdtemp", _full)
+    caplog.set_level(logging.ERROR, logger="app.services.pdf_sandbox")
+    pending = pdf_sandbox.photo_to_jpeg(_heic(8, 8))
+    with pytest.raises(PdfSandboxUnavailable) as caught:
+        run(pending)
+    assert not is_permanent(caught.value)
+    assert spawned == []
+    assert "directory" in caplog.text
+
+
+def test_an_upload_folder_that_cannot_be_checked_is_ours(monkeypatch, tmp_path, caplog):
+    from pathlib import Path
+
+    from app.config import get_settings
+
+    monkeypatch.setattr(pdf_sandbox.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        pdf_sandbox.pwd, "getpwnam", lambda name: SimpleNamespace(pw_uid=4242, pw_gid=4343)
+    )
+    monkeypatch.setattr(get_settings(), "storage_backend", "local")
+    monkeypatch.setattr(get_settings(), "upload_dir", str(tmp_path))
+    real_stat = Path.stat
+
+    def _denied(self, *a, **k):
+        if str(self) == str(tmp_path):
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_stat(self, *a, **k)
+
+    monkeypatch.setattr(Path, "stat", _denied)
+    caplog.set_level(logging.ERROR, logger="app.services.pdf_sandbox")
+    with pytest.raises(PdfSandboxUnavailable):
+        pdf_sandbox._child_argv(Kind.photo)
+    assert "upload folder" in caplog.text
+
+
+# --- review round: only an HEVC decoder ---------------------------------------------------------
+
+
+def test_the_installed_decoder_reads_hevc_only():
+    """No AV1 (or other) decoder in the HEIF library this runs, so a HEIF
+    container carrying an AV1 picture has nothing to decode it."""
+    import pillow_heif
+
+    info = pillow_heif.libheif_info()
+    assert set(info["decoders"]) == {"libde265"}
+    assert not info.get("AVIF")
+
+
+def test_the_photo_child_will_not_start_with_another_decoder(monkeypatch):
+    import pillow_heif
+
+    real = pillow_heif.libheif_info
+
+    def _with_av1():
+        info = dict(real())
+        info["decoders"] = {**info["decoders"], "dav1d": "dav1d AV1 decoder"}
+        return info
+
+    monkeypatch.setattr(pillow_heif, "libheif_info", _with_av1)
+    with pytest.raises(RuntimeError):
+        photo.configure()
+    _stub_setup(monkeypatch)
+    out = BytesIO()
+    assert pdf_child.main(["--kind", "photo"], stdin=BytesIO(b""), stdout=out) == (
+        pdf_child.EXIT_SETUP
+    )
+    assert out.getvalue() == b""
+
+
+# --- review round: a cancel that lands during the reap -------------------------------------------
+
+
+def test_a_cancel_during_the_reap_still_reaps_the_child_and_frees_the_lock(
+    run, spawned, monkeypatch
+):
+    """The reap is shielded: a cancellation arriving while the killed child is
+    being waited for ends the call at once, gives the lock back, and the child
+    is still reaped behind it."""
+    _set_deadline(monkeypatch, 1.0, Kind.photo)
+    real_reap = pdf_sandbox._kill_and_reap
+    reaping: list[bool] = []
+
+    async def _cancelled_mid_reap(proc):
+        reaping.append(True)
+        asyncio.current_task().cancel()
+        return await real_reap(proc)
+
+    monkeypatch.setattr(pdf_sandbox, "_kill_and_reap", _cancelled_mid_reap)
+
+    async def _scenario():
+        task = asyncio.create_task(
+            pdf_sandbox._photo(_heic(20, 20), test_args=("--test-hold", "30"))
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert reaping == [True]
+        assert not heavy_work.lock_for_this_loop().locked()
+        await _wait_for(lambda: _gone(spawned[0].pid))
+
+    run(_scenario())
+
+
+# --- review round: busy is never swallowed as a refused attachment ------------------------------
+
+
+@pytest.mark.parametrize(
+    "error",
+    [pytest.param(HeavyWorkBusy, id="busy"), pytest.param(PdfSandboxUnavailable, id="no-reader")],
+)
+async def test_the_classroom_import_does_not_swallow_busy(monkeypatch, error):
+    """It skips an attachment that was refused (a ValueError) and carries on;
+    a reader that could not take it just now is not a refusal, so the sync
+    stops and is retried rather than silently dropping the file."""
+    from app.services import google_classroom
+
+    async def _meta(token, file_id):
+        return {"mimeType": "image/png", "name": "page.png"}
+
+    async def _download(token, file_id):
+        return b"\x89PNG\r\n\x1a\n"
+
+    async def _save(*args, **kwargs):
+        raise error() if error is HeavyWorkBusy else error("no reader")
+
+    monkeypatch.setattr(google_classroom, "get_drive_file_metadata", _meta)
+    monkeypatch.setattr(google_classroom, "download_drive_file", _download)
+    monkeypatch.setattr(google_classroom.storage, "save_bytes", _save)
+    sub = {"assignmentSubmission": {"attachments": [{"driveFile": {"id": "f1"}}]}}
+    with pytest.raises(error):
+        await google_classroom._download_attachments("token", sub, organization_id=1)
+
+
+@pytest.mark.parametrize(
+    "sig,strike",
+    [
+        pytest.param("SIGKILL", False, id="sigkill"),
+        pytest.param("SIGXCPU", True, id="sigxcpu"),
+    ],
+)
+async def test_a_whole_answer_followed_by_a_signal_strikes_only_for_cpu(monkeypatch, sig, strike):
+    """The answer arrived whole but the child did not exit cleanly: refused,
+    and a strike only if what ended it was the CPU limit."""
+    jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 32 + b"\xff\xd9"
+    unsafe = await _unsafe(
+        monkeypatch, _answer(Code.ok, [jpeg]), then=f"os.kill(os.getpid(), signal.{sig})"
+    )
+    assert unsafe.strike is strike

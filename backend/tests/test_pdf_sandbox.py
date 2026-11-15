@@ -11,6 +11,7 @@ not the standard library's. The tests marked Linux-only need `RLIMIT_AS` and
 """
 
 import asyncio
+import dataclasses
 import errno
 import logging
 import os
@@ -67,6 +68,16 @@ def spawned(monkeypatch):
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _spy)
     return seen
+
+
+def _set_deadline(monkeypatch, seconds: float, kind=pdf_child.Kind.pdf) -> None:
+    """A shorter wall-clock deadline for one kind, in the table the parent
+    reads it from (`pdf_child.LIMITS`)."""
+    monkeypatch.setitem(
+        pdf_child.LIMITS,
+        kind,
+        dataclasses.replace(pdf_child.LIMITS[kind], deadline_seconds=seconds),
+    )
 
 
 def _gone(pid: int) -> bool:
@@ -186,7 +197,7 @@ def test_a_page_that_cannot_be_read_names_its_range():
 
 
 def test_a_child_held_past_the_deadline_is_killed(run, spawned, monkeypatch, caplog):
-    monkeypatch.setattr(pdf_sandbox, "DEADLINE_SECONDS", 2.0)
+    _set_deadline(monkeypatch, 2.0)
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
     started = time.monotonic()
 
@@ -202,7 +213,7 @@ def test_a_child_held_past_the_deadline_is_killed(run, spawned, monkeypatch, cap
 
 def test_the_deadline_starts_once_the_lock_is_held(run, spawned, monkeypatch):
     """Waiting in line behind another file is not the file's fault."""
-    monkeypatch.setattr(pdf_sandbox, "DEADLINE_SECONDS", 3.0)
+    _set_deadline(monkeypatch, 3.0)
     data = _pdf(3)
 
     async def _scenario():
@@ -363,7 +374,7 @@ def test_bad_framing_is_refused(run, monkeypatch, caplog, body):
 def test_a_child_killed_by_a_signal_is_too_complex(run, monkeypatch, caplog):
     _fake_child(
         monkeypatch,
-        "import os, signal, sys; sys.stdout.buffer.write(b'R'); sys.stdout.flush(); "
+        "import os, signal, sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(b'RK'); sys.stdout.flush(); "
         "os.kill(os.getpid(), signal.SIGTERM)",
     )
     caplog.set_level(logging.WARNING, logger="app.services.pdf_sandbox")
@@ -823,7 +834,7 @@ def test_a_header_claiming_too_much_is_refused_before_it_is_read(run, monkeypatc
     """The result is read as it arrives, and the lengths come first, so a
     child that announces more than the cap is stopped at once, not after the
     parent has buffered it or waited out the deadline."""
-    monkeypatch.setattr(pdf_sandbox, "DEADLINE_SECONDS", 30.0)
+    _set_deadline(monkeypatch, 30.0)
     head = pdf_child.RESULT_HEAD.pack(pdf_child.RESULT_MAGIC, pdf_child.VERSION, 0, 0, -1, 1, 1)
     payload = _READY + head + pdf_child.PIECE_LENGTH.pack(10**12)
     _fake_child(

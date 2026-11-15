@@ -29,6 +29,13 @@ from collections.abc import AsyncIterator, Callable
 #: only when it begins "Avora is busy" (`frontend/src/lib/errors.ts`).
 HEAVY_WORK_BUSY_MESSAGE = "Avora is busy reading another file. Try again in a moment."
 
+#: How long a photo waits for this lock, which a PDF read may be holding for
+#: up to its deadline. The photo arrives in a student's request, so it does
+#: not queue behind a booklet: after this it is refused as busy, and the
+#: student tries again in a moment. The one value for the wait and for the
+#: `Retry-After` the refusal carries (`storage`, `pdf_sandbox`).
+PHOTO_LOCK_WAIT_SECONDS = 5.0
+
 
 class HeavyWorkBusy(RuntimeError):
     """The lock was not free within the wait the caller allowed.

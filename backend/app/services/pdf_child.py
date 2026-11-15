@@ -115,17 +115,22 @@ class Kind(enum.Enum):
 class Limits:
     """One kind's limits, soft equal to hard except CPU: the soft one sends
     SIGXCPU, and the hard one, a few seconds later, SIGKILL for a process that
-    ignores it."""
+    ignores it. The deadline is the parent's: wall-clock time from when it
+    holds the heavy-work lock, above the hard CPU limit so a busy child is
+    stopped by that first and the log says so; it catches one that waits
+    instead of working."""
 
     memory_bytes: int
     cpu_soft_seconds: int
     cpu_hard_seconds: int
+    deadline_seconds: float
 
 
 #: The PDF limits (T-027).
 MEMORY_LIMIT_BYTES = 256 * 1024 * 1024
 CPU_SOFT_SECONDS = 60
 CPU_HARD_SECONDS = 65
+PDF_DEADLINE_SECONDS = 90.0
 
 #: A photo's address space. 448 MB is the stop line the T-030 design set: a
 #: 24 MP photo peaked at about 314 MB resident decoding on its own (macOS, one
@@ -141,10 +146,19 @@ PHOTO_MEMORY_LIMIT_BYTES = 448 * 1024 * 1024
 #: decode's CPU time and fails if it uses more than half of this.
 PHOTO_CPU_SOFT_SECONDS = 10
 PHOTO_CPU_HARD_SECONDS = 12
+#: A photo arrives in a student's request, so its deadline is short.
+PHOTO_DEADLINE_SECONDS = 20.0
 
+#: Built once; the child reads its memory and CPU limits here, the parent its
+#: deadline.
 LIMITS: dict[Kind, Limits] = {
-    Kind.pdf: Limits(MEMORY_LIMIT_BYTES, CPU_SOFT_SECONDS, CPU_HARD_SECONDS),
-    Kind.photo: Limits(PHOTO_MEMORY_LIMIT_BYTES, PHOTO_CPU_SOFT_SECONDS, PHOTO_CPU_HARD_SECONDS),
+    Kind.pdf: Limits(MEMORY_LIMIT_BYTES, CPU_SOFT_SECONDS, CPU_HARD_SECONDS, PDF_DEADLINE_SECONDS),
+    Kind.photo: Limits(
+        PHOTO_MEMORY_LIMIT_BYTES,
+        PHOTO_CPU_SOFT_SECONDS,
+        PHOTO_CPU_HARD_SECONDS,
+        PHOTO_DEADLINE_SECONDS,
+    ),
 }
 OPEN_FILES = 16
 
@@ -187,11 +201,46 @@ class Code(enum.IntEnum):
 
 
 class Detail(enum.IntEnum):
-    """Which limit a `too_complex` hit, for the log."""
+    """For the log: which limit a `too_complex` hit, or, for a photo that is
+    `unreadable`, which kind of exception said so. A fixed list, never the
+    exception's text, which a crafted file can choose."""
 
     none = 0
     memory = 1
     recursion = 2
+    #: Unreadable photos, by exception class. The decoder's own refusals:
+    not_heif = 3
+    decoder_os_error = 4
+    decoder_syntax_error = 5
+    decoder_value_error = 6
+    decoder_eof = 7
+    decoder_runtime_error = 8
+    #: A class no corrupt photo should raise (a TypeError, an AttributeError):
+    #: most likely a fault in our code or the library, logged as an ERROR.
+    unexpected = 9
+
+
+#: Unreadable details that point at our code rather than at the photo.
+OUR_FAULT_DETAILS = frozenset({Detail.unexpected})
+
+
+def unreadable_detail(exc: BaseException) -> Detail:
+    """The `Detail` for an exception the photo library raised, by class only.
+    Order matters: `UnidentifiedImageError` is an `OSError`, and the format
+    check in `photo.to_jpeg` raises `NotHeif`, a `ValueError`."""
+    if type(exc).__name__ == "NotHeif":
+        return Detail.not_heif
+    for kind, detail in (
+        (OSError, Detail.decoder_os_error),
+        (SyntaxError, Detail.decoder_syntax_error),
+        (ValueError, Detail.decoder_value_error),
+        (EOFError, Detail.decoder_eof),
+        (struct.error, Detail.decoder_value_error),
+        (RuntimeError, Detail.decoder_runtime_error),
+    ):
+        if isinstance(exc, kind):
+            return detail
+    return Detail.unexpected
 
 
 class SetupFailed(Exception):
@@ -362,7 +411,7 @@ def _serve_photo(data: bytes, max_pixels: int, stdout: BinaryIO) -> None:
 
     try:
         jpeg = photo.to_jpeg(data, max_pixels=max_pixels)
-    except photo.PhotoTooLarge:
+    except photo.OverCeiling:
         _write_result(stdout, Code.too_large)
         return
     except (MemoryError, RecursionError):
@@ -370,9 +419,11 @@ def _serve_photo(data: bytes, max_pixels: int, stdout: BinaryIO) -> None:
     # Pillow and the HEIF decoder raise across a wide surface on a malformed
     # file (UnidentifiedImageError, OSError, SyntaxError, struct.error, and
     # whatever the decoder decides). All of it is a photo that could not be
-    # read: the student's ordinary problem, never the final "too complex".
-    except Exception:  # noqa: BLE001 — a corrupt photo is not a server fault
-        _write_result(stdout, Code.unreadable)
+    # read, never the final "too complex". The detail names the exception's
+    # class, so the parent's log can tell a photo the decoder refused from a
+    # fault of ours (`Detail.unexpected`).
+    except Exception as exc:  # noqa: BLE001 — a corrupt photo is not a server fault
+        _write_result(stdout, Code.unreadable, detail=unreadable_detail(exc))
         return
     _write_result(stdout, Code.ok, pieces=[jpeg])
 
@@ -474,56 +525,57 @@ def _report(started: float, cpu_started: float) -> None:
     sys.stderr.flush()
 
 
-def main(
-    argv: Sequence[str],
-    *,
-    stdin: BinaryIO | None = None,
-    stdout: BinaryIO | None = None,
-    isolate: bool = False,
-) -> int:
-    stdin = stdin if stdin is not None else sys.stdin.buffer
-    stdout = stdout if stdout is not None else sys.stdout.buffer
-    try:
-        options = _options(argv)
-        # The PDF kind when none is named, which is how T-027's child was
-        # started; the sandbox always names it.
-        kind = Kind(options.get("kind", Kind.pdf.value))
-        max_pixels = _max_pixels(kind, options)
-        _raise_oom_score()
-        uid, gid = options.get("uid"), options.get("gid")
-        _drop_privileges(int(uid) if uid else None, int(gid) if gid else None)
-        _set_limits(kind)
-        if isolate:
-            _forbid_the_other_kind(kind)
-        _load_library(kind)
-    except (SetupFailed, OSError, ValueError, ImportError):
-        return EXIT_SETUP  # before READY: the parent treats this as its own failure
-    stdout.write(READY)
-    stdout.flush()
+def _set_up(argv: Sequence[str], *, isolate: bool) -> tuple[dict[str, str], Kind, int]:
+    """Everything before `READY`, in the tested order. Raises on any failure,
+    which `main` turns into `EXIT_SETUP`."""
+    options = _options(argv)
+    # The PDF kind when none is named, which is how T-027's child was started;
+    # the sandbox always names it.
+    kind = Kind(options.get("kind", Kind.pdf.value))
+    max_pixels = _max_pixels(kind, options)
+    _raise_oom_score()
+    uid, gid = options.get("uid"), options.get("gid")
+    _drop_privileges(int(uid) if uid else None, int(gid) if gid else None)
+    _set_limits(kind)
+    if isolate:
+        _forbid_the_other_kind(kind)
+    _load_library(kind)
+    return options, kind, max_pixels
 
-    try:
-        op, ranges, data = _read_request(stdin)
-        if op not in OPS[kind] or (kind is Kind.photo and ranges):
-            raise SetupFailed("not an operation of this kind")
-    except (SetupFailed, struct.error, ValueError, OSError):
-        # The parent's request, not the file, so its own exit status.
-        return EXIT_BAD_REQUEST
-    # From here the library has the file, so no exit is the parent's any more.
-    stdout.write(REQUEST_OK)
-    stdout.flush()
-    # Test-only hooks. The sandbox passes these only from tests, through its
-    # private `_run` and `_photo`; the public functions never do.
+
+def _accept_request(stdin: BinaryIO, kind: Kind) -> tuple[Op, list[tuple[int, int]], bytes]:
+    """The whole request, checked against the kind. Raises if it is not one
+    this child runs, which `main` turns into `EXIT_BAD_REQUEST`."""
+    op, ranges, data = _read_request(stdin)
+    if op not in OPS[kind] or (kind is Kind.photo and ranges):
+        raise SetupFailed("not an operation of this kind")
+    return op, ranges, data
+
+
+def _test_hooks(options: dict[str, str], stdout: BinaryIO) -> bool:
+    """Test-only hooks. The sandbox passes these only from tests, through its
+    private `_run` and `_photo`; the public functions never do. True when a
+    hook has already answered."""
     if "test-allocate-mb" in options:
         try:
             ballast = bytearray(int(options["test-allocate-mb"]) * 1024 * 1024)
             del ballast
         except MemoryError:
             _write_result(stdout, Code.too_complex, detail=Detail.memory)
-            return 0
+            return True
     if "test-hold" in options:
         time.sleep(float(options["test-hold"]))
+    return False
 
-    started, cpu_started = time.monotonic(), _cpu_seconds()
+
+def _do_the_work(
+    kind: Kind,
+    op: Op,
+    ranges: list[tuple[int, int]],
+    data: bytes,
+    max_pixels: int,
+    stdout: BinaryIO,
+) -> None:
     try:
         if kind is Kind.photo:
             _serve_photo(data, max_pixels, stdout)
@@ -534,6 +586,37 @@ def main(
         _write_result(stdout, Code.too_complex, detail=Detail.memory)
     except RecursionError:
         _write_result(stdout, Code.too_complex, detail=Detail.recursion)
+
+
+def main(
+    argv: Sequence[str],
+    *,
+    stdin: BinaryIO | None = None,
+    stdout: BinaryIO | None = None,
+    isolate: bool = False,
+) -> int:
+    stdin = stdin if stdin is not None else sys.stdin.buffer
+    stdout = stdout if stdout is not None else sys.stdout.buffer
+    try:
+        options, kind, max_pixels = _set_up(argv, isolate=isolate)
+    except (SetupFailed, OSError, ValueError, ImportError):
+        return EXIT_SETUP  # before READY: the parent treats this as its own failure
+    stdout.write(READY)
+    stdout.flush()
+
+    try:
+        op, ranges, data = _accept_request(stdin, kind)
+    except (SetupFailed, struct.error, ValueError, OSError):
+        # The parent's request, not the file, so its own exit status.
+        return EXIT_BAD_REQUEST
+    # From here the library has the file, so no exit is the parent's any more.
+    stdout.write(REQUEST_OK)
+    stdout.flush()
+    if _test_hooks(options, stdout):
+        return 0
+
+    started, cpu_started = time.monotonic(), _cpu_seconds()
+    _do_the_work(kind, op, ranges, data, max_pixels, stdout)
     if "test-report" in options:
         _report(started, cpu_started)
     return 0

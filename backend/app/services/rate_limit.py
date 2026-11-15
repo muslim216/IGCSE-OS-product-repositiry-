@@ -82,6 +82,14 @@ class FixedWindowLimiter:
         finally remembers their password is not still locked out."""
         self._hits.pop(key, None)
 
+    def refund(self, key: str, *, now: float | None = None) -> None:
+        """Give back one use counted in the current window. Never below zero,
+        and never into an earlier window, which no longer counts."""
+        now = time.monotonic() if now is None else now
+        start, count = self._hits.get(key, (None, 0))
+        if start == self._window_start(now) and count > 0:
+            self._hits[key] = (start, count - 1)
+
     def _evict(self, current_window: float) -> None:
         """Drop keys from earlier windows so a long-running process does not
         accumulate an entry per attempted username forever."""
@@ -169,6 +177,20 @@ class RedisWindowStore:
 
     async def reset(self, key: str) -> None:
         await asyncio.wait_for(self.client().delete(self._window_key(key)), self.timeout)
+
+    #: Decrement only a counter that exists and is above zero, in one step, so
+    #: a refund racing the window's expiry cannot leave a negative count (a
+    #: free allowance) or a counter with no TTL.
+    _REFUND_SCRIPT = (
+        "local n = tonumber(redis.call('GET', KEYS[1]) or '0') "
+        "if n > 0 then return redis.call('DECR', KEYS[1]) end "
+        "return 0"
+    )
+
+    async def refund(self, key: str) -> None:
+        await asyncio.wait_for(
+            self.client().eval(self._REFUND_SCRIPT, 1, self._window_key(key)), self.timeout
+        )
 
     async def close(self) -> None:
         if self._client is not None:
@@ -433,6 +455,26 @@ class RateLimiter:
                 self.degradation.record_success()
         self.local.reset(key)
 
+    async def refund(self, identifier: str, *, tenant: str | int | None = None) -> None:
+        """Give back one use `record` counted, on both stores, as `record`
+        writes both. For a use that turned out to be ours, not the caller's:
+        an upload refused because no file reader could run just then.
+
+        A Redis that fails here falls back as everywhere else; the shared
+        counter then keeps the use, which errs towards the limit, never past
+        it."""
+        key = self.key(identifier, tenant=tenant)
+        now = time.time()
+        store = self._available(now)
+        if store is not None:
+            try:
+                await store.refund(key)
+            except Exception as exc:  # noqa: BLE001 — every failure means "fall back"
+                self.degradation.record_failure(exc, purpose=self.purpose, now=now)
+            else:
+                self.degradation.record_success()
+        self.local.refund(key)
+
     def _prune_unsynced(self, now: float) -> None:
         """Drop expired deadlines so a long outage against many identifiers does
         not leave an entry per attempted username behind. Same reasoning, and
@@ -622,6 +664,16 @@ async def spend_daily_allowance(
         return False
     await limiter.record(identifier, tenant=organization_id)
     return True
+
+
+async def refund_daily_allowance(
+    limiter: RateLimiter, organization_id: int, *, key: int | None = None
+) -> None:
+    """Give back one use `spend_daily_allowance` counted, with the same
+    arguments. Only for work that never happened through no fault of the
+    caller's."""
+    identifier = str(organization_id if key is None else key)
+    await limiter.refund(identifier, tenant=organization_id)
 
 
 async def spend_essential_allowance(
