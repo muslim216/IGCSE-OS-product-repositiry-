@@ -95,7 +95,7 @@ test("the draft button is disabled until the inputs are saved", async () => {
   renderView();
   const button = await screen.findByRole("button", { name: "Draft my plan" });
   expect(button).toBeDisabled();
-  expect(screen.getByText(/Save the plan inputs above/)).toBeInTheDocument();
+  expect(screen.getByText(/Open Plan settings and save the plan inputs/)).toBeInTheDocument();
 });
 
 test("a saved draft can be requested and shows Drafting while the job runs", async () => {
@@ -190,7 +190,7 @@ test("editing a lesson PATCHes the new date and chapter", async () => {
     accepted: plan({ id: 2, slots: [slot(10, "2027-01-04")] }),
   });
   renderView();
-  fireEvent.click(await screen.findByRole("button", { name: "Edit the 4 Jan 2027 lesson" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit, 4 Jan 2027, C1 Atoms" }));
   fireEvent.change(screen.getByLabelText("Lesson date"), { target: { value: "2027-02-02" } });
   await screen.findByRole("option", { name: "C2 Bonding" });
   fireEvent.change(screen.getByLabelText("Lesson chapter"), { target: { value: "2" } });

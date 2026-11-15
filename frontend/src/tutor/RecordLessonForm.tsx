@@ -53,8 +53,8 @@ export default function RecordLessonForm({
   groupId: number;
   subjectId: number;
   /** When the form is opened on demand (the Schedule tab): called after a save
-   *  and on Cancel, so the host can close it. */
-  onClose?: () => void;
+   *  (`true`) and on Cancel (`false`), so the host can close it and say which. */
+  onClose?: (saved: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   // "Review" on a lesson reminder lands here with `?slot=`: pre-fill from that
@@ -212,7 +212,7 @@ export default function RecordLessonForm({
       setMeetingLink("");
       setDurationEdit(null);
       dirty.current = false;
-      onClose?.();
+      onClose?.(true);
       for (const key of [
         ["next-lesson", groupId],
         ["taught-lessons", groupId],
@@ -255,7 +255,10 @@ export default function RecordLessonForm({
   return (
     <SectionCard>
       <form onSubmit={onSubmit}>
-        <h2 className="text-lg text-ink-900">Record a lesson you taught</h2>
+        {/* tabIndex -1: the host moves focus here when the form opens. */}
+        <h2 tabIndex={-1} className="text-lg text-ink-900 outline-none">
+          Record a lesson you taught
+        </h2>
         <p className="mt-1 text-sm text-ink-500">
           The topics you tick count as taught for every student in the class.
         </p>
@@ -403,7 +406,7 @@ export default function RecordLessonForm({
         )}
         <div className="mt-4 flex justify-end gap-2">
           {onClose && (
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="ghost" onClick={() => onClose(false)}>
               Cancel
             </Button>
           )}

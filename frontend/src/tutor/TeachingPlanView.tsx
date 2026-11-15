@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   acceptPlan,
@@ -13,10 +13,13 @@ import {
   type ReflowOutcome,
   type PlanSlot,
 } from "../api/teachingPlan";
+import { myOrganization } from "../api/auth";
+import { useMyTimezone } from "../auth/AuthContext";
 import { listChapters, type Chapter } from "../api/syllabus";
 import { Check, MoreHorizontal } from "lucide-react";
 import { friendlyError } from "../lib/errors";
 import { shortDay } from "../lib/planDates";
+import { dayKeyIn } from "../lib/timezones";
 import { SectionCard } from "../components/ui";
 import { Button, Input, Select } from "../components/controls";
 import { ConfirmDialog, ErrorState, SectionSkeleton } from "../components/page";
@@ -71,19 +74,13 @@ function addDays(iso: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Today as the tutor's browser sees it, as an ISO calendar date. */
-function todayIso(): string {
-  const now = new Date();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${mm}-${dd}`;
-}
-
 /** Splits weeks into earlier / open / later: this week and the next three stay
  *  open. A plan with nothing in that window (a draft for next term, or one that
- *  is wholly past) still opens on something rather than showing a bare fold. */
-function splitWeeks(weeks: [string, PlanSlot[]][]) {
-  const thisWeek = weekStart(todayIso());
+ *  is wholly past) still opens on something rather than showing a bare fold.
+ *  `today` is the tutor's own day (their zone, else the organization's), not the
+ *  browser's. */
+function splitWeeks(weeks: [string, PlanSlot[]][], today: string) {
+  const thisWeek = weekStart(today);
   const lastOpen = addDays(thisWeek, 21);
   let open = weeks.filter(([k]) => k >= thisWeek && k <= lastOpen);
   if (open.length === 0) {
@@ -195,33 +192,13 @@ function ReflowNote({ reflow }: { reflow: ReflowOutcome | null | undefined }) {
 
 /** Planned lessons with no recorded lesson (task 6.6, AV-18). "Not recorded" is
  *  the fact: the lesson may have been taught and never logged, so this does not
- *  blame. Offers a re-plan that only drafts; the tutor still accepts it. */
-function BehindBanner({
-  progress,
-  busy,
-  onReplan,
-}: {
-  progress: PlanProgress;
-  busy: boolean;
-  onReplan: () => void;
-}) {
+ *  blame. Its button offers a re-plan that only drafts; the tutor still accepts it. */
+function behindText(progress: PlanProgress): string | null {
   if (progress.missed < 1 || !progress.earliest_missed_date) return null;
   const n = progress.missed;
-  return (
-    <div
-      role="status"
-      className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-warn-100 px-3 py-2 text-sm text-warn-700"
-    >
-      <span>
-        {n} planned {n === 1 ? "lesson hasn't" : "lessons haven't"} been recorded since{" "}
-        {shortDay(progress.earliest_missed_date)} — record {n === 1 ? "it" : "them"}, or re-plan
-        from today.
-      </span>
-      <Button size="sm" variant="secondary" loading={busy} disabled={busy} onClick={onReplan}>
-        Re-plan
-      </Button>
-    </div>
-  );
+  return `${n} planned ${n === 1 ? "lesson hasn't" : "lessons haven't"} been recorded since ${shortDay(
+    progress.earliest_missed_date,
+  )} — record ${n === 1 ? "it" : "them"}, or re-plan from today.`;
 }
 
 function SlotRow({
@@ -236,6 +213,9 @@ function SlotRow({
   onCancel,
   cancelling = false,
   cancelBusy = false,
+  wantsFocus = false,
+  onFocusDone,
+  onRestoreFocus,
 }: {
   slot: PlanSlot;
   chapters: Chapter[];
@@ -253,6 +233,11 @@ function SlotRow({
   cancelling?: boolean;
   /** Any cancel is in flight: the shift is one at a time, so none may start. */
   cancelBusy?: boolean;
+  /** Editing ended: the row's Edit button should take focus back (the row may
+   *  have been rebuilt by then, so the list remembers the request). */
+  wantsFocus?: boolean;
+  onFocusDone: () => void;
+  onRestoreFocus: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   // On a phone the row's actions sit behind a "…" button; on a wide screen hover
@@ -261,13 +246,29 @@ function SlotRow({
   const [date, setDate] = useState(slot.scheduled_date);
   const [chapterId, setChapterId] = useState(slot.chapter_id);
   const [startTime, setStartTime] = useState(hhmm(slot.start_time) ?? "");
+  const dateLabelRef = useRef<HTMLLabelElement>(null);
+  const editRef = useRef<HTMLButtonElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const actionsId = useId();
+
+  useEffect(() => {
+    if (editing) dateLabelRef.current?.querySelector("input")?.focus();
+  }, [editing]);
+  useEffect(() => {
+    if (!wantsFocus || editing) return;
+    const edit = editRef.current;
+    // Below md the actions are folded away until "…" opens them: focus that then.
+    const shown = edit?.parentElement && getComputedStyle(edit.parentElement).display !== "none";
+    (shown ? edit : moreRef.current)?.focus();
+    onFocusDone();
+  }, [wantsFocus, editing, onFocusDone]);
 
   if (editing) {
     const startChanged = startTime !== "" && startTime !== hhmm(slot.start_time);
     const changed = date !== slot.scheduled_date || chapterId !== slot.chapter_id || startChanged;
     return (
       <li className="flex flex-wrap items-end gap-3 px-3 py-2">
-        <label className="text-sm text-ink-700">
+        <label ref={dateLabelRef} className="text-sm text-ink-700">
           <span className="block text-xs text-ink-500">Date</span>
           <Input
             type="date"
@@ -319,7 +320,10 @@ function SlotRow({
                 ...(chapterId !== slot.chapter_id ? { chapter_id: chapterId } : {}),
                 ...(startChanged ? { start_time: startTime } : {}),
               },
-              () => setEditing(false),
+              () => {
+                setEditing(false);
+                onRestoreFocus();
+              },
             )
           }
         >
@@ -333,6 +337,7 @@ function SlotRow({
             setChapterId(slot.chapter_id);
             setStartTime(hhmm(slot.start_time) ?? "");
             setEditing(false);
+            onRestoreFocus();
           }}
         >
           Cancel
@@ -342,6 +347,15 @@ function SlotRow({
   }
   const taught = slot.provenance === "confirmed" || slot.provenance === "completed";
   const label = humanDate(slot.scheduled_date);
+  // Two lessons can share a date: the time, then the chapter, tell them apart.
+  const which = `${label}${hhmm(slot.start_time) ? ` at ${hhmm(slot.start_time)}` : ""}, ${slot.chapter_code} ${slot.chapter_title}`;
+  // The row's own cancel in flight keeps its actions on screen so the spinner is seen.
+  const shown = menuOpen || cancelling;
+  // Hidden until hover or focus only where a fine pointer can hover: a touch
+  // laptop must never be left with invisible, tappable buttons.
+  const hoverOnly = !shown
+    ? " [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:group-focus-within:opacity-100"
+    : "";
   return (
     <li className="group flex items-center justify-between gap-3 px-3 py-2">
       <span className="min-w-0 text-sm text-ink-700">
@@ -354,54 +368,71 @@ function SlotRow({
           {slot.chapter_code} {slot.chapter_title}
         </span>
         {/* Status is one quiet tick, not four pills. What the old pills said is
-            still said, to screen readers. */}
+            still said, to screen readers. Hand-edited marks a lesson a redraft
+            keeps, so it is said in words (PROD-7). */}
         {taught && (
           <span className="ml-2 inline-flex align-middle text-ok-700">
             <Check aria-hidden className="h-4 w-4" />
-            <span className="sr-only">taught</span>
+            <span className="sr-only"> taught</span>
           </span>
         )}
-        {slot.cancelled && <span className="sr-only">cancelled</span>}
-        {slot.lesson_origin === "plan" && <span className="sr-only">Recorded from the plan</span>}
-        {slot.provenance === "manually_modified" && <span className="sr-only">hand-edited</span>}
+        {slot.cancelled && <span className="ml-2 text-xs text-ink-500">cancelled</span>}
+        {slot.lesson_origin === "plan" && <span className="sr-only"> Recorded from the plan</span>}
+        {slot.provenance === "manually_modified" && (
+          <span className="ml-2 text-xs text-ink-500">hand-edited</span>
+        )}
       </span>
       {!slot.cancelled && (
         <span className="flex shrink-0 items-center gap-1">
+          {/* On a phone the actions sit behind this button; wide screens show
+              them. Neither path is mouse-only. */}
+          <Button
+            ref={moreRef}
+            size="sm"
+            variant="ghost"
+            className="max-md:min-h-11 max-md:min-w-11 md:hidden"
+            aria-label={`More actions for the ${label} lesson`}
+            aria-expanded={menuOpen}
+            aria-controls={actionsId}
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            <MoreHorizontal aria-hidden className="h-4 w-4" />
+          </Button>
           <span
-            className={`${menuOpen ? "flex" : "hidden"} items-center gap-1 md:flex md:opacity-0 md:[@media(hover:none)]:opacity-100 md:group-hover:opacity-100 md:group-focus-within:opacity-100`}
+            id={actionsId}
+            className={`${shown ? "flex" : "hidden"} items-center gap-1 md:flex${hoverOnly}`}
           >
             {onCancel && !taught && (
               <Button
                 size="sm"
                 variant="ghost"
-                aria-label={`Cancel the ${label} lesson`}
+                className="max-md:min-h-11 max-md:min-w-11"
+                aria-label={`Cancel lesson, ${which}`}
                 disabled={locked || cancelBusy}
                 loading={cancelling}
-                onClick={onCancel}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onCancel();
+                }}
               >
                 Cancel lesson
               </Button>
             )}
             <Button
+              ref={editRef}
               size="sm"
               variant="ghost"
-              aria-label={`Edit the ${label} lesson`}
+              className="max-md:min-h-11 max-md:min-w-11"
+              aria-label={`Edit, ${which}`}
               disabled={locked}
-              onClick={() => setEditing(true)}
+              onClick={() => {
+                setMenuOpen(false);
+                setEditing(true);
+              }}
             >
               Edit
             </Button>
           </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="md:hidden"
-            aria-label={`More actions for the ${label} lesson`}
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((o) => !o)}
-          >
-            <MoreHorizontal aria-hidden className="h-4 w-4" />
-          </Button>
         </span>
       )}
     </li>
@@ -430,6 +461,8 @@ function Fold({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+const weeksLabel = (n: number) => `${n} ${n === 1 ? "week" : "weeks"}`;
+
 function SlotList({
   slots,
   chapters,
@@ -442,6 +475,7 @@ function SlotList({
   onCancel,
   cancellingId = null,
   cancelBusy = false,
+  today,
 }: {
   slots: PlanSlot[];
   chapters: Chapter[];
@@ -454,8 +488,12 @@ function SlotList({
   onCancel?: (slotId: number) => void;
   cancellingId?: number | null;
   cancelBusy?: boolean;
+  today: string;
 }) {
-  const { earlier, open, later } = splitWeeks(groupByWeek(slots));
+  const { earlier, open, later } = splitWeeks(groupByWeek(slots), today);
+  // Which row's Edit button gets focus back once editing ends.
+  const [focusSlotId, setFocusSlotId] = useState<number | null>(null);
+  const focusDone = useCallback(() => setFocusSlotId(null), []);
   const renderWeeks = (weeks: [string, PlanSlot[]][]) =>
     weeks.map(([week, rows]) => (
       <div key={week}>
@@ -477,6 +515,9 @@ function SlotList({
               onCancel={onCancel ? () => onCancel(slot.id) : undefined}
               cancelling={cancellingId === slot.id}
               cancelBusy={cancelBusy}
+              wantsFocus={focusSlotId === slot.id}
+              onFocusDone={focusDone}
+              onRestoreFocus={() => setFocusSlotId(slot.id)}
             />
           ))}
         </ul>
@@ -485,13 +526,13 @@ function SlotList({
   return (
     <div className="mt-3 space-y-4">
       {earlier.length > 0 && (
-        <Fold label={`Earlier weeks (${earlier.length})`}>
+        <Fold label={`Earlier: ${weeksLabel(earlier.length)}`}>
           <div className="mt-2 space-y-4">{renderWeeks(earlier)}</div>
         </Fold>
       )}
       {renderWeeks(open)}
       {later.length > 0 && (
-        <Fold label={`Later weeks (${later.length})`}>
+        <Fold label={`Later: ${weeksLabel(later.length)}`}>
           <div className="mt-2 space-y-4">{renderWeeks(later)}</div>
         </Fold>
       )}
@@ -546,6 +587,11 @@ export default function TeachingPlanView({
     queryKey: ["chapters", subjectId],
     queryFn: () => listChapters(subjectId),
   });
+  // "Today" is the tutor's effective day (their own zone, else the
+  // organization's), as the record form reads it, not the browser's.
+  const myZone = useMyTimezone();
+  const org = useQuery({ queryKey: ["my-organization"], queryFn: myOrganization });
+  const today = dayKeyIn(new Date(), myZone ?? org.data?.timezone ?? null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmingReplan, setConfirmingReplan] = useState(false);
@@ -641,10 +687,19 @@ export default function TeachingPlanView({
   // only its slots), so it is confirmed whenever one exists.
   const startReplan = () => (proposed ? setConfirmingReplan(true) : replan.mutate());
 
-  // One notice at a time, most important first: an error, the outcome of the
-  // last draft, a note from the last action, then the "behind" nudge.
+  // The draft's own notes (ReflowNote is separate again) sit with the draft.
   const outcomeList = outcomeNotes(proposed?.outcome ?? null, !!proposed?.draft_job_failed);
-  const behind = plan.data.progress && plan.data.progress.missed >= 1 ? plan.data.progress : null;
+  const behindMessage = plan.data.progress ? behindText(plan.data.progress) : null;
+  const behind = behindMessage !== null;
+  // The live plan's one notice region: an error, then a note from the last
+  // action (AV-120), then the "behind" nudge.
+  const message = error
+    ? { tone: "bg-risk-100 text-risk-600", text: error }
+    : notice
+      ? { tone: "bg-brand-50 text-brand-700", text: notice }
+      : behindMessage
+        ? { tone: "bg-warn-100 text-warn-700", text: behindMessage }
+        : null;
 
   const liveSection = (live: PlanInputs) => (
     <div className="mt-4">
@@ -669,6 +724,7 @@ export default function TeachingPlanView({
           onCancel={(slotId) => cancelSlot.mutate(slotId)}
           cancellingId={cancelSlot.isPending ? (cancelSlot.variables ?? null) : null}
           cancelBusy={cancelSlot.isPending}
+          today={today}
         />
       )}
     </div>
@@ -693,25 +749,34 @@ export default function TeachingPlanView({
         </Button>
       </div>
       {!proposed && (
-        <p className="mt-3 text-sm text-ink-500">Save the plan inputs above to draft a plan.</p>
+        <p className="mt-3 text-sm text-ink-500">
+          Open Plan settings and save the plan inputs to draft a plan.
+        </p>
       )}
-      {error ? (
-        <p role="alert" className="mt-3 rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
-          {error}
-        </p>
-      ) : outcomeList.length > 0 ? (
-        <OutcomeBanner notes={outcomeList} />
-      ) : notice ? (
-        <p role="status" className="mt-3 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700">
-          {notice}
-        </p>
-      ) : behind ? (
-        <BehindBanner
-          progress={behind}
-          busy={replan.isPending || drafting}
-          onReplan={startReplan}
-        />
-      ) : null}
+      {/* One always-mounted region, so a swap of its text is announced. Its
+          text is the most important thing to say: an error, then a note from the
+          last action, then the "behind" nudge. Re-plan is its own button and
+          stays whenever the plan is behind, whatever the text says. */}
+      <div role="status" aria-live="polite" className="empty:hidden">
+        {message && (
+          <div
+            className={`mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md px-3 py-2 text-sm ${message.tone}`}
+          >
+            <span>{message.text}</span>
+            {behind && (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={replan.isPending || drafting}
+                disabled={replan.isPending || drafting}
+                onClick={startReplan}
+              >
+                Re-plan
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
 
       {accepted && liveSection(accepted)}
 
@@ -720,6 +785,7 @@ export default function TeachingPlanView({
           <h4 className="text-sm font-medium text-ink-900">
             {accepted ? "Proposed changes" : "Draft plan"}
           </h4>
+          {outcomeList.length > 0 && <OutcomeBanner notes={outcomeList} />}
           <ReflowNote reflow={proposed.outcome?.reflow} />
           {proposed.outcome && <Reasons outcome={proposed.outcome} />}
           {proposedSlots.length > 0 && (
@@ -732,6 +798,7 @@ export default function TeachingPlanView({
               locked={drafting}
               saving={edit.isPending}
               onSave={onSave}
+              today={today}
             />
           )}
           <div className="mt-4 flex justify-end">

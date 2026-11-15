@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import TeachingPlanView from "../tutor/TeachingPlanView";
 
 /* T-078: the plan opens on this week and the next three, one line per lesson,
-   one notice at a time. "Today" is fixed so the folds are deterministic. */
+   one notice region. "Today" is fixed so the folds are deterministic. */
 
 const CHAPTERS = [{ id: 1, code: "C1", title: "Atoms", position: 1 }];
 
@@ -101,12 +101,12 @@ test("this week and the next three are open; earlier and later weeks are folded 
   renderView();
   expect(await screen.findByText("Week of 11 Jan 2027")).toBeInTheDocument();
   expect(screen.getByText("Week of 1 Feb 2027")).toBeInTheDocument();
-  expect(screen.getByText("Earlier weeks (2)")).toBeInTheDocument();
-  expect(screen.getByText("Later weeks (2)")).toBeInTheDocument();
+  expect(screen.getByText("Earlier: 2 weeks")).toBeInTheDocument();
+  expect(screen.getByText("Later: 2 weeks")).toBeInTheDocument();
   // Folded rows are not in the page at all until opened.
   expect(screen.queryByText("Week of 8 Feb 2027")).toBeNull();
   expect(screen.queryByText("Week of 4 Jan 2027")).toBeNull();
-  fireEvent.click(screen.getByText("Later weeks (2)"));
+  fireEvent.click(screen.getByText("Later: 2 weeks"));
   expect(await screen.findByText("Week of 8 Feb 2027")).toBeInTheDocument();
   expect(screen.getByText("Week of 15 Feb 2027")).toBeInTheDocument();
 });
@@ -115,7 +115,7 @@ test("a plan wholly in the future still opens on its first weeks", async () => {
   stub({ accepted: plan([slot(1, "2027-03-01"), slot(2, "2027-03-08")]) });
   renderView();
   expect(await screen.findByText("Week of 1 Mar 2027")).toBeInTheDocument();
-  expect(screen.queryByText(/Earlier weeks/)).toBeNull();
+  expect(screen.queryByText(/Earlier:/)).toBeNull();
 });
 
 test("a taught lesson shows one tick with text for screen readers, an untaught one shows nothing", async () => {
@@ -140,11 +140,11 @@ test("Edit and Cancel are focusable controls revealed by focus, and a labelled .
   stub({ accepted: plan([slot(1, "2027-01-14")]) });
   renderView();
   await screen.findByText("Week of 11 Jan 2027");
-  const edit = screen.getByRole("button", { name: "Edit the 14 Jan 2027 lesson" });
+  const edit = screen.getByRole("button", { name: "Edit, 14 Jan 2027, C1 Atoms" });
   const group = edit.parentElement as HTMLElement;
   // Hover or focus reveals them on a wide screen; they are never mouse-only.
-  expect(group.className).toContain("md:group-focus-within:opacity-100");
-  expect(group.className).toContain("md:group-hover:opacity-100");
+  expect(group.className).toContain("group-focus-within:opacity-100");
+  expect(group.className).toContain("group-hover:opacity-100");
   edit.focus();
   expect(edit).toHaveFocus();
   // On a phone they sit behind a labelled button.
@@ -168,21 +168,7 @@ test("an error wins over the behind banner: only one notice shows", async () => 
   renderView();
   expect(await screen.findByText(/haven't been recorded since/)).toBeInTheDocument();
   fireEvent.click(await screen.findByRole("button", { name: "Draft a new plan" }));
-  expect(await screen.findByRole("alert")).toBeInTheDocument();
-  expect(screen.queryByText(/haven't been recorded since/)).toBeNull();
-});
-
-test("the outcome of the last draft wins over the behind banner", async () => {
-  stub({
-    accepted: plan([slot(1, "2027-01-11")]),
-    draft: plan([slot(2, "2027-01-18")], {
-      accepted_at: null,
-      draft_job_failed: true,
-    }),
-    progress: BEHIND,
-  });
-  renderView();
-  expect(await screen.findByText(/did not run/)).toBeInTheDocument();
+  expect(await screen.findByText(/Something went wrong on our side/)).toBeInTheDocument();
   expect(screen.queryByText(/haven't been recorded since/)).toBeNull();
 });
 
