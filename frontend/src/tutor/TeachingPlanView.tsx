@@ -90,7 +90,7 @@ function splitWeeks(weeks: [string, PlanSlot[]][], today: string) {
       : weeks.slice(-1);
   }
   const first = open[0][0];
-  const last = open[open.length - 1][0];
+  const last = open.at(-1)![0];
   return {
     earlier: weeks.filter(([k]) => k < first),
     open,
@@ -142,7 +142,7 @@ function outcomeNotes(outcome: DraftOutcome | null, jobFailed: boolean): Outcome
   return notes;
 }
 
-function OutcomeBanner({ notes }: { notes: OutcomeNote[] }) {
+function OutcomeBanner({ notes }: Readonly<{ notes: OutcomeNote[] }>) {
   return (
     <div className="mt-3 space-y-2">
       {notes.map((n) => (
@@ -348,7 +348,8 @@ function SlotRow({
   const taught = slot.provenance === "confirmed" || slot.provenance === "completed";
   const label = humanDate(slot.scheduled_date);
   // Two lessons can share a date: the time, then the chapter, tell them apart.
-  const which = `${label}${hhmm(slot.start_time) ? ` at ${hhmm(slot.start_time)}` : ""}, ${slot.chapter_code} ${slot.chapter_title}`;
+  const at = hhmm(slot.start_time) ? ` at ${hhmm(slot.start_time)}` : "";
+  const which = `${label}${at}, ${slot.chapter_code} ${slot.chapter_title}`;
   // The row's own cancel in flight keeps its actions on screen so the spinner is seen.
   const shown = menuOpen || cancelling;
   // Hidden until hover or focus only where a fine pointer can hover and no
@@ -457,13 +458,13 @@ function Fold({
   children,
   wantsFocus = false,
   onFocusDone,
-}: {
+}: Readonly<{
   label: string;
   children: ReactNode;
   /** A lesson moved in here while the fold was closed: its summary takes focus. */
   wantsFocus?: boolean;
   onFocusDone?: () => void;
-}) {
+}>) {
   const [open, setOpen] = useState(false);
   const summaryRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -643,6 +644,19 @@ function Reasons({ outcome }: { outcome: DraftOutcome }) {
   );
 }
 
+function cancelNotice(result: { shifted?: boolean; message?: string | null }): string {
+  if (result.shifted) return "Lesson cancelled; later lessons moved.";
+  return result.message ?? "Lesson cancelled.";
+}
+
+/** The live plan's one notice region shows the most urgent of these. */
+function pickMessage(error: string | null, notice: string | null, behind: string | null) {
+  if (error) return { tone: "bg-risk-100 text-risk-600", text: error };
+  if (notice) return { tone: "bg-brand-50 text-brand-700", text: notice };
+  if (behind) return { tone: "bg-warn-100 text-warn-700", text: behind };
+  return null;
+}
+
 /** The class's teaching plan (task 6.4): draft it, read the outcome, accept it,
  *  and edit any lesson. A draft is only proposed until the tutor accepts it. */
 export default function TeachingPlanView({
@@ -723,11 +737,7 @@ export default function TeachingPlanView({
         queryClient.invalidateQueries({ queryKey: key });
       }
       // Said in the polite region: the row's buttons are gone, so nothing else tells.
-      setNotice(
-        result.shifted
-          ? "Lesson cancelled; later lessons moved."
-          : (result.message ?? "Lesson cancelled."),
-      );
+      setNotice(cancelNotice(result));
     },
     onError: (err) => setError(friendlyError(err)),
   });
@@ -775,13 +785,7 @@ export default function TeachingPlanView({
   const behind = behindMessage !== null;
   // The live plan's one notice region: an error, then a note from the last
   // action (AV-120), then the "behind" nudge.
-  const message = error
-    ? { tone: "bg-risk-100 text-risk-600", text: error }
-    : notice
-      ? { tone: "bg-brand-50 text-brand-700", text: notice }
-      : behindMessage
-        ? { tone: "bg-warn-100 text-warn-700", text: behindMessage }
-        : null;
+  const message = pickMessage(error, notice, behindMessage);
 
   const liveSection = (live: PlanInputs) => (
     <div className="mt-4">

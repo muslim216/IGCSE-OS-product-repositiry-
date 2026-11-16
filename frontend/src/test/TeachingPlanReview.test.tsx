@@ -1,7 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import TeachingPlanView from "../tutor/TeachingPlanView";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { expect, test, vi } from "vitest";
+import {
+  BEHIND,
+  WEEKS,
+  overviewWith,
+  plan,
+  renderView,
+  slot,
+  stubPlanApi,
+  pinTodayToWednesday,
+} from "./planFixtures";
 
 const zone = vi.hoisted(() => ({ value: null as string | null }));
 vi.mock("../auth/AuthContext", () => ({ useMyTimezone: () => zone.value }));
@@ -9,112 +17,31 @@ vi.mock("../auth/AuthContext", () => ({ useMyTimezone: () => zone.value }));
 /* T-078 review round: the plan opens on this week and the next three, one line per lesson,
    one notice region. "Today" is fixed so the folds are deterministic. */
 
-const CHAPTERS = [{ id: 1, code: "C1", title: "Atoms", position: 1 }];
-
-const slot = (id: number, date: string, over: Record<string, unknown> = {}) => ({
-  id,
-  chapter_id: 1,
-  chapter_code: "C1",
-  chapter_title: "Atoms",
-  scheduled_date: date,
-  sequence: id,
-  provenance: "generated",
-  cancelled: false,
-  start_time: null,
-  lesson_id: null,
-  lesson_origin: null,
-  ...over,
-});
-
-const plan = (slots: unknown[], over: Record<string, unknown> = {}) => ({
-  id: 1,
-  exam_date: "2027-05-10",
-  lessons_per_week: 2,
-  lesson_minutes: 60,
-  past_paper_start_date: null,
-  breaks: [],
-  slots,
-  outcome: null,
-  drafting: false,
-  draft_job_failed: false,
-  accepted_at: "2027-01-02T10:00:00Z",
-  ...over,
-});
-
-const BEHIND = {
-  planned_to_date: 5,
-  taught_to_date: 3,
-  missed: 2,
-  earliest_missed_date: "2027-01-05",
-  earliest_missed_chapter: { id: 1, code: "C1", title: "Atoms" },
-};
-
 function stub(
   overview: Record<string, unknown>,
   opts: { cancelUnshifted?: boolean; failDraft?: boolean } = {},
 ) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input), "http://localhost");
-      const method = (init?.method ?? "GET").toUpperCase();
-      const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
-      if (url.pathname.endsWith("/chapters")) return json(CHAPTERS);
+  stubPlanApi(
+    () => overviewWith(overview),
+    ({ url, method, json }) => {
       if (method === "POST" && url.pathname.endsWith("/draft") && opts.failDraft)
         return json({ detail: "The draft service is down." }, 500);
       if (method === "POST" && url.pathname.endsWith("/cancel") && opts.cancelUnshifted)
         return json({
-          plan: {
-            draft: null,
-            accepted: null,
-            timetable_defaults: { lessons_per_week: null, lesson_minutes: null },
-            ...overview,
-          },
+          plan: overviewWith(overview),
           shifted: false,
           message: "That lesson could not be rescheduled.",
         });
       if (method === "PATCH")
         return json(slot(1, "2027-01-15", { provenance: "manually_modified" }));
-      return json({
-        draft: null,
-        accepted: null,
-        timetable_defaults: { lessons_per_week: null, lesson_minutes: null },
-        ...overview,
-      });
-    }),
+      return undefined;
+    },
   );
 }
 
-function renderView() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <TeachingPlanView groupId={5} subjectId={3} />
-    </QueryClientProvider>,
-  );
-}
-
-beforeEach(() => {
-  // Only the clock: timers stay real so queries and waitFor keep working.
-  vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date("2027-01-13T09:00:00Z")); // a Wednesday
+pinTodayToWednesday(() => {
   zone.value = null;
 });
-afterEach(() => {
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-});
-
-const WEEKS = [
-  slot(1, "2026-12-28"),
-  slot(2, "2027-01-04"),
-  slot(3, "2027-01-11"),
-  slot(4, "2027-01-18"),
-  slot(5, "2027-01-25"),
-  slot(6, "2027-02-01"),
-  slot(7, "2027-02-08"),
-  slot(8, "2027-02-15"),
-];
 
 test("hand-edited and cancelled are visible plain words; Recorded from the plan stays for screen readers", async () => {
   stub({
