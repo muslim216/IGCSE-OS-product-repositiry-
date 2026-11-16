@@ -399,7 +399,8 @@ async def test_revision_start_ends_the_window_a_shift_can_use(client, tutor, gro
     )
     resp = await client.post(_cancel(group, ids[1]), headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
-    assert resp.json()["shifted"] is False and resp.json()["moved"] == 0
+    assert resp.json()["shifted"] is False
+    assert resp.json()["moved"] == 0
     assert [r.scheduled_date for r in await slot_rows(plan_id) if r.id != ids[1]] == [
         d for i, d in enumerate(dates) if i != 1
     ]
@@ -414,4 +415,5 @@ async def test_a_shift_lands_before_revision_and_never_on_or_after_it(
     assert resp.status_code == 200, resp.text
     assert resp.json()["shifted"] is True
     live = [r for r in await slot_rows(plan_id) if r.cancelled_at is None]
-    assert live and all(r.scheduled_date < revision for r in live)
+    assert live
+    assert all(r.scheduled_date < revision for r in live)

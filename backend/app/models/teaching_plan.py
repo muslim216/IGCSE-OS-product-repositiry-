@@ -39,6 +39,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 
+_CASCADE_ALL = "all, delete-orphan"
+_PLAN_ID = "teaching_plans.id"
+
 
 class TeachingPlanStatus(str, enum.Enum):
     draft = "draft"
@@ -127,17 +130,17 @@ class TeachingPlan(TimestampMixin, Base):
     papers: Mapped[list["TeachingPlanPaper"]] = relationship(
         back_populates="plan",
         order_by="TeachingPlanPaper.position",
-        cascade="all, delete-orphan",
+        cascade=_CASCADE_ALL,
         lazy="selectin",
     )
     slots: Mapped[list["PlanSlot"]] = relationship(
         back_populates="plan",
         order_by="PlanSlot.sequence",
-        cascade="all, delete-orphan",
+        cascade=_CASCADE_ALL,
         passive_deletes=True,
     )
     breaks: Mapped[list["PlanBreak"]] = relationship(
-        back_populates="plan", cascade="all, delete-orphan", passive_deletes=True
+        back_populates="plan", cascade=_CASCADE_ALL, passive_deletes=True
     )
 
     @property
@@ -164,7 +167,7 @@ class TeachingPlanPaper(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     plan_id: Mapped[int] = mapped_column(
-        ForeignKey("teaching_plans.id", ondelete="CASCADE", name="fk_teaching_plan_papers_plan_id"),
+        ForeignKey(_PLAN_ID, ondelete="CASCADE", name="fk_teaching_plan_papers_plan_id"),
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -193,9 +196,7 @@ class PlanSlot(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    plan_id: Mapped[int] = mapped_column(
-        ForeignKey("teaching_plans.id", ondelete="CASCADE"), nullable=False
-    )
+    plan_id: Mapped[int] = mapped_column(ForeignKey(_PLAN_ID, ondelete="CASCADE"), nullable=False)
     # RESTRICT: removing a chapter is task 6.8's job, because it reflows the
     # plan. Until that exists the database refuses rather than silently
     # destroying a slot the tutor may have hand-edited (AV-77).
@@ -243,9 +244,7 @@ class PlanBreak(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    plan_id: Mapped[int] = mapped_column(
-        ForeignKey("teaching_plans.id", ondelete="CASCADE"), nullable=False
-    )
+    plan_id: Mapped[int] = mapped_column(ForeignKey(_PLAN_ID, ondelete="CASCADE"), nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     # A one-day break has start == end.
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
