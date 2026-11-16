@@ -389,6 +389,105 @@ jobs:
       - name: "Schema drift: migrations vs models (RISK-3)"
         run: python -m scripts.check_schema_drift
 
+      # The four steps above only ever migrate an EMPTY database, so a migration
+      # never meets a row. One that shortens a column, adds a NOT NULL column to
+      # a populated table or breaks on a duplicate-looking name passes all of
+      # them and fails when the production start command runs it against real
+      # data (RISK-3's second half). So: build a second, fresh database at the
+      # BASE branch's schema using the base branch's own code, fill it with
+      # demo data plus awkward synthetic rows, then apply this branch's
+      # migrations on top.
+      #
+      # Why the base tree is checked out whole, rather than running `alembic
+      # upgrade <base-head>` with this branch's env: a PR that adds a migration
+      # AND changes models would otherwise seed with the new models against the
+      # old schema, and seed.demo would fail on columns that do not exist yet.
+      # The base tree's own alembic/ and seed/ agree with each other by
+      # construction. The awkward-row script is the only code taken from this
+      # branch: it reflects the live database, so it needs neither tree's models.
+      #
+      # Push to the default branch compares against `github.event.before`; a
+      # brand-new branch (all-zero SHA) or an unfetchable commit has nothing to
+      # compare, and says so instead of silently passing.
+      - name: Realistic data - check out the base branch's code
+        id: base
+        timeout-minutes: 5
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          # A pull request always has a base, so failing to get it must fail the
+          # job rather than quietly turn the check off. Only a push (a new branch
+          # has an all-zero `before`; a force-push can orphan it) may skip.
+          skip() {
+            if [ "$EVENT" = "pull_request" ]; then
+              echo "::error::Realistic-data check cannot run: $1"
+              exit 1
+            fi
+            echo "::notice::Realistic-data check skipped: $1"
+            exit 0
+          }
+          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            skip "no base commit to compare against"
+          fi
+          if ! git fetch --no-tags --depth=1 origin "$BASE_SHA"; then
+            skip "base commit $BASE_SHA could not be fetched"
+          fi
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Base tree at $BASE_SHA; its newest migration:"
+          ls "$RUNNER_TEMP/base/backend/alembic/versions" | grep -v __ | sort | tail -1
+
+      # A separate database on the same service, so the steps above keep theirs.
+      # asyncpg is already installed; the psql client is not guaranteed.
+      - name: Realistic data - build the base schema and fill it
+        if: steps.base.outputs.sha != ''
+        timeout-minutes: 10
+        env:
+          DATABASE_URL: postgresql://igcse:igcse@localhost:5432/igcse_realistic
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import asyncio, asyncpg
+          async def main():
+              conn = await asyncpg.connect("postgresql://igcse:igcse@localhost:5432/igcse")
+              await conn.execute("CREATE DATABASE igcse_realistic")
+              await conn.close()
+          asyncio.run(main())
+          PY
+          # PYTHONPATH makes the base tree win over the editable install of this
+          # branch; the assert fails loudly if it ever stops doing so.
+          cd "$RUNNER_TEMP/base/backend"
+          export PYTHONPATH=.
+          # `seed` is checked too: it is not in the editable install's way today,
+          # but it is the code that must match the base schema. Note the base code
+          # still runs on THIS branch's installed packages, so a dependency bump
+          # in the PR can skew this check's result.
+          python -c "import app, seed, pathlib, sys; [sys.exit(f'{m.__name__} resolved outside the base tree: {m.__file__}') for m in (app, seed) if not str(pathlib.Path(m.__file__).resolve()).startswith(sys.argv[1])]" "$RUNNER_TEMP/base"
+          python -m alembic upgrade head
+          python -m seed.demo
+          cd "$GITHUB_WORKSPACE/backend"
+          python -m scripts.seed_awkward_rows seed
+          python -m scripts.seed_awkward_rows counts "$RUNNER_TEMP/counts-before.json"
+
+      - name: Realistic data - apply this branch's migrations on top
+        if: steps.base.outputs.sha != ''
+        timeout-minutes: 10
+        env:
+          DATABASE_URL: postgresql://igcse:igcse@localhost:5432/igcse_realistic
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python -m alembic upgrade head
+          python -m scripts.check_schema_drift
+          python -m scripts.seed_awkward_rows counts "$RUNNER_TEMP/counts-after.json"
+          # Intended row loss is declared by a marker comment in a migration this
+          # change adds (see MARKER in the script), so it is visible in review.
+          # Row counts cannot see an UPDATE that blanks or truncates values.
+          python -m scripts.seed_awkward_rows compare "$RUNNER_TEMP/counts-before.json" "$RUNNER_TEMP/counts-after.json" \
+            $(git diff --relative --name-only --diff-filter=A "$BASE_SHA" HEAD -- alembic/versions)
+
       # The multi-worker claim tests (task 1.3, AV-82) run here rather than in
       # the `backend` job because that one forces SQLite, which silently DROPS
       # `FOR UPDATE SKIP LOCKED` — no error, no warning. Running them there
