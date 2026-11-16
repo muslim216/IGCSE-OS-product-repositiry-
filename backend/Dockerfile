@@ -44,6 +44,14 @@ EXPOSE 8000
 # Run migrations, then start the API. The API also runs the job worker in-process
 # by default (RUN_WORKER_IN_API), which is the deployment today.
 #
+# On Render, migrations now run first in render.yaml's preDeployCommand, where a
+# failure cancels the deploy instead of taking the API down (T-052). The run here
+# is a backstop: a no-op after a good pre-deploy, and it heals a deploy where the
+# pre-deploy did not run (the field cleared in the dashboard, pipeline minutes
+# exhausted). Keep it. It is also why a dashboard rollback across a migration
+# takes the API down: the older image cannot find the newer revision and never
+# reaches uvicorn. Roll forward with a revert instead.
+#
 # Task 1.3 (AV-82) also makes the worker runnable on its own from this same
 # image, by overriding the command:
 #

@@ -32,6 +32,16 @@ def run_migrations_offline() -> None:
 def do_run_migrations(connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
+        # Migrations now run in Render's pre-deploy step while the old version
+        # is still serving (T-052), so a migration waiting on a lock held by a
+        # live request would queue every later request behind it. Give up on a
+        # lock after 5s and on any one statement after 10 minutes instead; the
+        # deploy is cancelled and the old version keeps serving. SET LOCAL ends
+        # with the transaction, and the whole chain stays in that one
+        # transaction. SQLite has neither setting.
+        if connection.dialect.name == "postgresql":
+            connection.exec_driver_sql("SET LOCAL lock_timeout = '5s'")
+            connection.exec_driver_sql("SET LOCAL statement_timeout = '10min'")
         context.run_migrations()
 
 
@@ -40,6 +50,12 @@ async def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        # Keeps bound parameter values, which can be children's data, out of a
+        # failing statement's error in the deploy logs. It cannot hide values
+        # Postgres writes into its own error text (a unique violation names the
+        # key) or literals written inline in op.execute() SQL, so data-touching
+        # migrations bind their values. Only this engine: the app builds its own.
+        hide_parameters=True,
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
