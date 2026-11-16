@@ -223,21 +223,13 @@ def _heic(width: int, height: int) -> bytes:
 
 
 async def test_a_photo_over_the_pixel_ceiling_is_refused_before_it_is_decoded(monkeypatch):
-    from PIL import Image
-
+    """The child reads the size from the header and answers `too_large`
+    without decoding (`test_photo_sandbox.py` proves the no-decode half inside
+    the photo library); this is the sentence the student gets for it."""
     monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200 - 1)
-    decoded = []
-    real_convert = Image.Image.convert
-    monkeypatch.setattr(
-        Image.Image,
-        "convert",
-        lambda self, *a, **k: decoded.append(1) or real_convert(self, *a, **k),
-    )
-
     photo = _heic(200, 200)
     with pytest.raises(storage.ImageTooLargeError, match="resolution is too high"):
         await storage._normalize(photo, "image/heic")
-    assert decoded == []
 
 
 async def test_a_photo_at_the_pixel_ceiling_is_converted(monkeypatch):
@@ -288,28 +280,29 @@ async def test_a_non_heif_body_sent_as_heic_is_not_decoded():
         await storage._normalize(png, "image/heic")
 
 
-async def test_photos_are_decoded_one_at_a_time_off_the_shared_pool(monkeypatch):
-    import threading
-    import time
+async def test_photos_are_decoded_one_at_a_time_each_in_its_own_child(monkeypatch):
+    """The pixel ceiling bounds one picture, and several decoding at once (one
+    submission can carry many pages) would add up past it. Each photo gets its
+    own child, and the heavy-work lock lets one run at a time."""
+    from app.services import pdf_sandbox
 
-    running, peak, threads = 0, 0, set()
-    lock = threading.Lock()
-    real = storage._to_jpeg
+    running, peak, children = 0, 0, 0
+    real = pdf_sandbox._exchange_with_child
 
-    def counting(data):
-        nonlocal running, peak
-        with lock:
-            running += 1
-            peak = max(peak, running)
-            threads.add(threading.current_thread().name)
-        time.sleep(0.05)
+    async def counting(kind, *args, **kwargs):
+        nonlocal running, peak, children
+        running += 1
+        children += 1
+        peak = max(peak, running)
         try:
-            return real(data)
+            return await real(kind, *args, **kwargs)
         finally:
-            with lock:
-                running -= 1
+            running -= 1
 
-    monkeypatch.setattr(storage, "_to_jpeg", counting)
-    await asyncio.gather(*(storage._normalize(_heic(50, 50), "image/heic") for _ in range(4)))
+    monkeypatch.setattr(pdf_sandbox, "_exchange_with_child", counting)
+    results = await asyncio.gather(
+        *(storage._normalize(_heic(50, 50), "image/heic") for _ in range(4))
+    )
+    assert [mime for _, mime in results] == ["image/jpeg"] * 4
     assert peak == 1
-    assert all(name.startswith("image-decode") for name in threads)
+    assert children == 4
