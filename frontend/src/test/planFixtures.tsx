@@ -87,12 +87,13 @@ export function stubPlanApi(
 ) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input), "http://localhost");
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const raw = input instanceof Request ? input.url : input.toString();
+      const url = new URL(raw, "http://localhost");
       const method = (init?.method ?? "GET").toUpperCase();
       const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-      if (url.pathname.endsWith("/chapters")) return json(CHAPTERS);
-      return extra({ url, method, init, json }) ?? json(overview());
+      if (url.pathname.endsWith("/chapters")) return Promise.resolve(json(CHAPTERS));
+      return Promise.resolve(extra({ url, method, init, json }) ?? json(overview()));
     }),
   );
 }
