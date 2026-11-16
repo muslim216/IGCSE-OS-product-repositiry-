@@ -9,7 +9,8 @@ re-run safely (`BE-6`).
 
 How lessons are counted:
 
-- A lesson falls on every date in `[start_date, exam_date)` whose weekday is a
+- A lesson falls on every date in `[start_date, exam_date)` (callers pass the plan's
+  `scheduling_end` as `exam_date`: revision start when set, T-076) whose weekday is a
   lesson weekday and which no break covers. The exam day is excluded: nothing is
   taught on the day of the exam.
 - Lesson weekdays: the class timetable pre-fills the tutor's `lessons_per_week`,

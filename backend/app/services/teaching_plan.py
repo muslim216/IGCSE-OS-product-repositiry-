@@ -5,9 +5,10 @@ value is a 422 from the API rather than an IntegrityError 500.
 """
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, time
+from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -27,6 +28,7 @@ from app.models import (
     PlanSlotProvenance,
     ScheduleSlot,
     TeachingPlan,
+    TeachingPlanPaper,
     TeachingPlanStatus,
     Topic,
     User,
@@ -35,8 +37,11 @@ from app.models.base import utcnow
 from app.schemas.teaching_plan import (
     LESSON_MINUTES_RANGE,
     LESSONS_PER_WEEK_RANGE,
+    PAPER_NAME_MAX,
+    PAPERS_RANGE,
     ChapterReasonOut,
     DraftOutcomeOut,
+    PaperOut,
     PlanBreakOut,
     PlanInputsOut,
     PlanSlotOut,
@@ -219,6 +224,68 @@ async def timetable_defaults(session: AsyncSession, group_id: int) -> TimetableD
     return TimetableDefaults(len(durations), max(d for d, c in counts.items() if c == top))
 
 
+@dataclass(frozen=True)
+class PaperSpec:
+    name: str
+    exam_date: date
+
+
+#: What a plan from before papers shows, and what a lone exam date becomes.
+DEFAULT_PAPER_NAME = "Exam"
+
+
+def normalise_papers(
+    papers: Sequence[Mapping[str, Any]] | None, exam_date: date | None
+) -> list[PaperSpec]:
+    """The plan's papers in date order. `papers` wins; a lone `exam_date` becomes one
+    paper named "Exam" so a client that predates papers keeps working (T-076)."""
+    if papers is None:
+        if exam_date is None:
+            raise PlanInputError("Give your exam date, or at least one paper")
+        return [PaperSpec(DEFAULT_PAPER_NAME, exam_date)]
+    lo, hi = PAPERS_RANGE
+    if not lo <= len(papers) <= hi:
+        raise PlanInputError(f"A plan can have between {lo} and {hi} papers")
+    specs: list[PaperSpec] = []
+    for paper in papers:
+        name = str(paper.get("name") or "").strip()
+        if not name:
+            raise PlanInputError("Every paper needs a name")
+        if len(name) > PAPER_NAME_MAX:
+            raise PlanInputError(f"A paper name can be at most {PAPER_NAME_MAX} characters")
+        specs.append(PaperSpec(name, paper["exam_date"]))
+    # Stable, so two papers on one day keep the order they were given in.
+    return sorted(specs, key=lambda p: p.exam_date)
+
+
+def plan_papers(plan: TeachingPlan) -> list[PaperSpec]:
+    """The plan's papers; a row made before papers existed reads as one "Exam"."""
+    if plan.papers:
+        return [PaperSpec(p.name, p.exam_date) for p in plan.papers]
+    return [PaperSpec(DEFAULT_PAPER_NAME, plan.exam_date)]
+
+
+def set_plan_papers(plan: TeachingPlan, specs: Sequence[PaperSpec]) -> bool:
+    """Make `plan.papers` match `specs` (already date-ordered) and keep `exam_date`
+    equal to the earliest. Rows are updated by position, never deleted and re-added,
+    because UNIQUE (plan_id, position) would reject the insert-before-delete flush
+    order. Returns whether anything changed."""
+    changed = [(p.name, p.exam_date) for p in plan.papers] != [(s.name, s.exam_date) for s in specs]
+    existing = list(plan.papers)
+    for index, spec in enumerate(specs):
+        if index < len(existing):
+            existing[index].name = spec.name
+            existing[index].exam_date = spec.exam_date
+        else:
+            plan.papers.append(
+                TeachingPlanPaper(name=spec.name, exam_date=spec.exam_date, position=index + 1)
+            )
+    for extra in existing[len(specs) :]:
+        plan.papers.remove(extra)
+    plan.exam_date = specs[0].exam_date
+    return changed
+
+
 def validate_inputs(
     exam_date: date,
     lessons_per_week: int,
@@ -226,7 +293,9 @@ def validate_inputs(
     past_paper_start_date: date | None,
     *,
     today: date,
+    revision_start_date: date | None = None,
 ) -> None:
+    """`exam_date` is the first (earliest) paper's date."""
     # Required, no default: the server's date is not the tutor's calendar date, so every caller
     # passes the organization's own "today" and mypy catches one that forgets.
     lo, hi = LESSONS_PER_WEEK_RANGE
@@ -239,6 +308,8 @@ def validate_inputs(
         raise PlanInputError("The exam date must be in the future")
     if past_paper_start_date is not None and past_paper_start_date > exam_date:
         raise PlanInputError("Past papers cannot start after the exam date")
+    if revision_start_date is not None and revision_start_date > exam_date:
+        raise PlanInputError("Revision has to start on or before your first paper")
 
 
 async def _relock_draft(session: AsyncSession, plan: TeachingPlan) -> TeachingPlan | None:
@@ -260,15 +331,29 @@ async def save_plan_inputs(
     *,
     organization_id: int,
     group_id: int,
-    exam_date: date,
     lessons_per_week: int,
     lesson_minutes: int,
     past_paper_start_date: date | None,
     today: date,
+    exam_date: date | None = None,
+    papers: Sequence[Mapping[str, Any]] | None = None,
+    revision_start_date: date | None = None,
 ) -> TeachingPlan:
     """Create or update the class's draft. An accepted plan is never touched here:
-    changing a live plan's inputs is a re-plan (task 6.6)."""
-    validate_inputs(exam_date, lessons_per_week, lesson_minutes, past_paper_start_date, today=today)
+    changing a live plan's inputs is a re-plan (task 6.6).
+
+    `papers` (1-6, each named and dated) or, for a client that predates them, a lone
+    `exam_date`. The plan's `exam_date` becomes the earliest paper's."""
+    specs = normalise_papers(papers, exam_date)
+    first = specs[0].exam_date
+    validate_inputs(
+        first,
+        lessons_per_week,
+        lesson_minutes,
+        past_paper_start_date,
+        today=today,
+        revision_start_date=revision_start_date,
+    )
     plan = await draft_plan_for_group(session, group_id)
     if plan is not None:
         # The read above can be stale by the time we write: an accept that
@@ -281,10 +366,12 @@ async def save_plan_inputs(
             organization_id=organization_id,
             group_id=group_id,
             status=TeachingPlanStatus.draft,
-            exam_date=exam_date,
+            exam_date=first,
             lessons_per_week=lessons_per_week,
             lesson_minutes=lesson_minutes,
             past_paper_start_date=past_paper_start_date,
+            # Empty rather than unloaded: an async session cannot lazy-load it.
+            papers=[],
         )
         # A draft drafted beside a live plan keeps its holidays, otherwise
         # changing the exam date would silently drop them.
@@ -305,25 +392,34 @@ async def save_plan_inputs(
             if plan is None:
                 raise
     return await _apply_and_commit(
-        session, plan, exam_date, lessons_per_week, lesson_minutes, past_paper_start_date
+        session,
+        plan,
+        specs,
+        lessons_per_week,
+        lesson_minutes,
+        past_paper_start_date,
+        revision_start_date,
     )
 
 
 async def _apply_and_commit(
     session: AsyncSession,
     plan: TeachingPlan,
-    exam_date: date,
+    specs: Sequence[PaperSpec],
     lessons_per_week: int,
     lesson_minutes: int,
     past_paper_start_date: date | None,
+    revision_start_date: date | None,
 ) -> TeachingPlan:
     changed = (
-        plan.exam_date != exam_date
-        or plan.lessons_per_week != lessons_per_week
+        plan.lessons_per_week != lessons_per_week
         or plan.lesson_minutes != lesson_minutes
         or plan.past_paper_start_date != past_paper_start_date
+        or plan.revision_start_date != revision_start_date
     )
-    plan.exam_date = exam_date
+    # Also sets `plan.exam_date` to the earliest paper's date.
+    changed = set_plan_papers(plan, specs) or changed
+    plan.revision_start_date = revision_start_date
     plan.lessons_per_week = lessons_per_week
     plan.lesson_minutes = lesson_minutes
     plan.past_paper_start_date = past_paper_start_date
@@ -343,7 +439,7 @@ def mark_draft_stale(plan: TeachingPlan) -> None:
 
 
 async def _reload(session: AsyncSession, plan: TeachingPlan) -> TeachingPlan:
-    await session.refresh(plan, attribute_names=["breaks"])
+    await session.refresh(plan, attribute_names=["breaks", "papers"])
     return plan
 
 
@@ -532,6 +628,8 @@ async def plan_views(session: AsyncSession, plans: list[TeachingPlan]) -> dict[i
         views[plan.id] = PlanInputsOut(
             id=plan.id,
             exam_date=plan.exam_date,
+            papers=[PaperOut(name=p.name, exam_date=p.exam_date) for p in plan_papers(plan)],
+            revision_start_date=plan.revision_start_date,
             lessons_per_week=plan.lessons_per_week,
             lesson_minutes=plan.lesson_minutes,
             past_paper_start_date=plan.past_paper_start_date,
@@ -824,8 +922,12 @@ async def edit_slot(
     if chapter is None:
         raise PlanInputError("That chapter is not part of this class's subject")
     new_date = scheduled_date if scheduled_date is not None else slot.scheduled_date
-    if new_date >= plan.exam_date:
-        raise PlanInputError("A lesson cannot be on or after the exam date")
+    if new_date >= plan.scheduling_end:
+        raise PlanInputError(
+            "A lesson cannot be on or after the day revision starts"
+            if plan.revision_start_date is not None
+            else "A lesson cannot be on or after the exam date"
+        )
     for brk in await session.scalars(select(PlanBreak).where(PlanBreak.plan_id == plan.id)):
         if brk.start_date <= new_date <= brk.end_date:
             raise PlanInputError(f"That date falls in the break '{brk.label}'")

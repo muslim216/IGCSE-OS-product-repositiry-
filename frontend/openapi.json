@@ -18312,6 +18312,44 @@
         "type": "object",
         "title": "OrganizationTimezoneUpdate"
       },
+      "PaperIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "exam_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Exam Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exam_date"
+        ],
+        "title": "PaperIn"
+      },
+      "PaperOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "exam_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Exam Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "exam_date"
+        ],
+        "title": "PaperOut"
+      },
       "ParentChildFacts": {
         "properties": {
           "child_name": {
@@ -19164,9 +19202,42 @@
       "PlanInputsIn": {
         "properties": {
           "exam_date": {
-            "type": "string",
-            "format": "date",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Exam Date"
+          },
+          "papers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PaperIn"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Papers"
+          },
+          "revision_start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Start Date"
           },
           "lessons_per_week": {
             "type": "integer",
@@ -19195,11 +19266,11 @@
         },
         "type": "object",
         "required": [
-          "exam_date",
           "lessons_per_week",
           "lesson_minutes"
         ],
-        "title": "PlanInputsIn"
+        "title": "PlanInputsIn",
+        "description": "`papers` is the way in; a lone `exam_date` still works and becomes one paper\nnamed \"Exam\", so a client that predates papers keeps working (T-076). Counts,\nnames and the revision rule are checked in the service, so the tutor gets a\nplain message rather than a validation dump."
       },
       "PlanInputsOut": {
         "properties": {
@@ -19211,6 +19282,25 @@
             "type": "string",
             "format": "date",
             "title": "Exam Date"
+          },
+          "papers": {
+            "items": {
+              "$ref": "#/components/schemas/PaperOut"
+            },
+            "type": "array",
+            "title": "Papers"
+          },
+          "revision_start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Start Date"
           },
           "lessons_per_week": {
             "type": "integer",
@@ -19284,6 +19374,7 @@
         "required": [
           "id",
           "exam_date",
+          "papers",
           "lessons_per_week",
           "lesson_minutes",
           "past_paper_start_date",

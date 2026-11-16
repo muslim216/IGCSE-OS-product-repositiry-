@@ -50,6 +50,7 @@ async def make_plan(
     exam: date = EXAM,
     minutes: int = 60,
     lessons_per_week: int = 2,
+    revision_start: date | None = None,
 ) -> tuple[int, list[int]]:
     """slots: (chapter_id, date, start_time). Returns (plan id, slot ids in order)."""
     async with async_session() as s:
@@ -59,6 +60,7 @@ async def make_plan(
             group_id=group["id"],
             status=status,
             exam_date=exam,
+            revision_start_date=revision_start,
             lessons_per_week=lessons_per_week,
             lesson_minutes=minutes,
             accepted_at=accepted_at if accepted else None,

@@ -25,6 +25,7 @@ from app.models import (
     ScheduleSlot,
     Subject,
     TeachingPlan,
+    TeachingPlanPaper,
     TeachingPlanStatus,
     Topic,
     User,
@@ -732,3 +733,59 @@ async def test_generated_slots_take_their_start_time_from_the_weekly_timetable(
     assert rows
     for r in rows:  # Monday 17:00, Thursday 15:30: per row, not one value for all
         assert r.start_time == (dtime(17, 0) if r.scheduled_date.weekday() == 0 else dtime(15, 30))
+
+
+# --- Papers and a revision start date (T-076) ----------------------------------
+
+
+async def _set_window(world, *, revision=None, papers=()):
+    async with async_session() as session:
+        plan = await session.get(TeachingPlan, world["plan_id"])
+        plan.revision_start_date = revision
+        session.add_all(
+            TeachingPlanPaper(plan_id=plan.id, name=name, exam_date=day, position=i)
+            for i, (name, day) in enumerate(papers, start=1)
+        )
+        await session.commit()
+
+
+async def test_lessons_are_drafted_only_before_revision_starts(world, monkeypatch, fake_ai):
+    monkeypatch.setattr(
+        "app.services.plan_drafting.structured_complete", fake_ai(advice(world, [1.0, 1.0, 1.0]))
+    )
+    revision = date(2027, 1, 18)  # Mon 4, Thu 7, Mon 11, Thu 14 -> four lessons
+    await _set_window(
+        world, revision=revision, papers=[("Paper 1", EXAM), ("Paper 2", date(2027, 2, 8))]
+    )
+    job = await run_job(world)
+    assert job.status is JobStatus.done, job.error
+    rows = await slots(world)
+    assert len(rows) == 4
+    assert all(r.scheduled_date < revision for r in rows)
+
+
+async def test_a_plan_with_one_paper_and_no_revision_date_drafts_as_before(
+    world, monkeypatch, fake_ai
+):
+    monkeypatch.setattr(
+        "app.services.plan_drafting.structured_complete", fake_ai(advice(world, [1.0, 1.0, 2.0]))
+    )
+    await _set_window(world, papers=[("Exam", EXAM)])
+    await run_job(world)
+    rows = await slots(world)
+    assert [r.scheduled_date.day for r in rows] == [4, 7, 11, 14, 18, 21, 25, 28]
+
+
+async def test_a_revision_date_that_leaves_too_few_lessons_uses_the_does_not_fit_handling(
+    world, monkeypatch
+):
+    async def _boom(**kwargs):
+        raise AssertionError("the model must not be called for a plan that cannot fit")
+
+    monkeypatch.setattr("app.services.plan_drafting.structured_complete", _boom)
+    await _set_window(world, revision=date(2027, 1, 8), papers=[("Exam", EXAM)])
+    job = await run_job(world)
+    assert job.status is JobStatus.done
+    result = await draft_result(world)
+    assert result["failure"]["code"] == "not_enough_lessons"
+    assert (result["failure"]["lessons"], result["failure"]["chapters"]) == (2, 3)

@@ -99,7 +99,7 @@ async def cancel_slot(
     )
     weekdays = await _weekdays(session, group, plan)
     start = max(target.scheduled_date + timedelta(days=1), today)
-    free = available_lesson_dates(start, plan.exam_date, weekdays, blocked)
+    free = available_lesson_dates(start, plan.scheduling_end, weekdays, blocked)
     start_times = (await timetable_start_times(session, [group.id])).get(group.id, {})
     if free and free[0] == today:
         # A late cancel must not put a lesson on today's date when today's lesson

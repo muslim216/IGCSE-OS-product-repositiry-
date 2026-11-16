@@ -64,6 +64,9 @@ def test_full_chain_matches_the_model_for_every_plan_table(chain):
         Base.metadata.create_all(model_conn)
         for table in ("teaching_plans", "plan_slots", "plan_breaks"):
             model_shape = _shape(sa.inspect(model_conn), table)
+            if table == "teaching_plans":
+                # Added by 0080; test_migration_0080 holds its parity.
+                model_shape["columns"].pop("revision_start_date", None)
             if table == "plan_slots":
                 # 0063's columns are in the model but not in this chain.
                 for later in ("start_time", "cancelled_at", "cancelled_by_id"):

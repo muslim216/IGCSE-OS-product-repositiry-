@@ -473,7 +473,7 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     # The tutor's own day, not the server's: at 01:00 in Cairo UTC still says
     # yesterday and the plan would open with a lesson that has already passed.
     start = now_in(organization.timezone).date()
-    exam = plan.exam_date
+    exam = plan.scheduling_end
 
     # Checked before the model is called, so a plan that cannot fit costs no AI
     # call. Chapters the tutor already holds a slot for need no new lesson.
@@ -503,7 +503,7 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     # ones. `locked` is the same identity as `plan`, refreshed, so its exam date
     # and lessons per week are current too.
     weekdays = await _weekdays(session, group, plan)
-    exam = plan.exam_date
+    exam = plan.scheduling_end
     blocked, kept_counts = await _calendar(session, plan)
 
     lessons_out = schedule(

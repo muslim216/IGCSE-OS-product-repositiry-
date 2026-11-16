@@ -6394,6 +6394,29 @@ export interface components {
             /** Timezone */
             timezone?: string | null;
         };
+        /** PaperIn */
+        PaperIn: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Exam Date
+             * Format: date
+             */
+            exam_date: string;
+        };
+        /** PaperOut */
+        PaperOut: {
+            /** Name */
+            name: string;
+            /**
+             * Exam Date
+             * Format: date
+             */
+            exam_date: string;
+        };
         /** ParentChildFacts */
         ParentChildFacts: {
             /** Child Name */
@@ -6660,13 +6683,20 @@ export interface components {
             /** Weeks To Exam */
             weeks_to_exam: number | null;
         };
-        /** PlanInputsIn */
+        /**
+         * PlanInputsIn
+         * @description `papers` is the way in; a lone `exam_date` still works and becomes one paper
+         *     named "Exam", so a client that predates papers keeps working (T-076). Counts,
+         *     names and the revision rule are checked in the service, so the tutor gets a
+         *     plain message rather than a validation dump.
+         */
         PlanInputsIn: {
-            /**
-             * Exam Date
-             * Format: date
-             */
-            exam_date: string;
+            /** Exam Date */
+            exam_date?: string | null;
+            /** Papers */
+            papers?: components["schemas"]["PaperIn"][] | null;
+            /** Revision Start Date */
+            revision_start_date?: string | null;
             /** Lessons Per Week */
             lessons_per_week: number;
             /** Lesson Minutes */
@@ -6683,6 +6713,10 @@ export interface components {
              * Format: date
              */
             exam_date: string;
+            /** Papers */
+            papers: components["schemas"]["PaperOut"][];
+            /** Revision Start Date */
+            revision_start_date?: string | null;
             /** Lessons Per Week */
             lessons_per_week: number;
             /** Lesson Minutes */

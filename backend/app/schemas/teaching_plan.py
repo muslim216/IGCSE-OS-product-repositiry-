@@ -30,18 +30,38 @@ class PlanBreakCreate(BaseModel):
         return self
 
 
-class PlanInputsIn(BaseModel):
+#: Same reason as above: the service validates against it.
+PAPERS_RANGE = (1, 6)
+PAPER_NAME_MAX = 80
+
+
+class PaperIn(BaseModel):
+    #: A blank or missing name is refused by the service with a plain message.
+    name: str = ""
     exam_date: date
+
+
+class PaperOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    exam_date: date
+
+
+class PlanInputsIn(BaseModel):
+    """`papers` is the way in; a lone `exam_date` still works and becomes one paper
+    named "Exam", so a client that predates papers keeps working (T-076). Counts,
+    names and the revision rule are checked in the service, so the tutor gets a
+    plain message rather than a validation dump."""
+
+    exam_date: date | None = None
+    papers: list[PaperIn] | None = None
+    #: None means no revision window: teaching runs up to the first paper.
+    revision_start_date: date | None = None
     lessons_per_week: int = Field(ge=LESSONS_PER_WEEK_RANGE[0], le=LESSONS_PER_WEEK_RANGE[1])
     lesson_minutes: int = Field(ge=LESSON_MINUTES_RANGE[0], le=LESSON_MINUTES_RANGE[1])
     #: None means past papers have not been scheduled to start (`DB-9`).
     past_paper_start_date: date | None = None
-
-    @model_validator(mode="after")
-    def _papers_before_exam(self) -> "PlanInputsIn":
-        if self.past_paper_start_date and self.past_paper_start_date > self.exam_date:
-            raise ValueError("Past papers cannot start after the exam date")
-        return self
 
 
 class PlanSlotOut(BaseModel):
@@ -127,7 +147,11 @@ class PlanInputsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    #: The earliest paper's date.
     exam_date: date
+    #: Ordered by date. Never empty: a plan from before papers shows one, "Exam".
+    papers: list[PaperOut]
+    revision_start_date: date | None = None
     lessons_per_week: int
     lesson_minutes: int
     past_paper_start_date: date | None

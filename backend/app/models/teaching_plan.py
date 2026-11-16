@@ -101,6 +101,9 @@ class TeachingPlan(TimestampMixin, Base):
     # NULL means the tutor has not said when past papers start, so the
     # past-paper phase has not started. Never read NULL as "started" (`DB-9`).
     past_paper_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # When revision starts (T-076). NULL means no revision window was set, so
+    # teaching runs up to the exam date as before; never read NULL as "today".
+    revision_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     # What the last drafting run did and why (task 6.3, PROD-1, PROD-2). NULL
@@ -119,6 +122,14 @@ class TeachingPlan(TimestampMixin, Base):
     #                "chapters": int | None} | None}
     draft_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # Loaded with the plan: every reader needs them and an async session cannot
+    # lazy-load. `exam_date` above is kept equal to the earliest paper's date.
+    papers: Mapped[list["TeachingPlanPaper"]] = relationship(
+        back_populates="plan",
+        order_by="TeachingPlanPaper.position",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
     slots: Mapped[list["PlanSlot"]] = relationship(
         back_populates="plan",
         order_by="PlanSlot.sequence",
@@ -128,6 +139,39 @@ class TeachingPlan(TimestampMixin, Base):
     breaks: Mapped[list["PlanBreak"]] = relationship(
         back_populates="plan", cascade="all, delete-orphan", passive_deletes=True
     )
+
+    @property
+    def scheduling_end(self) -> date:
+        """The first day no chapter may be taught on: when revision starts, else the
+        exam date. Chapters are scheduled in `[start, scheduling_end)`."""
+        return self.revision_start_date or self.exam_date
+
+
+class TeachingPlanPaper(TimestampMixin, Base):
+    """One exam paper of a plan, with its own date (T-076).
+
+    A child of its plan, not a top-level aggregate: tenancy flows through the
+    plan's `organization_id`, so every read goes through a plan already scoped to
+    the caller's organization (`DB-2`, `SEC-7`). `position` is the order by date.
+    """
+
+    __tablename__ = "teaching_plan_papers"
+    # Declared here as well as in migration 0080 (`DB-12`).
+    __table_args__ = (
+        UniqueConstraint("plan_id", "position", name="uq_teaching_plan_papers_plan_id_position"),
+        Index("ix_teaching_plan_papers_plan_id", "plan_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plan_id: Mapped[int] = mapped_column(
+        ForeignKey("teaching_plans.id", ondelete="CASCADE", name="fk_teaching_plan_papers_plan_id"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    exam_date: Mapped[date] = mapped_column(Date, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    plan: Mapped[TeachingPlan] = relationship(back_populates="papers")
 
 
 class PlanSlot(TimestampMixin, Base):

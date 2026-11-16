@@ -316,6 +316,8 @@ BODIES: dict[tuple[str, str], dict] = {
         "password": "password123",
     },
     ("PATCH", "/groups/{group_id}/plan/slots/{slot_id}"): {"scheduled_date": "2030-01-01"},
+    # Either `exam_date` or `papers` is required, which a required-only body cannot say (T-076).
+    ("PUT", "/groups/{group_id}/plan/inputs"): {"exam_date": "2030-01-01"},
     # A name no student has: the sweep renames students along the way, and a body
     # that happened to match would schedule a real erasure and lock the child out
     # of every later call. The owner's own call is a 422, listed below.

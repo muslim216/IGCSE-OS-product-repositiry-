@@ -153,7 +153,7 @@ async def reflow_plan_slots(session: AsyncSession, plan_id: int) -> dict | None:
                 ),
                 # Tomorrow in the tutor's own day; today's lesson is not moved.
                 start_date=today + timedelta(days=1),
-                exam_date=plan.exam_date,
+                exam_date=plan.scheduling_end,
                 lesson_weekdays=weekdays,
                 lessons_per_week=plan.lessons_per_week,
                 breaks=blocked,
