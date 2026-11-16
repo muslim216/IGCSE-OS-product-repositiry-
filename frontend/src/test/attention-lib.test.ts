@@ -21,7 +21,7 @@ test("a submission opens its marking review", () => {
 });
 
 test("an unreadable past paper opens the shelf at that paper", () => {
-  expect(attentionHref({ ...base, past_paper_id: 9 })).toBe("/tutor/past-papers#paper-9");
+  expect(attentionHref({ ...base, past_paper_id: 9 })).toBe("/tutor/past-papers/all#paper-9");
 });
 
 test("homework whose questions couldn't be read opens the homework", () => {

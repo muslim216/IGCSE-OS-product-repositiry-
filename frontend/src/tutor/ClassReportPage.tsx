@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Printer } from "lucide-react";
 import {
@@ -11,7 +11,13 @@ import {
   type PlanReport,
 } from "../api/classReport";
 import { Button, buttonClasses } from "../components/controls";
-import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
+import {
+  EmbeddedPageContext,
+  ErrorState,
+  NotFoundState,
+  PageHeader,
+  PageSkeleton,
+} from "../components/page";
 import ReadinessFigure from "../components/ReadinessFigure";
 import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
 import { ApiError } from "../api/client";
@@ -348,14 +354,15 @@ function AttendanceSection({ attendance }: { attendance: AttendanceReport }) {
  * attendance. Everything arrives assembled from one endpoint, so the page
  * computes nothing: a figure it cannot show is absent, never 0 (PROD-2).
  */
-export default function ClassReportPage() {
-  const groupId = Number(useParams().groupId);
+export default function ClassReportPage({ groupId }: { groupId: number }) {
+  // Always inside a class's Progress tab, so the page header is a section
+  // heading (EmbeddedPageContext) with no back link of its own.
   const report = useQuery({
     queryKey: ["class-report", groupId],
     queryFn: () => classReport(groupId),
     enabled: Number.isFinite(groupId),
   });
-  const back = { to: "/tutor/reports", label: "All reports" };
+  const back = { to: "/tutor/classes", label: "All classes" };
 
   if (report.isLoading) return <PageSkeleton rows={4} label="Loading the report" />;
   if (report.isError) {
@@ -374,44 +381,45 @@ export default function ClassReportPage() {
   const r = data.readiness;
 
   return (
-    <div>
-      <PageHeader
-        back={back}
-        title={`${data.name} report`}
-        documentTitle={`${data.name} report`}
-        description={`${data.subject_name} · generated ${new Date(data.generated_at).toLocaleDateString()}`}
-        actions={
-          <Button
-            variant="secondary"
-            size="md"
-            className="print:hidden"
-            onClick={() => window.print()}
-          >
-            <Printer aria-hidden className="mr-2 h-4 w-4" />
-            Print
-          </Button>
-        }
-      />
-      <div className="space-y-6">
-        <PlanSection plan={data.plan} groupId={data.group_id} />
-        <Section title="Class readiness">
-          <div className="text-sm">
-            <ReadinessFigure
-              score={r.score ?? null}
-              grade={r.predicted_grade ?? null}
-              status={bandOf(r.status)}
-              boundariesMissing={r.boundaries_missing}
-            />
-            <p className="mt-1 text-xs text-ink-500">
-              Based on {r.students_with_evidence} of {plural(r.member_count, "learner")} with
-              evidence.
-            </p>
-          </div>
-        </Section>
-        <ChaptersSection report={data} />
-        <MistakesSection mistakes={data.mistakes} />
-        <AttendanceSection attendance={data.attendance} />
+    <EmbeddedPageContext.Provider value="class-report-title">
+      <div>
+        <PageHeader
+          title={`${data.name} report`}
+          documentTitle={`${data.name} report`}
+          description={`${data.subject_name} · generated ${new Date(data.generated_at).toLocaleDateString()}`}
+          actions={
+            <Button
+              variant="secondary"
+              size="md"
+              className="print:hidden"
+              onClick={() => window.print()}
+            >
+              <Printer aria-hidden className="mr-2 h-4 w-4" />
+              Print
+            </Button>
+          }
+        />
+        <div className="space-y-6">
+          <PlanSection plan={data.plan} groupId={data.group_id} />
+          <Section title="Class readiness">
+            <div className="text-sm">
+              <ReadinessFigure
+                score={r.score ?? null}
+                grade={r.predicted_grade ?? null}
+                status={bandOf(r.status)}
+                boundariesMissing={r.boundaries_missing}
+              />
+              <p className="mt-1 text-xs text-ink-500">
+                Based on {r.students_with_evidence} of {plural(r.member_count, "learner")} with
+                evidence.
+              </p>
+            </div>
+          </Section>
+          <ChaptersSection report={data} />
+          <MistakesSection mistakes={data.mistakes} />
+          <AttendanceSection attendance={data.attendance} />
+        </div>
       </div>
-    </div>
+    </EmbeddedPageContext.Provider>
   );
 }

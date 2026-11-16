@@ -9,6 +9,8 @@ import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { Button, Field, Input, Select } from "../components/controls";
 import { ErrorState, PageHeader, Skeleton } from "../components/page";
 
+const tipKey = (id: string) => `avora-tip-moved-${id}`;
+
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
@@ -85,6 +87,33 @@ export default function GroupsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const notice = (location.state as { notice?: string } | null)?.notice;
+  // The one-line tip an old menu link arrives with ("Past papers now live inside
+  // each class, under Work."). It is kept in state from the first render, and
+  // it also stays in this history entry, so a refresh shows it again until it
+  // is dismissed. Each tip is remembered on its own, so dismissing one does not
+  // hide a different one. Storage can be blocked, and the tip is not worth a crash.
+  const [moved] = useState(() => {
+    const state = location.state as { tip?: string; tipId?: string } | null;
+    return state?.tip ? { tip: state.tip, id: state.tipId ?? state.tip } : null;
+  });
+  const [tipGone, setTipGone] = useState(() => {
+    if (!moved) return false;
+    try {
+      return localStorage.getItem(tipKey(moved.id)) === "1";
+    } catch {
+      return false;
+    }
+  });
+  function dismissTip() {
+    // Focus moves before the button goes, or it would fall back to the page body.
+    document.querySelector<HTMLElement>("main h1")?.focus();
+    setTipGone(true);
+    try {
+      if (moved) localStorage.setItem(tipKey(moved.id), "1");
+    } catch {
+      /* the tip simply returns next time */
+    }
+  }
   useEffect(() => {
     if (!notice) return;
     showToast(notice);
@@ -126,6 +155,19 @@ export default function GroupsPage() {
           )
         }
       />
+
+      {moved && !tipGone && (
+        <div className="mb-6 flex items-center justify-between gap-3 rounded-lg bg-surface-muted px-4 py-2.5 text-sm text-ink-700">
+          <p>{moved.tip}</p>
+          <button
+            type="button"
+            onClick={dismissTip}
+            className="min-h-[44px] shrink-0 rounded-md px-2 font-medium text-brand-600 hover:text-brand-700"
+          >
+            Dismiss<span className="sr-only"> tip</span>
+          </button>
+        </div>
+      )}
 
       {showForm && (
         <SectionCard className="mb-6">

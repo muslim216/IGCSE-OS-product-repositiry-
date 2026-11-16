@@ -398,7 +398,7 @@ test("an unreadable past paper under NEEDS YOU links to the shelf that fixes it"
   renderDashboard();
 
   const link = await screen.findByRole("link", { name: /0620_w26_qp_21\.pdf/ });
-  expect(link).toHaveAttribute("href", "/tutor/past-papers#paper-9");
+  expect(link).toHaveAttribute("href", "/tutor/past-papers/all#paper-9");
   expect(link).toHaveTextContent("past paper");
   expect(screen.getByText("Couldn't read the questions")).toBeInTheDocument();
   // Something needs the tutor, so the day is not called clear.

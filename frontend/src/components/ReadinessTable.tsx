@@ -51,6 +51,7 @@ export default function ReadinessTable({
   capped = false,
   boundariesMissing = false,
   subjectId,
+  groupId,
 }: {
   rows: LearnerRow[];
   filter: ReadinessFilter;
@@ -64,6 +65,8 @@ export default function ReadinessTable({
   boundariesMissing?: boolean;
   /** Which subject the rows are for, so the boundaries link opens it. */
   subjectId?: number | null;
+  /** The class the rows are for, so the empty state can lead to its homework. */
+  groupId?: number;
 }) {
   const flagged = rows.filter((r) => matchesFilter(r, "needs_attention")).length;
   const onTrack = rows.filter((r) => r.status === "on_track").length;
@@ -154,7 +157,10 @@ export default function ReadinessTable({
           title="No readiness evidence yet."
           hint="Marked homework, assessments and past papers build each learner's picture."
           action={
-            <Link to="/tutor/homework" className="font-medium text-brand-600 hover:text-brand-700">
+            <Link
+              to={groupId ? `/tutor/groups/${groupId}/homework` : "/tutor/classes"}
+              className="font-medium text-brand-600 hover:text-brand-700"
+            >
               Go to homework →
             </Link>
           }

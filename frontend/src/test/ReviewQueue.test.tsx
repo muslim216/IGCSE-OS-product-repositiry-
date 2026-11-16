@@ -157,7 +157,7 @@ test("a past paper that couldn't be read goes to the shelf that fixes it", async
   renderPage();
 
   const link = await screen.findByRole("link", { name: /0620_w26_qp_21\.pdf/ });
-  expect(link).toHaveAttribute("href", "/tutor/past-papers#paper-9");
+  expect(link).toHaveAttribute("href", "/tutor/past-papers/all#paper-9");
   expect(within(link).getByText("Past paper")).toBeInTheDocument();
   expect(within(link).getByText("Couldn't read the questions")).toBeInTheDocument();
   expect(screen.queryByText("You're all caught up.")).not.toBeInTheDocument();

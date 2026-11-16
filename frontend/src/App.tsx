@@ -1,24 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import {
-  BookOpen,
-  ClipboardCheck,
-  ClipboardList,
-  FileText,
-  FolderOpen,
-  FileBarChart,
-  Gauge,
-  GraduationCap,
-  LayoutDashboard,
-  PenLine,
-  Settings as SettingsIcon,
-  SlidersHorizontal,
-  Home as HomeIcon,
-  UserRound,
-  Users,
-  Video,
-} from "lucide-react";
 import { useAuth } from "./auth/AuthContext";
-import type { NavItem } from "./components/AppShell";
+import { STUDENT_NAV, TUTOR_ACCOUNT_MENU, TUTOR_NAV } from "./nav";
+import { Keep, MovedToClass, PastPapersEntry, ReportRedirect } from "./redirects";
 import LoginPage from "./auth/LoginPage";
 import TutorSignupPage from "./auth/TutorSignupPage";
 import JoinPage from "./auth/JoinPage";
@@ -32,7 +15,6 @@ import WeeklySendPage, { WeeklySendRedirect } from "./components/WeeklySendPage"
 import { BrandedLoading } from "./components/brand";
 import GroupsPage from "./tutor/GroupsPage";
 import GroupLayout from "./tutor/GroupLayout";
-import TutorHomeworkPage from "./tutor/HomeworkPage";
 import TutorStudentsPage from "./tutor/StudentsPage";
 import HomeworkTab from "./tutor/tabs/HomeworkTab";
 import StudentsTab from "./tutor/tabs/StudentsTab";
@@ -45,9 +27,6 @@ import SubmissionReviewPage from "./tutor/SubmissionReviewPage";
 import StudentDetailPage from "./tutor/StudentDetailPage";
 import GroupAnalyticsPage from "./tutor/GroupAnalyticsPage";
 import MockEntryPage from "./tutor/MockEntryPage";
-import ClassReadinessPage from "./tutor/ClassReadinessPage";
-import ReportsPage from "./tutor/ReportsPage";
-import ClassReportPage from "./tutor/ClassReportPage";
 import TodayDashboard from "./tutor/today/TodayDashboard";
 import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
@@ -56,8 +35,8 @@ import MocksPage from "./tutor/MocksPage";
 import SubjectSetupPage from "./tutor/SubjectSetupPage";
 import SettingsPage from "./tutor/SettingsPage";
 import IntegrationCallbackPage from "./tutor/IntegrationCallbackPage";
-import TutorPastPapersPage from "./tutor/PastPapersPage";
 import BookletsPage from "./tutor/BookletsPage";
+import PastPapersPage from "./tutor/PastPapersPage";
 
 import StudentHomePage from "./student/StudentHomePage";
 import ProgressPage from "./student/ProgressPage";
@@ -81,71 +60,16 @@ function Home() {
   return user ? <Navigate to={homePathFor(user)} replace /> : <LandingPage />;
 }
 
-const STUDENT_NAV: NavItem[] = [
-  { to: "/student", label: "Home", icon: HomeIcon },
-  // "Progress", not "Readiness": the destination shows a student their predicted
-  // grade beside the average of their marked work and explains the gap. Naming
-  // it after the engine that computes one of those numbers described the
-  // machinery rather than what the reader gets (UX-25).
-  { to: "/student/progress", label: "Progress", icon: Gauge },
-  { to: "/student/homework", label: "Homework", icon: ClipboardList },
-  { to: "/student/past-papers", label: "Past papers", icon: FileText },
-  { to: "/student/mocks", label: "Mocks", icon: ClipboardCheck },
-  { to: "/student/exams", label: "Exams", icon: GraduationCap },
-  { to: "/student/files", label: "Files", icon: FolderOpen },
-  { to: "/student/recordings", label: "Recordings", icon: Video },
-];
-
-// Twelve destinations, in the order the owner set on 2026-10-06 (9.3c). The
-// earlier nine came from "don't change the full structure ... only the
-// skeletons" (2026-10-05): readiness, exam papers and every setup page had been
-// dropped onto the Library shelf and each now has a name where the tutor looks
-// for it. 9.3c adds the two cross-class lists the tutor reaches for daily,
-// Homework and Students, splits "Papers & mocks" back into Mocks and Past
-// papers, and renames Today to Overview (the label only: the route, component
-// and files keep their names, and "today" still means the calendar day in copy).
-// Settings holds the account; everything that belongs to a subject sits in
-// Subject setup (9.3a).
-// Old URLs still land (setup pages redirect into Subject setup, and Settings
-// forwards its moved section hashes there), so no bookmark 404s (edge case 20).
-// `also` keeps a nested page's parent lit; Subject setup claims the old setup
-// URLs so it stays lit if one is ever rendered without redirecting, Students
-// claims its own prefix because the exact match alone would drop it on a
-// student's page (`/tutor/students/:id`), Review claims a submission's page
-// (`/tutor/submissions/:id`), which is opened from the queue, and Past papers
-// claims Booklets, which sits with it. The retired Papers & mocks hub is only a
-// redirect to Past papers now.
-const TUTOR_NAV: NavItem[] = [
-  { to: "/tutor", label: "Overview", icon: LayoutDashboard },
-  { to: "/tutor/review", label: "Review", icon: ClipboardCheck, also: ["/tutor/submissions"] },
-  { to: "/tutor/homework", label: "Homework", icon: ClipboardList, also: ["/tutor/assignments"] },
-  { to: "/tutor/classes", label: "Classes", icon: Users, also: ["/tutor/groups"] },
-  { to: "/tutor/students", label: "Students", icon: UserRound, also: ["/tutor/students"] },
-  { to: "/tutor/mocks", label: "Mocks", icon: PenLine },
-  {
-    to: "/tutor/past-papers",
-    label: "Past papers",
-    icon: FileText,
-    also: ["/tutor/booklets"],
-  },
-  { to: "/tutor/readiness", label: "Readiness", icon: Gauge },
-  { to: "/tutor/reports", label: "Reports", icon: FileBarChart },
-  { to: "/tutor/library", label: "Library", icon: BookOpen },
-  {
-    to: "/tutor/subject-setup",
-    label: "Subject setup",
-    icon: SlidersHorizontal,
-    also: [
-      "/tutor/syllabuses",
-      "/tutor/boundaries",
-      "/tutor/teaching-guidance",
-      "/tutor/marking-rules",
-      "/tutor/mistake-categories",
-      "/tutor/preferences",
-    ],
-  },
-  { to: "/tutor/settings", label: "Settings", icon: SettingsIcon },
-];
+const PastPapersMoved = () => (
+  <PastPapersEntry>
+    <MovedToClass
+      tab="homework"
+      hash="#past-papers"
+      tipId="past-papers"
+      tip="Past papers now live inside each class, under Work."
+    />
+  </PastPapersEntry>
+);
 
 export default function App() {
   return (
@@ -158,45 +82,86 @@ export default function App() {
       <Route path="/parent-join/:code" element={<ParentJoinPage />} />
 
       <Route element={<ProtectedRoute roles={["tutor", "admin"]} />}>
-        <Route element={<AppShell title="Tutor" nav={TUTOR_NAV} accountPath="/tutor/settings" />}>
+        <Route
+          element={
+            <AppShell
+              title="Tutor"
+              nav={TUTOR_NAV}
+              accountPath="/tutor/settings"
+              accountMenu={TUTOR_ACCOUNT_MENU}
+              barSize={5}
+            />
+          }
+        >
           <Route path="/tutor" element={<TodayDashboard />} />
           <Route path="/tutor/classes" element={<GroupsPage />} />
           <Route path="/tutor/review" element={<ReviewQueuePage />} />
           <Route path="/tutor/library" element={<LibraryPage />} />
-          <Route path="/tutor/papers" element={<Navigate to="/tutor/past-papers" replace />} />
+          {/* Homework, Past papers, Readiness and Reports left the menu in T-039 and live inside each class. */}
+          <Route path="/tutor/papers" element={<PastPapersMoved />} />
           {/* Setup pages became sections of Subject setup (first of Settings); the old URLs land on theirs. */}
           <Route path="/tutor/subject-setup" element={<SubjectSetupPage />} />
-          <Route path="/tutor/readiness" element={<ClassReadinessPage />} />
-          <Route path="/tutor/reports" element={<ReportsPage />} />
-          <Route path="/tutor/reports/:groupId" element={<ClassReportPage />} />
+          <Route
+            path="/tutor/readiness"
+            element={
+              <MovedToClass
+                tab="analytics"
+                hash="#readiness"
+                tipId="readiness"
+                tip="Readiness now lives inside each class, under Progress."
+              />
+            }
+          />
+          <Route
+            path="/tutor/reports"
+            element={
+              <MovedToClass
+                tab="analytics"
+                hash="#reports"
+                tipId="reports"
+                tip="Reports now live inside each class, under Progress."
+              />
+            }
+          />
+          <Route path="/tutor/reports/:groupId" element={<ReportRedirect />} />
           <Route
             path="/tutor/boundaries"
-            element={<Navigate to="/tutor/subject-setup#boundaries" replace />}
+            element={<Keep to="/tutor/subject-setup" hash="#boundaries" />}
           />
           <Route
             path="/tutor/mistake-categories"
-            element={<Navigate to="/tutor/subject-setup#mistake-categories" replace />}
+            element={<Keep to="/tutor/subject-setup" hash="#mistake-categories" />}
           />
           <Route
             path="/tutor/syllabuses"
-            element={<Navigate to="/tutor/subject-setup#syllabus" replace />}
+            element={<Keep to="/tutor/subject-setup" hash="#syllabus" />}
           />
           <Route
             path="/tutor/teaching-guidance"
-            element={<Navigate to="/tutor/subject-setup#teaching-guidance" replace />}
+            element={<Keep to="/tutor/subject-setup" hash="#teaching-guidance" />}
           />
           <Route
             path="/tutor/marking-rules"
-            element={<Navigate to="/tutor/subject-setup#marking-rules" replace />}
+            element={<Keep to="/tutor/subject-setup" hash="#marking-rules" />}
           />
           <Route
             path="/tutor/preferences"
-            element={<Navigate to="/tutor/subject-setup#preferences" replace />}
+            element={<Keep to="/tutor/subject-setup" hash="#preferences" />}
           />
           <Route path="/tutor/mocks" element={<MocksPage />} />
           <Route path="/tutor/mocks/:mockId" element={<MockPage />} />
-          <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />
-          <Route path="/tutor/homework" element={<TutorHomeworkPage />} />
+          <Route path="/tutor/today" element={<Keep to="/tutor" />} />
+          <Route
+            path="/tutor/homework"
+            element={
+              <MovedToClass
+                tab="homework"
+                hash=""
+                tipId="homework"
+                tip="Homework now lives inside each class, under Work."
+              />
+            }
+          />
           <Route path="/tutor/students" element={<TutorStudentsPage />} />
           {/* Everything belonging to a class renders inside its tabbed layout. */}
           <Route path="/tutor/groups/:groupId" element={<GroupLayout />}>
@@ -219,8 +184,14 @@ export default function App() {
             path="/tutor/settings/integrations/:provider/callback"
             element={<IntegrationCallbackPage />}
           />
-          <Route path="/tutor/past-papers" element={<TutorPastPapersPage />} />
-          <Route path="/tutor/booklets" element={<BookletsPage />} />
+          <Route path="/tutor/past-papers" element={<PastPapersMoved />} />
+          {/* Booklets is a page of its own, not a class tab, so its old address follows it. */}
+          <Route path="/tutor/booklets" element={<Keep to="/tutor/past-papers/booklets" />} />
+          <Route path="/tutor/past-papers/booklets" element={<BookletsPage />} />
+          {/* Every subject's papers in one place. A class's Work tab shows only its own
+              subject, so a paper for a subject with no class, or an upload for one, needs
+              this; the to-do list's link to a paper lands here too. */}
+          <Route path="/tutor/past-papers/all" element={<PastPapersPage />} />
         </Route>
       </Route>
 

@@ -1,12 +1,17 @@
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Plus } from "lucide-react";
+import { myOrganization } from "../../api/auth";
 import { listGroupAssignments } from "../../api/homework";
+import { useMyTimezone } from "../../auth/AuthContext";
 import { useGroupContext } from "../GroupLayout";
 import { EmptyState, SectionCard } from "../../components/ui";
 import { buttonClasses } from "../../components/controls";
 import { ErrorState, SectionSkeleton } from "../../components/page";
 import { assignmentStatus } from "../../lib/assignmentStatus";
+import { formatDayMonth } from "../../lib/timezones";
+import PastPapersPage from "../PastPapersPage";
 
 function StatusBadge({ status, submissionCount }: { status: string; submissionCount: number }) {
   if (status === "published")
@@ -23,13 +28,54 @@ function StatusBadge({ status, submissionCount }: { status: string; submissionCo
   );
 }
 
+/** The class's Work tab: its homework, then its past papers. Past papers used
+    to be a top-level menu item; they sit here, filtered to the class's subject,
+    so the tutor looks for them where the class is. The section id is the
+    target of the old Past papers links (`#past-papers`). */
 export default function HomeworkTab() {
+  const { group } = useGroupContext();
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash === "#past-papers") document.getElementById("past-papers")?.scrollIntoView?.();
+  }, [hash]);
+  return (
+    <div className="space-y-10">
+      <HomeworkList />
+      <section id="past-papers" aria-label="Past papers" className="scroll-mt-24">
+        <PastPapersPage subjectId={group.subject.id} />
+      </section>
+    </div>
+  );
+}
+
+/** In the tutor's own zone, else the organization's, so a date near midnight
+    names the same day on every tutor screen. `null` means the organization's
+    zone is still loading: show nothing rather than a day in the browser's zone
+    that then changes. */
+function dueLabel(dueAt: string | null, timeZone: string | null): string {
+  if (!dueAt) return "No due date";
+  if (timeZone === null) return "";
+  return `Due ${formatDayMonth(new Date(dueAt), timeZone)}`;
+}
+
+function HomeworkList() {
   const { groupId } = useGroupContext();
+  const myZone = useMyTimezone();
+  const org = useQuery({
+    queryKey: ["my-organization"],
+    queryFn: myOrganization,
+    enabled: !myZone,
+  });
+  const timeZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
   const assignments = useQuery({
     queryKey: ["assignments", groupId],
     queryFn: () => listGroupAssignments(groupId),
   });
   const newHomework = `/tutor/groups/${groupId}/new-homework`;
+  const due = (dueAt: string | null) => {
+    const label = dueLabel(dueAt, timeZone);
+    return label ? `${label} · ` : "";
+  };
 
   if (assignments.isLoading) return <SectionSkeleton rows={4} label="Loading homework" />;
 
@@ -82,6 +128,7 @@ export default function HomeworkTab() {
               <span className="min-w-0">
                 <span className="block truncate font-medium text-ink-900">{a.title}</span>
                 <span className="text-sm text-ink-500">
+                  {due(a.due_at)}
                   {a.total_marks} {a.total_marks === 1 ? "mark" : "marks"}
                 </span>
               </span>

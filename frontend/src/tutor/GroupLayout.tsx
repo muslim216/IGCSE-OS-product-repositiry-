@@ -137,7 +137,7 @@ function TabBar({ groupId, children }: { groupId: number; children: ReactNode })
     <nav
       ref={navRef}
       aria-label="Class sections"
-      className="relative mt-8 flex gap-1 overflow-x-auto border-b border-line pb-3"
+      className="relative mt-8 flex gap-1 overflow-x-auto border-b border-line pb-3 print:hidden"
     >
       {box && (
         <span
@@ -205,7 +205,7 @@ export default function GroupLayout() {
 
   const g = group.data;
   const base = `/tutor/groups/${id}`;
-  // The class's bare URL redirects to Homework (App.tsx), so Homework is the
+  // The class's bare URL redirects to Work (App.tsx), so Work is the
   // landing tab. Matched on the path, ignoring a trailing slash.
   const onLandingTab = pathname.replace(/\/+$/, "") === `${base}/homework`;
 
@@ -213,7 +213,7 @@ export default function GroupLayout() {
     <div>
       {/* Changing tab re-shows the header and headline rather than arriving at
           them, so they hold still and only the tab's own content comes in. */}
-      <div className={sameClassAsLastRender ? "avora-still" : undefined}>
+      <div className={`print:hidden${sameClassAsLastRender ? " avora-still" : ""}`}>
         <PageHeader
           title={g.name}
           back={ALL_CLASSES}
@@ -244,17 +244,19 @@ export default function GroupLayout() {
       </div>
 
       <TabBar groupId={id}>
-        <Tab to={`${base}/homework`} label="Homework" badge={g.awaiting_review_count} />
+        <Tab to={`${base}/homework`} label="Work" badge={g.awaiting_review_count} />
         <Tab to={`${base}/students`} label="Students" />
         <Tab to={`${base}/syllabus`} label="Syllabus" />
         <Tab to={`${base}/schedule`} label="Schedule" />
         <Tab to={`${base}/resources`} label="Resources" />
-        <Tab to={`${base}/analytics`} label="Analytics" />
+        <Tab to={`${base}/analytics`} label="Progress" />
       </TabBar>
 
       <div className="py-6">
         <Outlet context={{ group: g, groupId: id } satisfies GroupContext} />
-        <DeleteClass groupId={id} name={g.name} />
+        <div className="print:hidden">
+          <DeleteClass groupId={id} name={g.name} />
+        </div>
       </div>
     </div>
   );

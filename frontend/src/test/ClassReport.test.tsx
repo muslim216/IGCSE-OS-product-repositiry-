@@ -1,9 +1,8 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import ClassReportPage from "../tutor/ClassReportPage";
-import ReportsPage from "../tutor/ReportsPage";
 import type { ClassReport } from "../api/classReport";
 
 const FULL: ClassReport = {
@@ -156,16 +155,14 @@ function stub(body: ClassReport | number | "pending") {
   );
 }
 
-function renderAt(path: string) {
+/** The report is a section of a class's Progress tab, so it is given the class. */
+function renderReport() {
   return render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/tutor/reports" element={<ReportsPage />} />
-          <Route path="/tutor/reports/:groupId" element={<ClassReportPage />} />
-        </Routes>
+      <MemoryRouter>
+        <ClassReportPage groupId={5} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -173,22 +170,15 @@ function renderAt(path: string) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-test("lists the tutor's classes, each linking to its report", async () => {
-  stub(FULL);
-  renderAt("/tutor/reports");
-  const link = await screen.findByRole("link", { name: /Physics A/ });
-  expect(link).toHaveAttribute("href", "/tutor/reports/5");
-});
-
 test("shows a loading state while the report is on its way", () => {
   stub("pending");
-  renderAt("/tutor/reports/5");
+  renderReport();
   expect(screen.getByRole("status", { name: "Loading the report" })).toBeInTheDocument();
 });
 
 test("leads with the plan: countdown, position against it, lessons left and what is next", async () => {
   stub(FULL);
-  renderAt("/tutor/reports/5");
+  renderReport();
   const plan = (await screen.findByRole("heading", { name: /Plan & countdown/i })).closest(
     "section",
   )!;
@@ -201,11 +191,13 @@ test("leads with the plan: countdown, position against it, lessons left and what
   // The plan is the first section, ahead of every other.
   const sections = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
   expect(sections.slice(0, 2)).toEqual(["Plan & countdown", "Class readiness"]);
+  // A stray ");" once rendered as text at the foot of the report.
+  expect(document.body.textContent).not.toContain(");");
 });
 
 test("frames chapters against the plan and flags weak topics at the shared threshold", async () => {
   stub(FULL);
-  renderAt("/tutor/reports/5");
+  renderReport();
   expect(await screen.findByText(/at or below 60%/)).toHaveTextContent("Structure (42%)");
   const row = screen.getByText("1.1 Structure").closest("tr")!;
   expect(row).toHaveTextContent("42%");
@@ -219,7 +211,7 @@ test("frames chapters against the plan and flags weak topics at the shared thres
 
 test("mistake patterns and attendance carry their basis; an unmarked learner has no rate", async () => {
   stub(FULL);
-  renderAt("/tutor/reports/5");
+  renderReport();
   expect(await screen.findByText(/5 mistakes across 12 analysed questions/)).toBeInTheDocument();
   expect(screen.getByText("60%")).toBeInTheDocument();
   expect(screen.getByText(/\(3 of 4 marks\)/)).toBeInTheDocument();
@@ -229,7 +221,7 @@ test("mistake patterns and attendance carry their basis; an unmarked learner has
 
 test("with no plan and no evidence, every section says what is missing instead of showing zeros", async () => {
   stub(NO_DATA);
-  renderAt("/tutor/reports/5");
+  renderReport();
   expect(await screen.findByText("No teaching plan accepted yet")).toBeInTheDocument();
   expect(screen.getAllByText(/not enough data yet/i).length).toBeGreaterThanOrEqual(2);
   expect(screen.getByText(/no marked work has been analysed/)).toBeInTheDocument();
@@ -242,22 +234,26 @@ test("a plan with no live lessons says so instead of 0 of 0", async () => {
     ...FULL,
     plan: { ...FULL.plan, lessons_planned: 0, lessons_taught: 0, lessons_left: 0, up_next: null },
   });
-  renderAt("/tutor/reports/5");
+  renderReport();
   expect(await screen.findByText("No lessons planned")).toBeInTheDocument();
   expect(screen.queryByText(/0 of 0/)).not.toBeInTheDocument();
 });
 
 test("a class that is not the tutor's is a not-found page", async () => {
   stub(404);
-  renderAt("/tutor/reports/5");
+  renderReport();
   expect(await screen.findByText(/couldn't find that class/i)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /All classes/ })).toHaveAttribute(
+    "href",
+    "/tutor/classes",
+  );
 });
 
 test("Print opens the browser's print dialog", async () => {
   stub(FULL);
   const print = vi.fn();
   vi.stubGlobal("print", print);
-  renderAt("/tutor/reports/5");
+  renderReport();
   fireEvent.click(await screen.findByRole("button", { name: /Print/ }));
   expect(print).toHaveBeenCalledOnce();
 });

@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { groupAnalytics } from "../api/readiness";
 import { classOverview } from "../api/today";
@@ -8,6 +8,8 @@ import { ABSENT } from "../lib/labels";
 import { bandOf } from "../lib/readiness";
 import { SectionCard } from "../components/ui";
 import { ErrorState, SectionSkeleton } from "../components/page";
+import ClassReadinessPage from "./ClassReadinessPage";
+import ClassReportPage from "./ClassReportPage";
 
 function CardTitle({ title, description }: { title: string; description: string }) {
   return (
@@ -26,9 +28,7 @@ function CardTitle({ title, description }: { title: string; description: string 
  * each learner from the subject's own boundaries, so it can say grade, status
  * and percentage like every other readiness figure (coherence C.6).
  */
-export default function GroupAnalyticsPage() {
-  const { groupId } = useParams();
-  const id = Number(groupId);
+function AnalyticsSection({ id }: { id: number }) {
   const analytics = useQuery({
     queryKey: ["analytics", id],
     queryFn: () => groupAnalytics(id),
@@ -202,6 +202,55 @@ export default function GroupAnalyticsPage() {
           )}
         </SectionCard>
       </div>
+    </div>
+  );
+}
+
+const SECTIONS = [
+  { hash: "", label: "Analytics" },
+  { hash: "#readiness", label: "Readiness" },
+  { hash: "#reports", label: "Reports" },
+] as const;
+
+/**
+ * A class's Progress tab: Analytics, Readiness and Reports behind a small
+ * switch, one at a time (UX-34). The open section is the URL hash, pushed not
+ * replaced, so Back steps between sections (UX-60). Only the open section is
+ * mounted, so only its data is fetched.
+ */
+export default function GroupAnalyticsPage() {
+  const id = Number(useParams().groupId);
+  const { hash, search } = useLocation();
+  const open = SECTIONS.find((s) => s.hash && s.hash === hash) ?? SECTIONS[0];
+  return (
+    <div className="space-y-6">
+      {/* Said aloud, since only the content below changes (WCAG 4.1.3). */}
+      <p role="status" className="sr-only">
+        Showing {open.label}
+      </p>
+      <nav aria-label="Progress sections" className="flex flex-wrap gap-1 print:hidden">
+        {SECTIONS.map((s) => (
+          <Link
+            key={s.label}
+            to={{ search, hash: s.hash }}
+            aria-current={s === open ? "true" : undefined}
+            className={`avora-press inline-flex min-h-[44px] items-center rounded-full px-3 py-1.5 text-sm font-medium transition ${
+              s === open
+                ? "bg-surface-muted text-ink-900"
+                : "text-ink-500 hover:bg-surface hover:text-ink-900"
+            }`}
+          >
+            {s.label}
+          </Link>
+        ))}
+      </nav>
+      {open.label === "Readiness" ? (
+        <ClassReadinessPage groupId={id} />
+      ) : open.label === "Reports" ? (
+        <ClassReportPage groupId={id} />
+      ) : (
+        <AnalyticsSection id={id} />
+      )}
     </div>
   );
 }

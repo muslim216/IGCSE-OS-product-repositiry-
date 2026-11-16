@@ -43,7 +43,7 @@ const OVERVIEW: ClassOverview = {
   weak_topics: [],
 };
 
-function stubFetch(overview: ClassOverview | null = OVERVIEW, groups = true) {
+function stubFetch(overview: ClassOverview | null = OVERVIEW) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -51,9 +51,7 @@ function stubFetch(overview: ClassOverview | null = OVERVIEW, groups = true) {
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
       if (url.includes("/today/classes/") && overview) return json(overview);
       if (url.includes("/groups")) {
-        return groups
-          ? json([{ id: 5, name: "Physics A", subject: SUBJECT, member_count: 2 }])
-          : json([]);
+        return json({ id: 5, name: "Physics A", subject: SUBJECT, member_count: 2 });
       }
       return json([]);
     }),
@@ -66,7 +64,7 @@ function renderPage() {
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
       <MemoryRouter>
-        <ClassReadinessPage />
+        <ClassReadinessPage groupId={5} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -134,10 +132,4 @@ test("a subject with no boundaries keeps its scored learners, unbanded, and says
   expect(screen.getByRole("button", { name: /^All 2/ })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^Needs attention 0/ })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^On track 0/ })).toBeInTheDocument();
-});
-
-test("says a class needs to be created rather than showing an empty table", async () => {
-  stubFetch(null, false);
-  renderPage();
-  expect(await screen.findByText("You haven't set up a class yet.")).toBeInTheDocument();
 });
