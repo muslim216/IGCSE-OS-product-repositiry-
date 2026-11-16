@@ -28,11 +28,11 @@ function classStep(group: OnboardingClass): { label: string; to: string } | null
   const base = `/tutor/groups/${group.group_id}`;
   switch (step.key) {
     case "timetable":
-      return { label: "Add a timetable", to: `${base}/schedule` };
+      return { label: "Add a timetable", to: `${base}/schedule?settings=1` };
     case "taught_before":
       return { label: "Say where this class is up to", to: `${base}/syllabus#taught-before` };
     case "plan_inputs":
-      return { label: "Enter the plan details", to: `${base}/schedule` };
+      return { label: "Enter the plan details", to: `${base}/schedule?settings=1` };
     case "plan_accepted":
       return { label: "Accept the teaching plan", to: `${base}/schedule` };
     default:
