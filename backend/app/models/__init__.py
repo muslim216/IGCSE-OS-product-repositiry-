@@ -121,6 +121,7 @@ from app.models.teaching_plan import (
     PlanSlot,
     PlanSlotProvenance,
     TeachingPlan,
+    TeachingPlanPaper,
     TeachingPlanStatus,
 )
 from app.models.users import User, UserRole
@@ -241,6 +242,7 @@ __all__ = [
     "SyllabusUpload",
     "SyllabusUploadStatus",
     "TeachingPlan",
+    "TeachingPlanPaper",
     "TeachingPlanStatus",
     "Topic",
     "TutorNote",

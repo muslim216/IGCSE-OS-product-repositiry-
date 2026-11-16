@@ -26,6 +26,8 @@ from app.services.teaching_plan import (
     PlanStateError,
     _latest_draft_jobs,
     lock_group_plans,
+    plan_papers,
+    set_plan_papers,
     validate_inputs,
 )
 
@@ -85,6 +87,7 @@ async def replan(session: AsyncSession, *, group: Group, today: date) -> Teachin
             accepted.lesson_minutes,
             accepted.past_paper_start_date,
             today=today,
+            revision_start_date=accepted.revision_start_date,
         )
     except PlanInputError as exc:
         raise PlanStateError(f"This plan cannot be re-planned: {exc}") from exc
@@ -98,6 +101,8 @@ async def replan(session: AsyncSession, *, group: Group, today: date) -> Teachin
             lessons_per_week=accepted.lessons_per_week,
             lesson_minutes=accepted.lesson_minutes,
             past_paper_start_date=accepted.past_paper_start_date,
+            revision_start_date=accepted.revision_start_date,
+            papers=[],
         )
         try:
             # A savepoint: a concurrent save can create the class's draft after
@@ -124,7 +129,8 @@ async def replan(session: AsyncSession, *, group: Group, today: date) -> Teachin
                 raise PlanStateError(
                     "A plan is already being drafted. Wait for it to finish."
                 ) from None
-    draft.exam_date = accepted.exam_date
+    set_plan_papers(draft, plan_papers(accepted))
+    draft.revision_start_date = accepted.revision_start_date
     draft.lessons_per_week = accepted.lessons_per_week
     draft.lesson_minutes = accepted.lesson_minutes
     draft.past_paper_start_date = accepted.past_paper_start_date

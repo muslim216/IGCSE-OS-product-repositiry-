@@ -287,6 +287,8 @@ def test_migration_matches_model_metadata(upgraded, table):
     # Columns added by later revisions (0061's draft_result) are in the model but
     # not in this revision's DDL; test_migration_0061 holds the full-chain parity.
     model_shape["columns"].pop("draft_result", None)
+    # And 0080's revision_start_date (its own test holds the parity).
+    model_shape["columns"].pop("revision_start_date", None)
     # Likewise 0062's plan_slots.lesson_id and its FK + unique constraint.
     model_shape["columns"].pop("lesson_id", None)
     model_shape["fks"].pop("lesson_id", None)

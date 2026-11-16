@@ -46,7 +46,7 @@ def _cancel(group, slot_id):
     return f"/api/v1/groups/{group['id']}/plan/slots/{slot_id}/cancel"
 
 
-async def _world(group, tutor, subject, *, n=5, exam=None, timetable=True):
+async def _world(group, tutor, subject, *, n=5, exam=None, timetable=True, revision=None):
     if timetable:
         await add_timetable(group, MON, time(17, 0))
         await add_timetable(group, THU, time(15, 0))
@@ -54,6 +54,8 @@ async def _world(group, tutor, subject, *, n=5, exam=None, timetable=True):
     dates = meeting_dates(n)
     pattern = [ch["c1"], ch["c1"], ch["c2"], ch["c1"], ch["c2"]][:n]
     kwargs = {"exam": exam} if exam else {}
+    if revision:
+        kwargs["revision_start"] = revision
     plan_id, ids = await make_plan(
         group, tutor, [(c, d, None) for c, d in zip(pattern, dates, strict=True)], **kwargs
     )
@@ -387,3 +389,31 @@ async def test_a_late_cancel_does_not_put_the_replacement_on_todays_ended_lesson
     live = [r for r in await slot_rows(plan_id) if r.cancelled_at is None]
     assert all(r.scheduled_date != today for r in live)  # today's window ended at 10:00
     assert live[0].scheduled_date == today + timedelta(days=7)
+
+
+async def test_revision_start_ends_the_window_a_shift_can_use(client, tutor, group, subject):
+    # The exam is far off, but revision starts the day after the last lesson, so
+    # there is no room to shift into (T-076).
+    _, dates, plan_id, ids = await _world(
+        group, tutor, subject, revision=meeting_dates(5)[-1] + timedelta(days=1)
+    )
+    resp = await client.post(_cancel(group, ids[1]), headers=tutor["headers"])
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["shifted"] is False
+    assert resp.json()["moved"] == 0
+    assert [r.scheduled_date for r in await slot_rows(plan_id) if r.id != ids[1]] == [
+        d for i, d in enumerate(dates) if i != 1
+    ]
+
+
+async def test_a_shift_lands_before_revision_and_never_on_or_after_it(
+    client, tutor, group, subject
+):
+    revision = meeting_dates(5)[-1] + timedelta(days=5)  # room for one more meeting
+    _, _, plan_id, ids = await _world(group, tutor, subject, revision=revision)
+    resp = await client.post(_cancel(group, ids[1]), headers=tutor["headers"])
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["shifted"] is True
+    live = [r for r in await slot_rows(plan_id) if r.cancelled_at is None]
+    assert live
+    assert all(r.scheduled_date < revision for r in live)

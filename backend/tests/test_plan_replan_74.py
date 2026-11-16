@@ -100,3 +100,46 @@ async def test_accepting_carries_a_lessons_start_time_onto_a_new_slot(
         lesson = await s.scalar(select(Lesson))
         new_slot = await s.scalar(select(PlanSlot).where(PlanSlot.lesson_id == lesson.id))
     assert new_slot is not None and new_slot.start_time == time(19, 15)
+
+
+async def test_replan_carries_the_papers_and_the_revision_date(client, tutor, group, subject):
+    from app.models import TeachingPlan, TeachingPlanPaper
+
+    ch = await make_chapters(subject)
+    plan_id, _ = await make_plan(group, tutor, [(ch["c1"], FUTURE, time(16, 0))])
+    async with async_session() as s:
+        plan = await s.get(TeachingPlan, plan_id)
+        s.add_all(
+            [
+                TeachingPlanPaper(
+                    plan_id=plan_id, name="Paper 1", exam_date=plan.exam_date, position=1
+                ),
+                TeachingPlanPaper(
+                    plan_id=plan_id,
+                    name="Paper 2",
+                    exam_date=plan.exam_date + timedelta(days=7),
+                    position=2,
+                ),
+            ]
+        )
+        plan.revision_start_date = FUTURE + timedelta(days=30)
+        await s.commit()
+        exam, revision = plan.exam_date, plan.revision_start_date
+
+    async with async_session() as s:
+        g = await s.get(Group, group["id"])
+        await replan(s, group=g, today=server_today())
+
+    async with async_session() as s:
+        draft = await s.scalar(
+            select(TeachingPlan).where(
+                TeachingPlan.group_id == group["id"],
+                TeachingPlan.status == TeachingPlanStatus.draft,
+            )
+        )
+        assert [(p.name, p.exam_date) for p in draft.papers] == [
+            ("Paper 1", exam),
+            ("Paper 2", exam + timedelta(days=7)),
+        ]
+        assert draft.exam_date == exam
+        assert draft.revision_start_date == revision
