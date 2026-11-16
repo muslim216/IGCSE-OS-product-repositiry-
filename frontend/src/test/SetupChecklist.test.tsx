@@ -306,14 +306,17 @@ test("a class shows only its first undone step, linked to where it is done", asy
   renderCard();
   const card = await screen.findByRole("region", { name: "Setup" });
   const link = (name: RegExp) => within(card).getByRole("link", { name });
-  expect(link(/Add a timetable for Chem A/)).toHaveAttribute("href", "/tutor/groups/11/schedule");
+  expect(link(/Add a timetable for Chem A/)).toHaveAttribute(
+    "href",
+    "/tutor/groups/11/schedule?settings=1",
+  );
   expect(link(/Say where this class is up to for Chem B/)).toHaveAttribute(
     "href",
     "/tutor/groups/12/syllabus#taught-before",
   );
   expect(link(/Enter the plan details for Chem C/)).toHaveAttribute(
     "href",
-    "/tutor/groups/13/schedule",
+    "/tutor/groups/13/schedule?settings=1",
   );
   expect(link(/Accept the teaching plan for Chem D/)).toHaveAttribute(
     "href",

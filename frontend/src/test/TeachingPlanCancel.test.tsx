@@ -91,9 +91,9 @@ test("a cancelled lesson is shown as cancelled and offers no actions", async () 
   stub([slot(1, "2027-02-01", { cancelled: true }), slot(2, "2027-02-04")]);
   renderView();
   expect(await screen.findByText("cancelled")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /Cancel the 1 Feb 2027 lesson/ })).toBeNull();
-  expect(screen.queryByRole("button", { name: /Edit the 1 Feb 2027 lesson/ })).toBeNull();
-  expect(screen.getByRole("button", { name: /Edit the 4 Feb 2027 lesson/ })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^Cancel lesson, 1 Feb 2027/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Edit, 1 Feb 2027/ })).toBeNull();
+  expect(screen.getByRole("button", { name: /^Edit, 4 Feb 2027/ })).toBeInTheDocument();
 });
 
 test("an auto-recorded lesson says it was recorded from the plan; a tutor's does not", async () => {
@@ -105,13 +105,13 @@ test("an auto-recorded lesson says it was recorded from the plan; a tutor's does
   expect(await screen.findAllByText("Recorded from the plan")).toHaveLength(1);
   expect(screen.getAllByText("taught")).toHaveLength(2);
   // A taught lesson cannot be cancelled here.
-  expect(screen.queryByRole("button", { name: /Cancel the/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Cancel lesson,/ })).toBeNull();
 });
 
 test("Cancel lesson posts to the slot's cancel endpoint", async () => {
   const calls = stub([slot(1, "2027-02-01")]);
   renderView();
-  fireEvent.click(await screen.findByRole("button", { name: "Cancel the 1 Feb 2027 lesson" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Cancel lesson, 1 Feb 2027/ }));
   await waitFor(() =>
     expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/plan/slots/1/cancel"))).toBe(
       true,
@@ -126,14 +126,14 @@ test("when there is no room the plan says so", async () => {
     message: "No room before the exam — re-plan to catch up",
   });
   renderView();
-  fireEvent.click(await screen.findByRole("button", { name: "Cancel the 1 Feb 2027 lesson" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Cancel lesson, 1 Feb 2027/ }));
   expect(await screen.findByText(/No room before the exam/)).toBeInTheDocument();
 });
 
 test("the start time can be edited per lesson", async () => {
   const calls = stub([slot(1, "2027-02-01")]);
   renderView();
-  fireEvent.click(await screen.findByRole("button", { name: "Edit the 1 Feb 2027 lesson" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Edit, 1 Feb 2027/ }));
   fireEvent.change(screen.getByLabelText("Lesson start time"), { target: { value: "18:30" } });
   fireEvent.click(screen.getByRole("button", { name: "Save lesson" }));
   await waitFor(() =>
@@ -165,9 +165,9 @@ test("while one cancel is in flight no other lesson can be cancelled", async () 
     }),
   );
   renderView();
-  fireEvent.click(await screen.findByRole("button", { name: "Cancel the 1 Feb 2027 lesson" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Cancel lesson, 1 Feb 2027/ }));
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Cancel the 4 Feb 2027 lesson" })).toBeDisabled(),
+    expect(screen.getByRole("button", { name: /^Cancel lesson, 4 Feb 2027/ })).toBeDisabled(),
   );
   release();
 });

@@ -212,7 +212,7 @@ test("a failed chapter list is reported with a retry beside the chapter select",
     }),
   );
   renderView();
-  fireEvent.click(await screen.findByRole("button", { name: "Edit the 4 Jan 2027 lesson" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit, 4 Jan 2027, C1 Atoms" }));
   expect(await screen.findByText(/chapter list didn't load/)).toBeInTheDocument();
   expect(screen.getByLabelText("Lesson chapter")).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -224,5 +224,5 @@ test("a failed chapter list is reported with a retry beside the chapter select",
 test("Edit is disabled on proposed slots while a draft job runs", async () => {
   stub(() => ({ body: wrap(plan({ drafting: true, slots: [slot], outcome: OUTCOME })) }));
   renderView();
-  expect(await screen.findByRole("button", { name: "Edit the 4 Jan 2027 lesson" })).toBeDisabled();
+  expect(await screen.findByRole("button", { name: "Edit, 4 Jan 2027, C1 Atoms" })).toBeDisabled();
 });

@@ -87,6 +87,9 @@ function stub(
   return calls;
 }
 
+/** The alerts with something in them: the page keeps an empty one mounted for errors. */
+const spoken = () => screen.queryAllByRole("alert").filter((el) => el.textContent !== "");
+
 function renderView() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -205,7 +208,7 @@ test("a failed reflow says so, with the reason", async () => {
   const note = await screen.findByText(/couldn't be reshuffled/);
   expect(note).toHaveTextContent("Your syllabus changed on");
   expect(note).toHaveTextContent("Only 2 lessons fit before the exam.");
-  expect(screen.getByRole("alert")).toBe(note);
+  expect(spoken()).toEqual([note]);
 });
 
 test("a skipped reflow is quiet and a successful one is a subtle note", async () => {
@@ -226,7 +229,7 @@ test("a skipped reflow is quiet and a successful one is a subtle note", async ()
   expect(screen.getByText(/Updated for your syllabus changes on/)).toBeInTheDocument();
   // Neither is an alert.
   expect(screen.queryByText(/couldn't be reshuffled/)).not.toBeInTheDocument();
-  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(spoken()).toEqual([]);
 });
 
 test("an unknown reflow status renders nothing", async () => {
@@ -236,5 +239,5 @@ test("an unknown reflow status renders nothing", async () => {
   renderView();
   await screen.findByText("Live plan");
   expect(screen.queryByText(/syllabus/)).not.toBeInTheDocument();
-  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(spoken()).toEqual([]);
 });
